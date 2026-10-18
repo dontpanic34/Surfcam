@@ -199,6 +199,7 @@ private fun statusText(state: EngineState): String = buildString {
                 append("\n")
             }
             append("Tampon : %.1f s (%d Mo)\n".format(state.bufferedSec, state.bufferedMb))
+            if (state.keyFrameIntervalSec > 0f) append("Image clé toutes les %.1f s\n".format(state.keyFrameIntervalSec))
             append("Zoom ${"%.1f".format(state.zoom)}×")
         }
     }

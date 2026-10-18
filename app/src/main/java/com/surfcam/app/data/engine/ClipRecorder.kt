@@ -31,6 +31,11 @@ class ClipRecorder(
     var active = false
         private set
 
+    /** Durée réellement reprise du tampon au début du dernier clip (diagnostic). */
+    @Volatile
+    var lastPreRollSec = 0f
+        private set
+
     // Touché uniquement depuis le thread de l'exécuteur.
     private var writer: ClipWriter? = null
 
@@ -41,6 +46,7 @@ class ClipRecorder(
         val newest = ring.newestPtsUs() ?: return false
         val snapshot = ring.snapshotFrom(newest - preRollSec * 1_000_000L)
         if (snapshot.isEmpty()) return false
+        lastPreRollSec = (newest - snapshot.first().ptsUs) / 1_000_000f
         active = true
         executor.execute {
             try {

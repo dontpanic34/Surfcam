@@ -30,6 +30,7 @@ data class EngineState(
     val lens: Lens = Lens.MAIN,
     val lensInfo: String? = null,
     val maxFpsAtSize: Int = 0,
+    val keyFrameIntervalSec: Float = 0f,
     val bufferedSec: Float = 0f,
     val bufferedMb: Int = 0,
     val clipActive: Boolean = false,
@@ -56,6 +57,7 @@ class RecordingEngine(private val context: Context) {
     private var recorder: ClipRecorder? = null
     private var previewSurface: Surface? = null
     private var sampleCount = 0L
+    private var lastKeyFramePtsUs = -1L
 
     private val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
         _state.update { it.copy(thermalStatus = status) }
@@ -192,6 +194,7 @@ class RecordingEngine(private val context: Context) {
         ring = buffer
         recorder = clips
         sampleCount = 0
+        lastKeyFramePtsUs = -1L
 
         val enc = HevcEncoder(config, object : HevcEncoder.Listener {
             override fun onFormat(format: MediaFormat) {
@@ -201,6 +204,13 @@ class RecordingEngine(private val context: Context) {
             override fun onSample(sample: EncodedSample) {
                 buffer.add(sample)
                 clips.onLiveSample(sample)
+                if (sample.isKeyFrame) {
+                    if (lastKeyFramePtsUs >= 0) {
+                        val interval = (sample.ptsUs - lastKeyFramePtsUs) / 1_000_000f
+                        _state.update { it.copy(keyFrameIntervalSec = interval) }
+                    }
+                    lastKeyFramePtsUs = sample.ptsUs
+                }
                 if (++sampleCount % STATS_EVERY == 0L) publishBufferStats(buffer)
             }
 
@@ -252,7 +262,10 @@ class RecordingEngine(private val context: Context) {
         _state.update {
             it.copy(
                 clipActive = false,
-                lastClip = saved?.let { s -> "${s.name} (${"%.1f".format(s.durationSec)} s, ${s.sizeBytes / (1024 * 1024)} Mo)" } ?: it.lastClip,
+                lastClip = saved?.let { s ->
+                    val pre = recorder?.lastPreRollSec ?: 0f
+                    "${s.name} (${"%.1f".format(s.durationSec)} s dont %.1f s avant l'appui, ${s.sizeBytes / (1024 * 1024)} Mo)".format(pre)
+                } ?: it.lastClip,
                 message = error,
             )
         }
