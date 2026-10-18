@@ -39,12 +39,20 @@ class ClipRecorder(
     // Touché uniquement depuis le thread de l'exécuteur.
     private var writer: ClipWriter? = null
 
+    /** Démarre un clip qui reprend les [preRollSec] dernières secondes du tampon (déclenchement manuel). */
     @Synchronized
     fun start(preRollSec: Int): Boolean {
+        val newest = ring.newestPtsUs() ?: return false
+        return startFrom(newest - preRollSec * 1_000_000L)
+    }
+
+    /** Démarre un clip dont le contenu commence à l'instant [fromPtsUs] du flux (ou à l'image clé juste avant). */
+    @Synchronized
+    fun startFrom(fromPtsUs: Long): Boolean {
         if (active) return false
         val fmt = format ?: return false
         val newest = ring.newestPtsUs() ?: return false
-        val snapshot = ring.snapshotFrom(newest - preRollSec * 1_000_000L)
+        val snapshot = ring.snapshotFrom(fromPtsUs)
         if (snapshot.isEmpty()) return false
         lastPreRollSec = (newest - snapshot.first().ptsUs) / 1_000_000f
         active = true
@@ -74,9 +82,12 @@ class ClipRecorder(
         }
     }
 
+    /** Jette le clip en cours : le fichier est supprimé (fausse alerte). */
+    fun discard() = finish(0, discard = true)
+
     /** Termine le clip après [postRollMs] millisecondes d'images supplémentaires. */
     @Synchronized
-    fun finish(postRollMs: Long) {
+    fun finish(postRollMs: Long, discard: Boolean = false) {
         if (!active) return
         executor.schedule({
             val w = writer
@@ -84,7 +95,7 @@ class ClipRecorder(
             active = false
             if (w != null) {
                 try {
-                    onResult(w.close(), null)
+                    onResult(w.close(discard), null)
                 } catch (e: Exception) {
                     onResult(null, "Clip non finalisé : ${e.message}")
                 }

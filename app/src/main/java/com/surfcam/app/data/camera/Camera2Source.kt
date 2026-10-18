@@ -52,6 +52,9 @@ class Camera2Source(context: Context) {
         fun onLockChanged(locked: Boolean)
         fun onLensInfo(text: String)
         fun onError(message: String)
+
+        /** Le flux d'analyse a été refusé par la caméra : la session continue sans lui. */
+        fun onAnalysisUnavailable() = Unit
     }
 
     private val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -65,6 +68,8 @@ class Camera2Source(context: Context) {
     // Nul en mode aperçu seul (avant la session) : la caméra ne filme alors que vers l'écran.
     private var encoderSurface: Surface? = null
     private var previewSurface: Surface? = null
+    private var analysisSurface: Surface? = null
+    private var analysisDropped = false
     private var fpsRange: Range<Int>? = null
     private var listener: Listener? = null
     private var physicalId: String? = null
@@ -150,9 +155,18 @@ class Camera2Source(context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    fun open(probe: CameraProbe, encoderSurface: Surface?, previewSurface: Surface?, zoom: Float, listener: Listener) {
+    fun open(
+        probe: CameraProbe,
+        encoderSurface: Surface?,
+        previewSurface: Surface?,
+        analysisSurface: Surface?,
+        zoom: Float,
+        listener: Listener,
+    ) {
         this.encoderSurface = encoderSurface
         this.previewSurface = previewSurface
+        this.analysisSurface = analysisSurface
+        this.analysisDropped = false
         this.fpsRange = probe.fpsRange
         this.physicalId = probe.physicalId
         this.useStreamUseCases = probe.videoStreamUseCases
@@ -266,6 +280,7 @@ class Camera2Source(context: Context) {
         val outputs = mutableListOf<OutputConfiguration>()
         encoderSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD) }
         previewSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW) }
+        analysisSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW) }
         if (outputs.isEmpty()) return
         try {
             camera.createCaptureSession(
@@ -291,6 +306,12 @@ class Camera2Source(context: Context) {
                                 retriedWithoutUseCases = true
                                 useStreamUseCases = false
                                 createSession()
+                            } else if (analysisSurface != null && !analysisDropped) {
+                                // Quatre flux de trop pour ce téléphone : on garde la 4K et l'aperçu, sans l'analyse.
+                                analysisDropped = true
+                                analysisSurface = null
+                                listener?.onAnalysisUnavailable()
+                                createSession()
                             } else {
                                 listener?.onError("Configuration de la caméra refusée")
                             }
@@ -314,6 +335,7 @@ class Camera2Source(context: Context) {
             val builder = camera.createCaptureRequest(template)
             encoder?.let { builder.addTarget(it) }
             previewSurface?.let { builder.addTarget(it) }
+            analysisSurface?.let { builder.addTarget(it) }
             fpsRange?.let { builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
 
             // Mise au point à l'infini : le surfeur est à plus de 50 m.

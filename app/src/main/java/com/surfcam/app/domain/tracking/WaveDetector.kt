@@ -47,6 +47,9 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
 
     val isRiding: Boolean get() = ridingTrackId != null
 
+    /** Numéro de suivi du surfeur sur sa vague, null en attente. */
+    val ridingId: Int? get() = ridingTrackId
+
     fun onFrame(tracks: List<Track>, timestampUs: Long): WaveEvent? {
         // Un suivi non vu à cette image (surfeur masqué, tombé) garde sa dernière position : on l'ignore.
         val visible = tracks.filter { it.lastSeenUs == timestampUs }

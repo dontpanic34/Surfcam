@@ -14,7 +14,12 @@ android {
         minSdk = 31
         targetSdk = 37
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.2.0"
+
+        // Le modèle d'analyse n'est fourni que pour les téléphones 64 bits (le Pixel en est un).
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     // Clé de debug versionnée : chaque APK produit par la CI a la même signature,
@@ -43,6 +48,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
     implementation(platform("androidx.compose:compose-bom:2024.02.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")

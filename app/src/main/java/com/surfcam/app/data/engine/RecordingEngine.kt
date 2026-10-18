@@ -4,12 +4,15 @@ import android.content.Context
 import android.media.MediaFormat
 import android.os.PowerManager
 import android.view.Surface
+import com.surfcam.app.data.analysis.AnalysisPipeline
+import com.surfcam.app.data.analysis.AnalysisSnapshot
 import com.surfcam.app.data.camera.Camera2Source
 import com.surfcam.app.data.camera.CameraProbe
 import com.surfcam.app.data.camera.Lens
 import com.surfcam.app.data.encoder.HevcEncoder
 import com.surfcam.app.data.storage.SavedClip
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
+import com.surfcam.app.domain.clip.ClipAction
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.domain.model.EncodedSample
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +37,10 @@ data class EngineState(
     val bufferedSec: Float = 0f,
     val bufferedMb: Int = 0,
     val clipActive: Boolean = false,
+    /** Dernière image analysée (cadres de suivi) ; null tant que la détection n'a rien produit. */
+    val analysis: AnalysisSnapshot? = null,
+    /** Message sur la détection automatique (modèle en chargement, indisponible…). */
+    val analysisStatus: String? = null,
     val lastClip: String? = null,
     val thermalStatus: Int = PowerManager.THERMAL_STATUS_NONE,
     val message: String? = null,
@@ -55,6 +62,7 @@ class RecordingEngine(private val context: Context) {
     private var encoder: HevcEncoder? = null
     private var ring: EncodedRingBuffer? = null
     private var recorder: ClipRecorder? = null
+    private var analysis: AnalysisPipeline? = null
     private var previewSurface: Surface? = null
     private var sampleCount = 0L
     private var lastKeyFramePtsUs = -1L
@@ -102,7 +110,7 @@ class RecordingEngine(private val context: Context) {
         unregisterThermalListener()
         releaseCamera()
         teardownPipeline()
-        _state.update { it.copy(phase = Phase.IDLE, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, message = null) }
+        _state.update { it.copy(phase = Phase.IDLE, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, message = null) }
     }
 
     /** Ouvre la caméra en aperçu seul, sans rien enregistrer, pour cadrer avant de démarrer la session. */
@@ -123,7 +131,7 @@ class RecordingEngine(private val context: Context) {
                 minZoom = probe.minZoom,
                 maxZoom = probe.maxZoom,
             )
-            source.open(probe, null, previewSurface, 1f, object : Camera2Source.Listener {
+            source.open(probe, null, previewSurface, null, 1f, object : Camera2Source.Listener {
                 override fun onLockChanged(locked: Boolean) = Unit
 
                 override fun onLensInfo(text: String) {
@@ -196,6 +204,29 @@ class RecordingEngine(private val context: Context) {
         sampleCount = 0
         lastKeyFramePtsUs = -1L
 
+        val pipeline = AnalysisPipeline(context, object : AnalysisPipeline.Listener {
+            // Appelé depuis le thread d'analyse : pas de verrou du moteur ici, pour éviter tout blocage à l'arrêt.
+            override fun onClipAction(action: ClipAction) {
+                when (action) {
+                    is ClipAction.Start -> if (clips.startFrom(action.fromUs)) {
+                        _state.update { it.copy(clipActive = true, message = null) }
+                    }
+                    is ClipAction.Stop -> clips.finish(0)
+                    ClipAction.Discard -> clips.discard()
+                }
+            }
+
+            override fun onSnapshot(snapshot: AnalysisSnapshot) {
+                _state.update { it.copy(analysis = snapshot) }
+            }
+
+            override fun onStatus(message: String?) {
+                _state.update { it.copy(analysisStatus = message ?: "Détection prête") }
+            }
+        })
+        analysis = pipeline
+        _state.update { it.copy(analysisStatus = "Chargement du modèle…") }
+
         val enc = HevcEncoder(config, object : HevcEncoder.Listener {
             override fun onFormat(format: MediaFormat) {
                 clips.format = format
@@ -236,13 +267,17 @@ class RecordingEngine(private val context: Context) {
                 maxZoom = probe.maxZoom,
             )
         }
-        source.open(probe, encoderSurface, previewSurface, 1f, object : Camera2Source.Listener {
+        source.open(probe, encoderSurface, previewSurface, pipeline.surface, 1f, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
             }
 
             override fun onLensInfo(text: String) {
                 _state.update { it.copy(lensInfo = text) }
+            }
+
+            override fun onAnalysisUnavailable() {
+                _state.update { it.copy(analysisStatus = "Détection indisponible : mode manuel seulement") }
             }
 
             override fun onError(message: String) {
@@ -287,6 +322,8 @@ class RecordingEngine(private val context: Context) {
     private fun teardownPipeline() {
         encoder?.stop()
         encoder = null
+        analysis?.release()
+        analysis = null
         recorder?.release()
         recorder = null
         ring?.clear()

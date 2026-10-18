@@ -4,6 +4,7 @@ import android.os.PowerManager
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +45,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -135,6 +139,20 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             },
         )
 
+        // Cadres des surfeurs suivis par la détection, posés sur la même zone que l'image.
+        state.analysis?.let { snapshot ->
+            Canvas(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                for (box in snapshot.boxes) {
+                    drawRect(
+                        color = if (box.riding) SurfColors.Alert else SurfColors.Aqua,
+                        topLeft = Offset(box.left * size.width, box.top * size.height),
+                        size = Size((box.right - box.left) * size.width, (box.bottom - box.top) * size.height),
+                        style = Stroke(width = if (box.riding) 3.dp.toPx() else 1.5.dp.toPx()),
+                    )
+                }
+            }
+        }
+
         if (!hasCamera) {
             Text(
                 "Autorise l'accès à la caméra pour voir l'image",
@@ -154,6 +172,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             if (state.phase == Phase.RUNNING && config != null) {
                 InfoChip(resolutionLabel(config), SurfColors.Foam)
                 InfoChip("%.0f s en mémoire".format(state.bufferedSec), SurfColors.Foam)
+                state.analysis?.let { InfoChip("Analyse ${it.inferenceMs} ms", SurfColors.Foam) }
                 InfoChip("Chauffe ${thermalLabel(state.thermalStatus)}", thermalColor(state.thermalStatus))
             }
         }
@@ -197,9 +216,13 @@ private fun statusPill(state: EngineState): Pair<String, Color> = when (state.ph
     Phase.PREVIEW -> "Aperçu · rien n'est enregistré" to SurfColors.Info
     Phase.STARTING -> "Démarrage…" to SurfColors.Warn
     Phase.ERROR -> "Erreur" to SurfColors.Alert
-    Phase.RUNNING ->
-        if (state.clipActive) "Vague en cours d'enregistrement" to SurfColors.Alert
-        else "En veille · prêt à enregistrer" to SurfColors.Ok
+    Phase.RUNNING -> when {
+        state.clipActive -> "Vague en cours d'enregistrement" to SurfColors.Alert
+        state.analysis?.riding == true -> "Vague détectée" to SurfColors.Alert
+        state.analysisStatus?.startsWith("Détection indisponible") == true -> "Mode manuel · détection indisponible" to SurfColors.Warn
+        state.analysisStatus == "Chargement du modèle…" -> "Chargement de la détection…" to SurfColors.Warn
+        else -> "En veille · détection active" to SurfColors.Ok
+    }
 }
 
 private fun resolutionLabel(config: CaptureConfig): String {
@@ -280,7 +303,7 @@ private fun ControlPanel(
                 }
             }
 
-            Section("Test manuel · remplacé bientôt par l'IA") {
+            Section("Test manuel · la détection automatique est aussi active") {
                 if (state.clipActive) {
                     Button(
                         onClick = engine::finishClip,
@@ -369,6 +392,7 @@ private fun details(state: EngineState): String? {
         append("\nTampon : %.1f s · %d Mo".format(state.bufferedSec, state.bufferedMb))
         if (state.keyFrameIntervalSec > 0f) append("\nImage clé toutes les %.1f s".format(state.keyFrameIntervalSec))
         append("\nZoom ${"%.1f".format(state.zoom)}×")
+        state.analysisStatus?.let { append("\n$it") }
     }
 }
 

@@ -73,8 +73,8 @@ class ClipWriter(
         written++
     }
 
-    /** Termine le fichier ; renvoie null (et supprime le fichier) si rien n'a pu être écrit. */
-    fun close(): SavedClip? {
+    /** Termine le fichier ; renvoie null (et supprime le fichier) si rien n'a pu être écrit, ou si [discard]. */
+    fun close(discard: Boolean = false): SavedClip? {
         val ok = try {
             muxer.stop()
             true
@@ -83,7 +83,7 @@ class ClipWriter(
         }
         muxer.release()
         descriptor.close()
-        if (!ok || written == 0) {
+        if (discard || !ok || written == 0) {
             resolver.delete(uri, null, null)
             return null
         }
