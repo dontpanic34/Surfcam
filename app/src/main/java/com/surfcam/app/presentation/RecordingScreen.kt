@@ -424,7 +424,7 @@ private fun ControlPanel(
                         }
                     }
                     Text(
-                        "${snapshot.frames} analysées · ${snapshot.personsInFrame} personne(s) · confiance max %.2f · ${snapshot.inferenceMs} ms"
+                        "${snapshot.frames} analysées · ${snapshot.personsInFrame} personne(s) · confiance max %.2f · ${snapshot.inferenceMs} ms · écart d'horloge ${snapshot.clockOffsetMs} ms"
                             .format(snapshot.bestConfidence),
                         color = SurfColors.Muted,
                         fontSize = 11.sp,

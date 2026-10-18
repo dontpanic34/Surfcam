@@ -301,6 +301,8 @@ class RecordingEngine(private val context: Context) {
             override fun onReceived(count: Int) {
                 _state.update { it.copy(analysisReceived = count) }
             }
+
+            override fun newestEncodedPtsUs(): Long? = buffer.newestPtsUs()
         })
         analysis = pipeline
         _state.update {

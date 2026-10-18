@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import android.view.Surface
 import com.surfcam.app.domain.clip.ClipAction
 import com.surfcam.app.domain.clip.ClipPlanner
+import com.surfcam.app.domain.detection.ClockOffsetEstimator
 import com.surfcam.app.domain.detection.FrameThrottle
 import com.surfcam.app.domain.detection.Letterbox
 import com.surfcam.app.domain.model.CaptureConfig
@@ -33,6 +34,8 @@ data class AnalysisSnapshot(
     val bestConfidence: Float = 0f,
     /** Vignette de ce que le modèle voit (rafraîchie environ une fois par seconde), pour le diagnostic. */
     val thumbnail: Bitmap? = null,
+    /** Écart mesuré entre l'horloge des images d'analyse et celle de la vidéo, en millisecondes (diagnostic). */
+    val clockOffsetMs: Long = 0,
 )
 
 /**
@@ -54,6 +57,9 @@ class AnalysisPipeline(
 
         /** Nombre d'images reçues de la caméra jusqu'ici, même si elles n'ont pas pu être analysées. */
         fun onReceived(count: Int)
+
+        /** Instant de la dernière image vidéo encodée, dans l'horloge de la vidéo (pour recaler l'horloge d'analyse). */
+        fun newestEncodedPtsUs(): Long?
     }
 
     // Deux fils distincts : l'un ne fait que prélever et rendre les images de la caméra (rapide, quelques ms), l'autre
@@ -89,6 +95,13 @@ class AnalysisPipeline(
     private val throttle = FrameThrottle(MIN_INTERVAL_US)
     private var frames = 0
     private var received = 0
+
+    // Les images d'analyse et la vidéo encodée viennent de la même caméra, mais rien ne garantit qu'elles partagent la
+    // même horloge. On mesure l'écart sur les dernières images (médiane) et on le retranche avant de découper un clip.
+    private val clock = ClockOffsetEstimator()
+
+    @Volatile
+    private var clockOffsetUs = 0L
     private var thumbnail: Bitmap? = null
 
     /** Surface à brancher sur la caméra pour alimenter l'analyse. */
@@ -136,6 +149,10 @@ class AnalysisPipeline(
             val timestampUs = image.timestamp / 1_000
             if (!throttle.accept(timestampUs)) return
 
+            listener.newestEncodedPtsUs()?.let { encoded ->
+                clock.add(timestampUs, encoded)
+                clockOffsetUs = clock.offsetUs
+            }
             converter.convert(image, input, letterbox)
             busy.set(true)
             inferenceHandler.post { analyse(timestampUs) }
@@ -162,7 +179,10 @@ class AnalysisPipeline(
             val tracks = tracker.update(detections, timestampUs)
             val event = waveDetector.onFrame(tracks, timestampUs)
             val actions = (if (event != null) planner.onWave(event, timestampUs) else emptyList()) + planner.onTick(timestampUs)
-            actions.forEach(listener::onClipAction)
+            actions.forEach {
+                // Le début d'un clip est une date de l'horloge d'analyse : on la convertit dans celle de la vidéo.
+                listener.onClipAction(if (it is ClipAction.Start) ClipAction.Start(it.fromUs - clockOffsetUs) else it)
+            }
 
             val ridingId = waveDetector.ridingId
             listener.onSnapshot(
@@ -180,6 +200,7 @@ class AnalysisPipeline(
                     personsInFrame = detections.size,
                     bestConfidence = detections.maxOfOrNull { it.confidence } ?: 0f,
                     thumbnail = thumbnail,
+                    clockOffsetMs = clockOffsetUs / 1_000,
                 ),
             )
         } catch (t: Throwable) {

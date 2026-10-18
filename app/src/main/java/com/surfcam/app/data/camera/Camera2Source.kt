@@ -31,6 +31,8 @@ data class CameraProbe(
     val cameraId: String,
     /** Si non nul : objectif physique à utiliser à l'intérieur de la caméra logique [cameraId]. */
     val physicalId: String?,
+    /** Objectif téléobjectif utilisable par bascule en cours de session (null si absent ou si le téléobjectif est déjà forcé). */
+    val telePhysicalId: String?,
     val videoStreamUseCases: Boolean,
     /** Cadence maximale annoncée par l'objectif pour cette définition (peut être inférieure à 60). */
     val maxFpsAtSize: Int,
@@ -73,6 +75,13 @@ class Camera2Source(context: Context) {
     private var fpsRange: Range<Int>? = null
     private var listener: Listener? = null
     private var physicalId: String? = null
+
+    // Bascule automatique sur le téléobjectif à partir de ×5 : la caméra ne le fait pas toute seule pour une app tierce.
+    // Possible seulement à 30 i/s ou moins (le téléobjectif ne filme pas à 60 i/s) et si le téléobjectif n'est pas déjà forcé.
+    private var telePhysicalId: String? = null
+    private var teleSwitchAllowed = false
+    private var teleActive = false
+    private var lastLensSwitchMs = 0L
     private var useStreamUseCases = false
     private var retriedWithoutUseCases = false
     private var lastLensInfo = ""
@@ -103,14 +112,13 @@ class Camera2Source(context: Context) {
         var cameraId = id
         var physical: String? = null
         var sizeChars = logical
+        val mainEquiv = equivFocal(logical)
+        val teleCandidate = logical.physicalCameraIds
+            .mapNotNull { pid -> runCatching { pid to manager.getCameraCharacteristics(pid) }.getOrNull() }
+            .maxByOrNull { equivFocal(it.second) }
+            ?.takeIf { equivFocal(it.second) >= 2.5f * mainEquiv }
         if (lens == Lens.TELE) {
-            val mainEquiv = equivFocal(logical)
-            val tele = logical.physicalCameraIds
-                .mapNotNull { pid -> runCatching { pid to manager.getCameraCharacteristics(pid) }.getOrNull() }
-                .maxByOrNull { equivFocal(it.second) }
-            if (tele == null || equivFocal(tele.second) < 2.5f * mainEquiv) {
-                throw IllegalStateException("Pas de téléobjectif optique accessible sur ce téléphone")
-            }
+            val tele = teleCandidate ?: throw IllegalStateException("Pas de téléobjectif optique accessible sur ce téléphone")
             sizeChars = tele.second
             if (tele.first in manager.cameraIdList) cameraId = tele.first else physical = tele.first
         }
@@ -145,6 +153,7 @@ class Camera2Source(context: Context) {
         return CameraProbe(
             cameraId = cameraId,
             physicalId = physical,
+            telePhysicalId = if (lens == Lens.MAIN) teleCandidate?.first else null,
             videoStreamUseCases = videoUseCase,
             maxFpsAtSize = sizeMaxFps,
             config = CaptureConfig(size.width, size.height, fps, bitrate),
@@ -170,11 +179,19 @@ class Camera2Source(context: Context) {
         this.analysisDropped = false
         this.fpsRange = probe.fpsRange
         this.physicalId = probe.physicalId
+        this.telePhysicalId = probe.telePhysicalId
+        this.teleSwitchAllowed = probe.telePhysicalId != null && probe.physicalId == null && probe.fpsRange.upper <= 30
+        this.teleActive = false
         this.useStreamUseCases = probe.videoStreamUseCases
         this.retriedWithoutUseCases = false
         this.lastLensInfo = ""
         this.listener = listener
         this.zoom = zoom
+        if (teleSwitchAllowed && zoom >= TELEPHOTO_SWITCH) {
+            // Ouverture déjà zoomée au-delà de ×5 : on part directement sur le téléobjectif.
+            teleActive = true
+            physicalId = telePhysicalId
+        }
         closed = false
         manager.openCamera(
             probe.cameraId,
@@ -215,11 +232,21 @@ class Camera2Source(context: Context) {
 
     fun setZoom(ratio: Float) {
         handler.post {
-            // Vers 5×, la caméra bascule sur le téléobjectif : l'exposition est alors à refaire converger.
-            val crossesTelephotoSwitch = (zoom < TELEPHOTO_SWITCH) != (ratio < TELEPHOTO_SWITCH)
             zoom = ratio
-            if (crossesTelephotoSwitch) unlock()
-            applyRequest()
+            // Hystérésis : on monte sur le télé à ×5, on ne redescend que sous ×4,6 ; et jamais deux changements en moins
+            // d'une seconde et demie. Sans cela, un pincement qui hésite autour de ×5 recréerait la session en boucle.
+            val wantTele = teleSwitchAllowed && (if (teleActive) ratio >= TELEPHOTO_RELEASE else ratio >= TELEPHOTO_SWITCH)
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (wantTele != teleActive && device != null && !closed && now - lastLensSwitchMs >= MIN_SWITCH_GAP_MS) {
+                // On change d'objectif : la session est recréée (coupure d'une fraction de seconde), l'exposition est à refaire.
+                lastLensSwitchMs = now
+                teleActive = wantTele
+                physicalId = if (wantTele) telePhysicalId else null
+                unlock()
+                createSession()
+            } else {
+                applyRequest()
+            }
         }
     }
 
@@ -353,7 +380,8 @@ class Camera2Source(context: Context) {
                 builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF)
             }
 
-            builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoom)
+            // Sur le téléobjectif (déjà ×5 par rapport à l'objectif principal), seul l'excédent est du zoom numérique.
+            builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, if (teleActive) maxOf(1f, zoom / TELEPHOTO_SWITCH) else zoom)
 
             if (locked) {
                 if (chars.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) == true) {
@@ -443,6 +471,8 @@ class Camera2Source(context: Context) {
         // Zoom maximal proposé (au-delà, l'image n'est plus que du recadrage numérique) et seuil du téléobjectif.
         const val MAX_ZOOM = 10f
         const val TELEPHOTO_SWITCH = 5f
+        const val TELEPHOTO_RELEASE = 4.6f
+        const val MIN_SWITCH_GAP_MS = 1_500L
 
         // Au plus environ quatre à huit secondes d'attente, selon la cadence.
         const val MAX_CONVERGENCE_FRAMES = 240
