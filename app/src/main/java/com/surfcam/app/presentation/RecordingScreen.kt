@@ -282,6 +282,18 @@ private fun ControlPanel(
         }
 
         if (!running) {
+            state.lastSummary?.let {
+                Text(
+                    "$it\nOuvre « Mes vidéos » pour les retrouver.",
+                    color = SurfColors.Foam,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(12.dp),
+                )
+            }
             state.endedReason?.let {
                 Text(
                     "Session arrêtée automatiquement : $it.\nTes vidéos ont été sauvegardées : ouvre « Mes vidéos ».",

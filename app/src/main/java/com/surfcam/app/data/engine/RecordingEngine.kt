@@ -61,6 +61,8 @@ data class EngineState(
     val sessionPart: Int = 0,
     /** Raison de l'arrêt automatique de la dernière session (espace, chaleur, batterie) ; null sinon. */
     val endedReason: String? = null,
+    /** Bilan de la dernière session : ce qui a été enregistré (affiché une fois la session arrêtée). */
+    val lastSummary: String? = null,
     val lastClip: String? = null,
     val thermalStatus: Int = PowerManager.THERMAL_STATUS_NONE,
     val message: String? = null,
@@ -87,6 +89,7 @@ class RecordingEngine(private val context: Context) {
     private var previewSurface: Surface? = null
     private var sampleCount = 0L
     private var desiredZoom = 1f
+    private var clipsSaved = 0
     private val safetyHandler = Handler(Looper.getMainLooper())
     private var safetyRunning = false
     private var severeSinceMs = 0L
@@ -109,6 +112,7 @@ class RecordingEngine(private val context: Context) {
     @Synchronized
     fun start(displayRotationDegrees: Int, options: SessionOptions) {
         if (_state.value.phase == Phase.STARTING || _state.value.phase == Phase.RUNNING) return
+        clipsSaved = 0
         _state.value = EngineState(
             phase = Phase.STARTING,
             lens = options.lens,
@@ -156,7 +160,8 @@ class RecordingEngine(private val context: Context) {
         unregisterThermalListener()
         releaseCamera()
         teardownPipeline()
-        _state.update { it.copy(phase = Phase.IDLE, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, sessionPart = 0, message = null) }
+        val summary = buildSummary()
+        _state.update { it.copy(phase = Phase.IDLE, lastSummary = summary, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, sessionPart = 0, message = null) }
     }
 
     /** Ouvre la caméra en aperçu seul, sans rien enregistrer, pour cadrer avant de démarrer la session. */
@@ -179,6 +184,7 @@ class RecordingEngine(private val context: Context) {
                 minZoom = probe.minZoom,
                 maxZoom = probe.maxZoom,
                 endedReason = current.endedReason,
+                lastSummary = current.lastSummary,
             )
             source.open(probe, null, previewSurface, null, zoom, object : Camera2Source.Listener {
                 override fun onLockChanged(locked: Boolean) = Unit
@@ -194,7 +200,7 @@ class RecordingEngine(private val context: Context) {
         } catch (e: Exception) {
             source.release()
             camera = null
-            _state.value = EngineState(phase = Phase.IDLE, lens = lens, message = e.message ?: "Aperçu impossible", endedReason = current.endedReason)
+            _state.value = EngineState(phase = Phase.IDLE, lens = lens, message = e.message ?: "Aperçu impossible", endedReason = current.endedReason, lastSummary = current.lastSummary)
         }
     }
 
@@ -202,7 +208,12 @@ class RecordingEngine(private val context: Context) {
     fun stopPreview() {
         if (_state.value.phase != Phase.PREVIEW) return
         releaseCamera()
-        _state.value = EngineState(phase = Phase.IDLE, lens = _state.value.lens, endedReason = _state.value.endedReason)
+        _state.value = EngineState(
+            phase = Phase.IDLE,
+            lens = _state.value.lens,
+            endedReason = _state.value.endedReason,
+            lastSummary = _state.value.lastSummary,
+        )
     }
 
     @Synchronized
@@ -361,7 +372,24 @@ class RecordingEngine(private val context: Context) {
         _state.update { it.copy(bufferedSec = sec, bufferedMb = mb) }
     }
 
+    private fun buildSummary(): String {
+        val parts = _state.value.sessionPart
+        val clips = clipsSaved
+        return when {
+            parts == 0 && clips == 0 ->
+                "Aucune vidéo enregistrée pendant cette session. Active « Enregistrer toute la session » avant de démarrer."
+            else -> buildString {
+                append("Session terminée : ")
+                if (parts > 0) append("$parts fichier(s) de session")
+                if (parts > 0 && clips > 0) append(" et ")
+                if (clips > 0) append("$clips clip(s) de vague")
+                append(" enregistré(s).")
+            }
+        }
+    }
+
     private fun onClipResult(saved: SavedClip?, error: String?) {
+        if (saved != null) clipsSaved++
         _state.update {
             it.copy(
                 clipActive = false,

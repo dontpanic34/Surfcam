@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
             val app = application as SurfCamApp
             var crash by remember { mutableStateOf(app.readLastCrash()) }
             var tele by rememberSaveable { mutableStateOf(false) }
-            var fullSession by rememberSaveable { mutableStateOf(false) }
+            var fullSession by rememberSaveable { mutableStateOf(true) }
             var hd by rememberSaveable { mutableStateOf(false) }
             var detection by rememberSaveable { mutableStateOf(true) }
             val options = SessionOptions(tele, fullSession, hd, detection)
