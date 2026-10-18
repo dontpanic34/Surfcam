@@ -134,7 +134,7 @@ class RecordingEngine(private val context: Context) {
             power.addThermalStatusListener(mainExecutor, thermalListener)
 
             source = Camera2Source(context)
-            val firstTry = tryStart(source, 60, displayRotationDegrees, options)
+            val firstTry = tryStart(source, if (options.fps60) 60 else 30, displayRotationDegrees, options)
             if (!firstTry) {
                 teardownPipeline()
                 if (!tryStart(source, 30, displayRotationDegrees, options)) {

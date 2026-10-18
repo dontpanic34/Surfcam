@@ -10,6 +10,11 @@ data class SessionOptions(
     val fullSession: Boolean = true,
     /** 1080p au lieu de la 4K : environ 2,5 fois moins de place et de chauffe. */
     val hd: Boolean = false,
+    /**
+     * 60 images/s au lieu de 30. Le téléobjectif du Pixel ne filme pas à 60 i/s : à 60, le zoom reste sur l'objectif
+     * principal (recadrage numérique). À 30, le zoom peut basculer sur le téléobjectif vers ×5.
+     */
+    val fps60: Boolean = false,
     /** Détection automatique des vagues (clips créés tout seuls). */
     val detection: Boolean = true,
 ) {
@@ -18,8 +23,8 @@ data class SessionOptions(
     /** Place approximative prise par une heure de session complète, en Go (débit vidéo × 3600 s). */
     fun gigabytesPerHour(): Int {
         val mbps = when {
-            hd -> if (tele) 15 else 25
-            else -> if (tele) 40 else 60
+            hd -> if (tele || !fps60) 15 else 25
+            else -> if (tele || !fps60) 40 else 60
         }
         return Math.round(mbps * 3600f / 8f / 1000f)
     }

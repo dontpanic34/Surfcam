@@ -339,6 +339,27 @@ private fun ControlPanel(
                         colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
                     )
                 }
+                Text("Cadence", color = SurfColors.Muted, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !options.fps60,
+                        onClick = { onOptionsChange(options.copy(fps60 = false)) },
+                        label = { Text("30 i/s") },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
+                    )
+                    FilterChip(
+                        selected = options.fps60,
+                        onClick = { onOptionsChange(options.copy(fps60 = true)) },
+                        label = { Text("60 i/s") },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
+                    )
+                }
+                Text(
+                    if (options.fps60) "60 i/s : image plus fluide, mais le zoom reste sur l'objectif principal (pas de téléobjectif)."
+                    else "30 i/s : le zoom peut passer sur le téléobjectif vers ×5.",
+                    color = SurfColors.Muted,
+                    fontSize = 11.sp,
+                )
                 OptionSwitch(
                     "Enregistrer toute la session",
                     "Fichiers de 5 min dans Movies/SurfCam · environ ${options.gigabytesPerHour()} Go par heure",

@@ -39,8 +39,9 @@ class MainActivity : ComponentActivity() {
             var tele by rememberSaveable { mutableStateOf(false) }
             var fullSession by rememberSaveable { mutableStateOf(true) }
             var hd by rememberSaveable { mutableStateOf(false) }
+            var fps60 by rememberSaveable { mutableStateOf(false) }
             var detection by rememberSaveable { mutableStateOf(true) }
-            val options = SessionOptions(tele, fullSession, hd, detection)
+            val options = SessionOptions(tele = tele, fullSession = fullSession, hd = hd, fps60 = fps60, detection = detection)
             var showLibrary by rememberSaveable { mutableStateOf(false) }
             val library = remember { VideoLibrary(applicationContext) }
             BackHandler(enabled = showLibrary) { showLibrary = false }
@@ -80,6 +81,7 @@ class MainActivity : ComponentActivity() {
                     tele = it.tele
                     fullSession = it.fullSession
                     hd = it.hd
+                    fps60 = it.fps60
                     detection = it.detection
                 },
                 onStartSession = {
@@ -108,6 +110,7 @@ class MainActivity : ComponentActivity() {
             .putExtra(RecordingService.EXTRA_TELE, options.tele)
             .putExtra(RecordingService.EXTRA_FULL_SESSION, options.fullSession)
             .putExtra(RecordingService.EXTRA_HD, options.hd)
+            .putExtra(RecordingService.EXTRA_FPS60, options.fps60)
             .putExtra(RecordingService.EXTRA_DETECTION, options.detection)
         ContextCompat.startForegroundService(this, intent)
     }
