@@ -16,7 +16,10 @@ import com.surfcam.app.domain.detection.FrameThrottle
 import com.surfcam.app.domain.detection.Letterbox
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.domain.tracking.SurferTracker
+import com.surfcam.app.domain.tracking.RideStats
 import com.surfcam.app.domain.tracking.TrackerConfig
+import com.surfcam.app.domain.tracking.WaveConfig
+import com.surfcam.app.domain.tracking.WaveEvent
 import com.surfcam.app.domain.tracking.WaveDetector
 
 /** Un surfeur suivi, en coordonnées relatives (0 à 1) de l'image d'analyse, pour dessiner son cadre. */
@@ -47,6 +50,7 @@ data class AnalysisSnapshot(
 class AnalysisPipeline(
     private val context: Context,
     private val listener: Listener,
+    waveConfig: WaveConfig = WaveConfig(),
 ) {
     interface Listener {
         fun onClipAction(action: ClipAction)
@@ -60,6 +64,9 @@ class AnalysisPipeline(
 
         /** Instant de la dernière image vidéo encodée, dans l'horloge de la vidéo (pour recaler l'horloge d'analyse). */
         fun newestEncodedPtsUs(): Long?
+
+        /** Une vague vient de se terminer : ses caractéristiques, pour l'apprentissage. */
+        fun onRide(stats: RideStats)
     }
 
     // Deux fils distincts : l'un ne fait que prélever et rendre les images de la caméra (rapide, quelques ms), l'autre
@@ -77,7 +84,7 @@ class AnalysisPipeline(
     private val converter = YuvToTensor()
     private val input = FloatArray(3 * OnnxPersonDetector.MODEL_WIDTH * OnnxPersonDetector.MODEL_HEIGHT)
     private val tracker = SurferTracker(TrackerConfig(frameHeight = HEIGHT))
-    private val waveDetector = WaveDetector()
+    private val waveDetector = WaveDetector(waveConfig)
     private val planner = ClipPlanner(
         preRollUs = CaptureConfig.PRE_ROLL_SEC * 1_000_000L,
         postRollUs = CaptureConfig.POST_ROLL_SEC * 1_000_000L,
@@ -178,6 +185,7 @@ class AnalysisPipeline(
             if (frames % THUMBNAIL_EVERY == 1) thumbnail = makeThumbnail()
             val tracks = tracker.update(detections, timestampUs)
             val event = waveDetector.onFrame(tracks, timestampUs)
+            if (event is WaveEvent.Ended) event.stats?.let(listener::onRide)
             val actions = (if (event != null) planner.onWave(event, timestampUs) else emptyList()) + planner.onTick(timestampUs)
             actions.forEach {
                 // Le début d'un clip est une date de l'horloge d'analyse : on la convertit dans celle de la vidéo.

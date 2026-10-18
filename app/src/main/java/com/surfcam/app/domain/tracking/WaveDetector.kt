@@ -20,16 +20,34 @@ data class WaveConfig(
      * déclenche pas. Un surfeur en manœuvre est presque aussi large que haut (0,9 à 1,0), d'où un seuil à 0,9.
      */
     val minStandingAspect: Float = 0.9f,
+    /** Confiance minimale du détecteur pour déclencher (0 = pas d'exigence) ; relevée par l'apprentissage si besoin. */
+    val minTriggerConfidence: Float = 0f,
+)
+
+/**
+ * Ce qui caractérise une vague détectée : de quoi apprendre, plus tard, si elle était bonne ou fausse. Les valeurs de
+ * déclenchement sont celles que le détecteur a comparées à ses seuils, ce qui permet de les régler après coup.
+ */
+data class RideStats(
+    val durationUs: Long,
+    /** Vitesse (longueurs de corps/s) mesurée au moment du déclenchement. */
+    val triggerSpeed: Float,
+    /** Rapport hauteur/largeur de la boîte au moment du déclenchement. */
+    val triggerAspect: Float,
+    /** Confiance moyenne du détecteur pendant la vague. */
+    val meanConfidence: Float,
+    /** Hauteur moyenne du surfeur à l'image, en pixels de l'image d'analyse. */
+    val meanHeightPx: Float,
 )
 
 sealed interface WaveEvent {
     /** Une vague est en cours depuis [takeoffUs] : le clip doit démarrer à ce moment moins la marge avant. */
     data class Started(val takeoffUs: Long, val trackId: Int) : WaveEvent
 
-    data class Ended(val takeoffUs: Long, val endUs: Long, val trackId: Int) : WaveEvent
+    data class Ended(val takeoffUs: Long, val endUs: Long, val trackId: Int, val stats: RideStats? = null) : WaveEvent
 
     /** Le mouvement détecté était trop court pour être une vague : le clip en cours est à jeter. */
-    data class Cancelled(val takeoffUs: Long, val trackId: Int) : WaveEvent
+    data class Cancelled(val takeoffUs: Long, val trackId: Int, val stats: RideStats? = null) : WaveEvent
 }
 
 /**
@@ -44,6 +62,13 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
     private var takeoffUs = 0L
     private var lastMovingUs = 0L
     private var lastSeenUs = 0L
+
+    // Mesures de la vague en cours (pour RideStats).
+    private var triggerSpeed = 0f
+    private var triggerAspect = 0f
+    private var confidenceSum = 0f
+    private var heightSum = 0f
+    private var samples = 0
 
     val isRiding: Boolean get() = ridingTrackId != null
 
@@ -68,7 +93,9 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
         for (track in tracks) {
             val speed = track.speedBodyLengthsPerSec(config.speedWindowUs)
             val aspect = track.meanAspect(config.speedWindowUs)
-            if (speed == null || speed < config.startSpeed || aspect == null || aspect < config.minStandingAspect) {
+            if (speed == null || speed < config.startSpeed || aspect == null || aspect < config.minStandingAspect ||
+                track.confidence < config.minTriggerConfidence
+            ) {
                 movingSince.remove(track.id)
                 continue
             }
@@ -79,6 +106,11 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
                 takeoffUs = since - config.speedWindowUs / 2
                 lastMovingUs = now
                 lastSeenUs = now
+                triggerSpeed = speed
+                triggerAspect = aspect
+                confidenceSum = 0f
+                heightSum = 0f
+                samples = 0
                 movingSince.clear()
                 return WaveEvent.Started(takeoffUs, track.id)
             }
@@ -90,6 +122,9 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
         val track = tracks.firstOrNull { it.id == id }
         if (track != null) {
             lastSeenUs = now
+            confidenceSum += track.confidence
+            heightSum += track.box.height
+            samples++
             val speed = track.speedBodyLengthsPerSec(config.speedWindowUs)
             if (speed != null && speed >= config.stopSpeed) lastMovingUs = now
         }
@@ -99,10 +134,17 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
 
         ridingTrackId = null
         val end = lastMovingUs
+        val stats = RideStats(
+            durationUs = end - takeoffUs,
+            triggerSpeed = triggerSpeed,
+            triggerAspect = triggerAspect,
+            meanConfidence = if (samples > 0) confidenceSum / samples else 0f,
+            meanHeightPx = if (samples > 0) heightSum / samples else 0f,
+        )
         return if (end - takeoffUs >= config.minRideUs) {
-            WaveEvent.Ended(takeoffUs, end, id)
+            WaveEvent.Ended(takeoffUs, end, id, stats)
         } else {
-            WaveEvent.Cancelled(takeoffUs, id)
+            WaveEvent.Cancelled(takeoffUs, id, stats)
         }
     }
 }

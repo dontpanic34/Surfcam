@@ -5,6 +5,7 @@ import android.media.MediaFormat
 import com.surfcam.app.data.storage.ClipWriter
 import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.model.EncodedSample
+import com.surfcam.app.domain.naming.VideoNaming
 import java.util.concurrent.Executors
 
 /**
@@ -55,7 +56,11 @@ class SessionRecorder(
                     return
                 }
                 parts++
-                writer = ClipWriter(context, fmt, orientationHint, "SurfCam_Session", "_partie%02d".format(parts), target.volume)
+                writer = ClipWriter(
+                    context, fmt, orientationHint,
+                    VideoNaming.sessionPartName(System.currentTimeMillis(), parts),
+                    target.volume,
+                )
                 segmentStartUs = sample.ptsUs
                 onEvent(parts, null)
             }

@@ -41,6 +41,10 @@ class Track(val id: Int, first: Detection, private val historyUs: Long) {
     var hits: Int = 1
         internal set
 
+    /** Confiance du détecteur, lissée sur les dernières images. */
+    var confidence: Float = first.confidence
+        internal set
+
     /** Vitesse estimée du centre de la boîte, en pixels par seconde. */
     var velocityX: Float = 0f
         internal set
@@ -138,6 +142,7 @@ class SurferTracker(private val config: TrackerConfig = TrackerConfig()) {
                 a * det.box.bottom + (1 - a) * old.bottom,
             )
             track.lastSeenUs = timestampUs
+            track.confidence = 0.5f * det.confidence + 0.5f * track.confidence
             track.hits++
             track.record(timestampUs, det.box)
         }

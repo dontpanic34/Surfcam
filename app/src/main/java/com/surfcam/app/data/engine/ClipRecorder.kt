@@ -7,6 +7,7 @@ import com.surfcam.app.data.storage.SavedClip
 import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
 import com.surfcam.app.domain.model.EncodedSample
+import com.surfcam.app.domain.naming.VideoNaming
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -43,30 +44,33 @@ class ClipRecorder(
 
     /** Démarre un clip qui reprend les [preRollSec] dernières secondes du tampon (déclenchement manuel). */
     @Synchronized
-    fun start(preRollSec: Int): Boolean {
+    fun start(preRollSec: Int, waveNumber: Int): Boolean {
         val newest = ring.newestPtsUs() ?: return false
-        return startFrom(newest - preRollSec * 1_000_000L)
+        return startFrom(newest - preRollSec * 1_000_000L, waveNumber)
     }
 
     /** Démarre un clip dont le contenu commence à l'instant [fromPtsUs] du flux (ou à l'image clé juste avant). */
     @Synchronized
-    fun startFrom(fromPtsUs: Long): Boolean {
+    fun startFrom(fromPtsUs: Long, waveNumber: Int): Boolean {
         if (active) return false
         val fmt = format ?: return false
         val newest = ring.newestPtsUs() ?: return false
         val snapshot = ring.snapshotFrom(fromPtsUs)
         if (snapshot.isEmpty()) return false
         lastPreRollSec = (newest - snapshot.first().ptsUs) / 1_000_000f
+        // Heure réelle du début du clip : maintenant, moins ce que le tampon remonte dans le passé.
+        val startedAtMs = System.currentTimeMillis() - ((newest - snapshot.first().ptsUs) / 1_000L)
+        val baseName = VideoNaming.clipName(startedAtMs, waveNumber)
         active = true
         executor.execute {
             try {
                 val w = try {
-                    ClipWriter(context, fmt, orientationHint, volume = target.volume)
+                    ClipWriter(context, fmt, orientationHint, baseName, target.volume)
                 } catch (e: Exception) {
                     if (!target.isExternal) throw e
                     // Support externe indisponible : le clip est écrit sur le téléphone, rien n'est perdu.
                     target.fallBackToPhone("Stockage externe indisponible : les vidéos sont enregistrées sur le téléphone")
-                    ClipWriter(context, fmt, orientationHint, volume = target.volume)
+                    ClipWriter(context, fmt, orientationHint, baseName, target.volume)
                 }
                 writer = w
                 snapshot.forEach { w.write(it) }

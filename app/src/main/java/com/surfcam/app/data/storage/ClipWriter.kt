@@ -10,9 +10,6 @@ import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import com.surfcam.app.domain.model.EncodedSample
 import java.nio.ByteBuffer
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 data class SavedClip(val name: String, val durationSec: Float, val sizeBytes: Long)
 
@@ -24,13 +21,13 @@ class ClipWriter(
     context: Context,
     format: MediaFormat,
     orientationHint: Int,
-    namePrefix: String = "SurfCam",
-    nameSuffix: String = "",
+    /** Nom du fichier sans extension (voir VideoNaming). */
+    baseName: String,
     /** Volume MediaStore où créer le fichier (le téléphone par défaut, ou une carte SD / clé USB). */
     volume: String = StorageTarget.PHONE,
 ) {
     private val resolver = context.contentResolver
-    private val name = namePrefix + "_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + nameSuffix + ".mp4"
+    private val name = "$baseName.mp4"
     private val uri: Uri
     private val descriptor: ParcelFileDescriptor
     private val muxer: MediaMuxer

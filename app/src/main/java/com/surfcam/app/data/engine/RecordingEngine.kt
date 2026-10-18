@@ -22,12 +22,14 @@ import com.surfcam.app.data.camera.Camera2Source
 import com.surfcam.app.data.camera.CameraProbe
 import com.surfcam.app.data.camera.Lens
 import com.surfcam.app.data.encoder.HevcEncoder
+import com.surfcam.app.data.learning.LearningRepository
 import com.surfcam.app.data.storage.SavedClip
 import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
 import com.surfcam.app.domain.clip.ClipAction
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.domain.model.EncodedSample
+import com.surfcam.app.domain.tracking.RideStats
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,6 +82,9 @@ class RecordingEngine(private val context: Context) {
     private val _state = MutableStateFlow(EngineState())
     val state: StateFlow<EngineState> = _state.asStateFlow()
 
+    /** Mémoire de l'apprentissage : jugements de l'utilisateur sur les clips automatiques, et réglages qui en découlent. */
+    val learning = LearningRepository(context)
+
     /** Où les vidéos sont écrites ; l'écran y lit aussi la liste des supports branchés. */
     val storage = StorageTarget(context).also { target ->
         target.onFallback = { message ->
@@ -101,6 +106,9 @@ class RecordingEngine(private val context: Context) {
     private var sampleCount = 0L
     private var desiredZoom = 1f
     private var clipsSaved = 0
+    private var waveCounter = 0
+    private var currentClipAuto = false
+    private val rideStats = mutableListOf<RideStats>()
     private val safetyHandler = Handler(Looper.getMainLooper())
     private var safetyRunning = false
     private var severeSinceMs = 0L
@@ -125,6 +133,7 @@ class RecordingEngine(private val context: Context) {
     fun start(displayRotationDegrees: Int, options: SessionOptions) {
         if (_state.value.phase == Phase.STARTING || _state.value.phase == Phase.RUNNING) return
         clipsSaved = 0
+        waveCounter = 0
         // Le support choisi doit être branché ; sinon on enregistre sur le téléphone, en le disant.
         val storageMessage = if (options.storage == StorageTarget.PHONE || storage.available().any { it.name == options.storage }) {
             storage.select(options.storage)
@@ -260,8 +269,9 @@ class RecordingEngine(private val context: Context) {
     /** Démarre un clip : les [CaptureConfig.PRE_ROLL_SEC] dernières secondes sont reprises du tampon. */
     @Synchronized
     fun startClip() {
-        val started = recorder?.start(CaptureConfig.PRE_ROLL_SEC) == true
+        val started = recorder?.start(CaptureConfig.PRE_ROLL_SEC, ++waveCounter) == true
         if (started) {
+            currentClipAuto = false
             _state.update { it.copy(clipActive = true, message = null) }
         } else {
             _state.update { it.copy(message = "Clip impossible pour l'instant") }
@@ -300,11 +310,16 @@ class RecordingEngine(private val context: Context) {
             // Appelé depuis le thread d'analyse : pas de verrou du moteur ici, pour éviter tout blocage à l'arrêt.
             override fun onClipAction(action: ClipAction) {
                 when (action) {
-                    is ClipAction.Start -> if (clips.startFrom(action.fromUs)) {
+                    is ClipAction.Start -> if (clips.startFrom(action.fromUs, ++waveCounter)) {
+                        currentClipAuto = true
+                        synchronized(rideStats) { rideStats.clear() }
                         _state.update { it.copy(clipActive = true, message = null) }
                     }
                     is ClipAction.Stop -> clips.finish(0)
-                    ClipAction.Discard -> clips.discard()
+                    ClipAction.Discard -> {
+                        synchronized(rideStats) { rideStats.clear() }
+                        clips.discard()
+                    }
                 }
             }
 
@@ -321,7 +336,11 @@ class RecordingEngine(private val context: Context) {
             }
 
             override fun newestEncodedPtsUs(): Long? = buffer.newestPtsUs()
-        })
+
+            override fun onRide(stats: RideStats) {
+                synchronized(rideStats) { rideStats += stats }
+            }
+        }, learning.currentConfig())
         analysis = pipeline
         _state.update {
             it.copy(analysisStatus = if (pipeline != null) "Chargement du modèle…" else "Détection désactivée")
@@ -421,6 +440,9 @@ class RecordingEngine(private val context: Context) {
 
     private fun onClipResult(saved: SavedClip?, error: String?) {
         if (saved != null) clipsSaved++
+        // Un clip automatique réussi est mémorisé avec ses caractéristiques : l'utilisateur pourra le juger.
+        val stats = synchronized(rideStats) { rideStats.firstOrNull().also { rideStats.clear() } }
+        if (saved != null && currentClipAuto && stats != null) learning.record(saved.name, stats)
         _state.update {
             it.copy(
                 clipActive = false,
