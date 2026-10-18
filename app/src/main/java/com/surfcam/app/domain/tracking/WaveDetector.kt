@@ -3,7 +3,7 @@ package com.surfcam.app.domain.tracking
 data class WaveConfig(
     /** Fenêtre de mesure de la vitesse. */
     val speedWindowUs: Long = 800_000,
-    /** Vitesse (hauteurs de corps/s) à dépasser pour considérer qu'une vague démarre. */
+    /** Vitesse (longueurs de corps/s) à dépasser pour considérer qu'une vague démarre. */
     val startSpeed: Float = 1.0f,
     /** Vitesse en dessous de laquelle le surfeur est considéré à l'arrêt (hystérésis : plus bas que le départ). */
     val stopSpeed: Float = 0.5f,
@@ -15,6 +15,8 @@ data class WaveConfig(
     val lostGraceUs: Long = 2_000_000,
     /** Une vague plus courte que ça est annulée (surfeur qui rame vite, fausse alerte). */
     val minRideUs: Long = 3_000_000,
+    /** Rapport hauteur/largeur minimal pour être « debout » : un surfeur allongé qui rame ne déclenche pas. */
+    val minStandingAspect: Float = 1.2f,
 )
 
 sealed interface WaveEvent {
@@ -58,8 +60,9 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
         val alive = tracks.map { it.id }.toSet()
         movingSince.keys.retainAll(alive)
         for (track in tracks) {
-            val speed = track.speedBodyHeightsPerSec(config.speedWindowUs)
-            if (speed == null || speed < config.startSpeed) {
+            val speed = track.speedBodyLengthsPerSec(config.speedWindowUs)
+            val aspect = track.meanAspect(config.speedWindowUs)
+            if (speed == null || speed < config.startSpeed || aspect == null || aspect < config.minStandingAspect) {
                 movingSince.remove(track.id)
                 continue
             }
@@ -81,7 +84,7 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
         val track = tracks.firstOrNull { it.id == id }
         if (track != null) {
             lastSeenUs = now
-            val speed = track.speedBodyHeightsPerSec(config.speedWindowUs)
+            val speed = track.speedBodyLengthsPerSec(config.speedWindowUs)
             if (speed != null && speed >= config.stopSpeed) lastMovingUs = now
         }
         val stopped = now - lastMovingUs >= config.endGraceUs

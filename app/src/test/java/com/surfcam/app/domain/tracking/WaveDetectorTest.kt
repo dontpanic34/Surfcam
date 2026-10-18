@@ -11,22 +11,31 @@ class WaveDetectorTest {
     private val second = 1_000_000L
     private val frameUs = 100_000L // 10 images par seconde
 
-    private fun surfer(x: Float, y: Float = 300f, height: Float = 60f, tsUs: Long, confidence: Float = 0.8f) =
-        Detection(BoundingBox(x - height / 4, y - height / 2, x + height / 4, y + height / 2), confidence, tsUs)
+    private fun surfer(
+        x: Float,
+        y: Float = 300f,
+        height: Float = 60f,
+        tsUs: Long,
+        confidence: Float = 0.8f,
+        width: Float = height / 2,
+    ) = Detection(BoundingBox(x - width / 2, y - height / 2, x + width / 2, y + height / 2), confidence, tsUs)
 
     /** Rejoue un scénario : [position] donne l'abscisse du surfeur (en pixels) à chaque seconde, null = absent. */
     private fun replay(
         seconds: Float,
         height: Float = 60f,
+        width: Float = height / 2,
+        y: Float = 300f,
+        trackerConfig: TrackerConfig = TrackerConfig(),
         position: (Float) -> Float?,
     ): List<Pair<Long, WaveEvent>> {
-        val tracker = SurferTracker()
+        val tracker = SurferTracker(trackerConfig)
         val detector = WaveDetector()
         val events = mutableListOf<Pair<Long, WaveEvent>>()
         var t = 0L
         while (t <= (seconds * second).toLong()) {
             val x = position(t / second.toFloat())
-            val detections = if (x == null) emptyList() else listOf(surfer(x, height = height, tsUs = t))
+            val detections = if (x == null) emptyList() else listOf(surfer(x, y = y, height = height, width = width, tsUs = t))
             detector.onFrame(tracker.update(detections, t), t)?.let { events += t to it }
             t += frameUs
         }
@@ -110,6 +119,25 @@ class WaveDetectorTest {
         assertEquals(1, run(200f))
         assertEquals(1, run(50f))
         assertEquals(1, run(25f))
+    }
+
+    @Test
+    fun surferLyingOnTheBoardNeverTriggersEvenIfFast() {
+        // Allongé (plus large que haut) qui file à 2 longueurs de corps/s : il rame, il ne surfe pas.
+        val events = replay(12f, height = 15f, width = 30f) { t ->
+            if (t < 3f) 100f else 100f + (t - 3f) * 60f
+        }
+        assertTrue(events.isEmpty())
+    }
+
+    @Test
+    fun personOnTheBeachCutByTheBottomEdgeIsIgnored() {
+        // Une personne de 65 px dont la boîte touche le bas de l'image (1080) marche vite sur le sable.
+        val config = TrackerConfig(frameHeight = 1080)
+        val events = replay(12f, height = 65f, width = 65f, y = 1080f - 32f, trackerConfig = config) { t ->
+            100f + t * 150f
+        }
+        assertTrue(events.isEmpty())
     }
 
     @Test

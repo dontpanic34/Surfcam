@@ -14,6 +14,13 @@ data class TrackerConfig(
     val historyUs: Long = 3_000_000,
     /** Lissage de la boîte : 1 = brut, proche de 0 = très lissé. */
     val boxSmoothing: Float = 0.6f,
+    /** Hauteur de l'image analysée, en pixels ; 0 = ne pas filtrer le bord bas. */
+    val frameHeight: Int = 0,
+    /**
+     * Les personnes dont la boîte touche le bord bas de l'image (fraction de la hauteur) sont ignorées :
+     * ce sont des gens sur la plage, au premier plan, pas des surfeurs dans l'eau.
+     */
+    val bottomMarginFraction: Float = 0.03f,
 )
 
 /** Un point de la trajectoire d'un surfeur. */
@@ -41,18 +48,31 @@ class Track(val id: Int, first: Detection, private val historyUs: Long) {
     }
 
     /**
-     * Vitesse sur les [windowUs] dernières microsecondes, en hauteurs de corps par seconde.
-     * Normalisée par la taille du surfeur : elle ne dépend donc pas de sa distance à la caméra.
+     * Vitesse sur les [windowUs] dernières microsecondes, en longueurs de corps par seconde.
+     * La longueur de corps est la plus grande dimension de la boîte (hauteur debout, largeur allongé) :
+     * la vitesse ne dépend ni de la distance à la caméra, ni de la posture.
      * Renvoie null tant que l'historique est trop court pour la mesurer.
      */
-    fun speedBodyHeightsPerSec(windowUs: Long): Float? {
+    fun speedBodyLengthsPerSec(windowUs: Long): Float? {
         val last = points.lastOrNull() ?: return null
         val first = points.firstOrNull { last.timestampUs - it.timestampUs <= windowUs } ?: return null
         val dt = (last.timestampUs - first.timestampUs) / 1_000_000f
         if (dt < windowUs / 1_000_000f * 0.5f) return null
-        val meanHeight = points.filter { it.timestampUs >= first.timestampUs }.map { it.height }.average().toFloat()
-        if (meanHeight <= 0f) return null
-        return hypot(last.x - first.x, last.y - first.y) / meanHeight / dt
+        val meanLength = points.filter { it.timestampUs >= first.timestampUs }
+            .map { max(it.height, it.width) }.average().toFloat()
+        if (meanLength <= 0f) return null
+        return hypot(last.x - first.x, last.y - first.y) / meanLength / dt
+    }
+
+    /**
+     * Rapport hauteur/largeur moyen de la boîte sur les [windowUs] dernières microsecondes :
+     * environ 1,5 et plus pour quelqu'un de debout, moins de 0,8 pour quelqu'un d'allongé sur sa planche.
+     */
+    fun meanAspect(windowUs: Long): Float? {
+        val last = points.lastOrNull() ?: return null
+        val recent = points.filter { last.timestampUs - it.timestampUs <= windowUs && it.width > 0f }
+        if (recent.isEmpty()) return null
+        return recent.map { it.height / it.width }.average().toFloat()
     }
 }
 
@@ -65,7 +85,13 @@ class SurferTracker(private val config: TrackerConfig = TrackerConfig()) {
     private val tracks = mutableListOf<Track>()
     private var nextId = 1
 
-    fun update(detections: List<Detection>, timestampUs: Long): List<Track> {
+    fun update(allDetections: List<Detection>, timestampUs: Long): List<Track> {
+        val detections = if (config.frameHeight > 0) {
+            val limit = config.frameHeight * (1f - config.bottomMarginFraction)
+            allDetections.filter { it.box.bottom < limit }
+        } else {
+            allDetections
+        }
         val candidates = mutableListOf<Triple<Float, Track, Detection>>()
         for (track in tracks) {
             for (det in detections) {
