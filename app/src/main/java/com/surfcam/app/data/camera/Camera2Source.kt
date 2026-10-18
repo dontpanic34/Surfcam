@@ -129,7 +129,7 @@ class Camera2Source(context: Context) {
         }
         val zoomRange = if (lens == Lens.TELE) null else chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
         val useCases = chars.get(CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES)
-        val videoUseCase = useCases?.contains(CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASE_VIDEO_RECORD.toLong()) == true
+        val videoUseCase = useCases?.contains(CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD.toLong()) == true
         characteristics = chars
         return CameraProbe(
             cameraId = cameraId,
@@ -239,8 +239,8 @@ class Camera2Source(context: Context) {
         val encoder = encoderSurface ?: return
         session?.close()
         session = null
-        val outputs = mutableListOf(output(encoder, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASE_VIDEO_RECORD))
-        previewSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASE_PREVIEW) }
+        val outputs = mutableListOf(output(encoder, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD))
+        previewSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW) }
         try {
             camera.createCaptureSession(
                 SessionConfiguration(
