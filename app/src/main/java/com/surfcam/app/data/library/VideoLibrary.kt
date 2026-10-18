@@ -23,7 +23,7 @@ data class LibraryVideo(
     val sizeBytes: Long,
     val pending: Boolean,
 ) {
-    val isSession: Boolean get() = name.startsWith("SurfCam_Session")
+    val isSession: Boolean get() = name.startsWith("SurfCam_Session") || name.contains(" - Session - partie ")
 
     /** Vrai si la vidéo est sur un support externe (carte SD, clé USB) plutôt que sur le téléphone. */
     val isExternal: Boolean get() = volume != StorageTarget.PHONE

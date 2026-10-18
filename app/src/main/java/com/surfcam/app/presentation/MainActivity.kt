@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
                 val phase by engine.state.collectAsStateWithLifecycle()
                 LibraryScreen(
                     library = library,
+                    learning = engine.learning,
                     sessionRunning = phase.phase == Phase.RUNNING || phase.phase == Phase.STARTING,
                     onBack = { showLibrary = false },
                 )

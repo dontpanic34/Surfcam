@@ -10,9 +10,13 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -90,6 +94,7 @@ fun RecordingScreen(
 ) {
     val state by engine.state.collectAsStateWithLifecycle()
     val running = state.phase == Phase.RUNNING || state.phase == Phase.STARTING
+    var showInfo by rememberSaveable { mutableStateOf(false) }
 
     // Aperçu seul tant que l'écran est visible et qu'aucune session n'est en cours.
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -113,13 +118,17 @@ fun RecordingScreen(
 
     SurfCamTheme {
         if (crashReport != null) CrashDialog(crashReport, onDismissCrash)
+        if (showInfo) InfoDialog(state, options, onOptionsChange, engine, running) { showInfo = false }
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Row(
                 modifier = Modifier.fillMaxSize().padding(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Viewfinder(engine, state, hasCamera, Modifier.weight(1f).fillMaxHeight())
-                ControlPanel(state, running, options, onOptionsChange, engine, onOpenLibrary, onStartSession, onStopSession)
+                ControlPanel(
+                    state, running, options, onOptionsChange, engine,
+                    onOpenLibrary, { showInfo = true }, onStartSession, onStopSession,
+                )
             }
         }
     }
@@ -198,14 +207,26 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                         if (state.actualFps < config.fps * 0.85f) SurfColors.Warn else SurfColors.Foam,
                     )
                 }
-                InfoChip("%.0f s en mémoire".format(state.bufferedSec), SurfColors.Foam)
-                state.analysis?.let { InfoChip("Analyse ${it.inferenceMs} ms", SurfColors.Foam) }
                 InfoChip("Chauffe ${thermalLabel(state.thermalStatus)}", thermalColor(state.thermalStatus))
             }
         }
 
         state.lensInfo?.let {
             InfoChip(it, SurfColors.Muted, modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
+        }
+        banner(state)?.let { (text, color) ->
+            Text(
+                text,
+                color = color,
+                fontSize = 13.sp,
+                maxLines = 3,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 52.dp, start = 24.dp, end = 24.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xE60B1620))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
         }
         if (state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) {
             InfoChip("×%.1f".format(state.zoom), SurfColors.Foam, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp))
@@ -265,8 +286,19 @@ private fun resolutionLabel(config: CaptureConfig): String {
     return "$name · ${config.fps} i/s"
 }
 
+
+/** Message à afficher sur le viseur : alerte en cours, sinon arrêt automatique ou bilan de la dernière session. */
+private fun banner(state: EngineState): Pair<String, Color>? {
+    state.message?.let { return it to SurfColors.Warn }
+    if (state.phase == Phase.IDLE || state.phase == Phase.PREVIEW) {
+        state.endedReason?.let { return "Session arrêtée automatiquement : $it. Tes vidéos sont sauvegardées." to SurfColors.Warn }
+        state.lastSummary?.let { return it to SurfColors.Foam }
+    }
+    return null
+}
+
 // ---------------------------------------------------------------------------------------------
-// Panneau de commandes.
+// Panneau de commandes : tout tient sans défilement. Le détail technique est dans le panneau « Infos ».
 // ---------------------------------------------------------------------------------------------
 
 @Composable
@@ -277,249 +309,267 @@ private fun ControlPanel(
     onOptionsChange: (SessionOptions) -> Unit,
     engine: RecordingEngine,
     onOpenLibrary: () -> Unit,
+    onOpenInfo: () -> Unit,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.width(300.dp).fillMaxHeight().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.width(300.dp).fillMaxHeight(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("SurfCam", color = SurfColors.Aqua, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = onOpenLibrary) { Text("Mes vidéos") }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("SurfCam", color = SurfColors.Aqua, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            SmallButton("Vidéos", onOpenLibrary)
+            SmallButton("Infos", onOpenInfo)
         }
 
-        if (!running) {
-            state.lastSummary?.let {
+        ZoomChips(state, engine)
+
+        if (running) {
+            OutlinedButton(onClick = engine::relock, modifier = Modifier.fillMaxWidth().height(40.dp)) {
                 Text(
-                    "$it\nOuvre « Mes vidéos » pour les retrouver.",
-                    color = SurfColors.Foam,
+                    if (state.locked) "Exposition verrouillée · relancer" else "Exposition en réglage…",
+                    color = if (state.locked) SurfColors.Ok else SurfColors.Warn,
                     fontSize = 13.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(12.dp),
                 )
             }
-            state.endedReason?.let {
-                Text(
-                    "Session arrêtée automatiquement : $it.\nTes vidéos ont été sauvegardées : ouvre « Mes vidéos ».",
-                    color = SurfColors.Warn,
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0x33FFC857))
-                        .padding(12.dp),
-                )
-            }
+        } else {
+            SetupGrid(options, onOptionsChange, engine)
         }
 
-        if (!running) {
-            Section("Zoom") {
-                Text(
-                    "Pince l'image avec deux doigts pour zoomer. Vers ×5, le téléphone passe seul sur le téléobjectif.",
-                    color = SurfColors.Muted,
-                    fontSize = 12.sp,
-                )
-                ZoomChips(state, engine)
-                OptionSwitch(
-                    "Forcer le téléobjectif",
-                    "Champ fixe ×5, sans zoom : à utiliser si le zoom automatique ne bascule pas",
-                    options.tele,
-                ) { onOptionsChange(options.copy(tele = it)) }
-            }
-
-            Section("Enregistrement") {
-                Text("Définition", color = SurfColors.Muted, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = !options.hd,
-                        onClick = { onOptionsChange(options.copy(hd = false)) },
-                        label = { Text("4K") },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
-                    )
-                    FilterChip(
-                        selected = options.hd,
-                        onClick = { onOptionsChange(options.copy(hd = true)) },
-                        label = { Text("1080p") },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
-                    )
-                }
-                Text("Cadence", color = SurfColors.Muted, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = !options.fps60,
-                        onClick = { onOptionsChange(options.copy(fps60 = false)) },
-                        label = { Text("30 i/s") },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
-                    )
-                    FilterChip(
-                        selected = options.fps60,
-                        onClick = { onOptionsChange(options.copy(fps60 = true)) },
-                        label = { Text("60 i/s") },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
-                    )
-                }
-                Text(
-                    if (options.fps60) "60 i/s : image plus fluide, mais le zoom reste sur l'objectif principal (pas de téléobjectif)."
-                    else "30 i/s : le zoom peut passer sur le téléobjectif vers ×5.",
-                    color = SurfColors.Muted,
-                    fontSize = 11.sp,
-                )
-                OptionSwitch(
-                    "Enregistrer toute la session",
-                    "Fichiers de 2 min dans Movies/SurfCam · environ ${options.gigabytesPerHour()} Go par heure",
-                    options.fullSession,
-                ) { onOptionsChange(options.copy(fullSession = it)) }
-                OptionSwitch(
-                    "Détection automatique des vagues",
-                    "Crée un clip à chaque vague repérée",
-                    options.detection,
-                ) { onOptionsChange(options.copy(detection = it)) }
-                var storages by remember { mutableStateOf(engine.storage.available()) }
-                LaunchedEffect(Unit) {
-                    // Sondé toutes les 3 s : brancher ou retirer une carte SD / une clé USB se voit sans rien faire.
-                    while (true) {
-                        storages = withContext(Dispatchers.IO) { engine.storage.available() }
-                        delay(3_000)
-                    }
-                }
-                Text("Enregistrer sur", color = SurfColors.Muted, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    storages.forEach { choice ->
-                        FilterChip(
-                            selected = options.storage == choice.name,
-                            onClick = { onOptionsChange(options.copy(storage = choice.name)) },
-                            label = {
-                                Text(
-                                    choice.label + (choice.freeBytes?.let { " · ${it / 1_000_000_000L} Go" } ?: ""),
-                                    fontSize = 12.sp,
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
-                        )
-                    }
-                }
-                if (storages.none { it.removable }) {
-                    Text(
-                        "Pour enregistrer sur une carte SD ou une clé USB : branche un lecteur (USB-C). Le support apparaîtra ici. Format exFAT recommandé.",
-                        color = SurfColors.Muted,
-                        fontSize = 11.sp,
-                    )
-                }
-                if (storages.none { it.name == options.storage }) {
-                    Text("Le support choisi n'est pas branché : la session enregistrera sur le téléphone.", color = SurfColors.Warn, fontSize = 11.sp)
-                }
-                val freeGb = (storages.firstOrNull { it.name == options.storage } ?: storages.firstOrNull())?.freeBytes?.let { it / 1_000_000_000L }
-                if (freeGb != null) {
-                    Text(
-                        "Espace libre : $freeGb Go" +
-                            if (options.fullSession && options.gigabytesPerHour() > 0) " · environ ${freeGb / options.gigabytesPerHour()} h possibles" else "",
-                        color = if (options.fullSession && freeGb < 2L * options.gigabytesPerHour()) SurfColors.Warn else SurfColors.Muted,
-                        fontSize = 12.sp,
-                    )
-                }
-            }
-        }
+        Spacer(Modifier.weight(1f))
 
         if (running) {
             OutlinedButton(
                 onClick = onStopSession,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier.fillMaxWidth().height(54.dp),
                 border = BorderStroke(1.5.dp, SurfColors.Alert),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = SurfColors.Alert),
             ) { Text("Arrêter la session", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         } else {
-            Button(
-                onClick = onStartSession,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-            ) { Text("Démarrer la session", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+            Button(onClick = onStartSession, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                Text("Démarrer la session", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
+    }
+}
 
-        if (state.phase == Phase.RUNNING) {
-            if (state.detectionEnabled) Section("Diagnostic de la détection") {
-                Text(
-                    "Modèle : ${state.analysisStatus ?: "—"}\nImages reçues de la caméra : ${state.analysisReceived}",
-                    color = SurfColors.Foam,
-                    fontSize = 12.sp,
-                )
-                state.analysis?.let { snapshot ->
-                    snapshot.thumbnail?.let { bitmap ->
-                        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))) {
-                            Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
-                            Canvas(Modifier.fillMaxSize()) {
-                                for (box in snapshot.boxes) {
-                                    drawRect(
-                                        color = if (box.riding) SurfColors.Alert else SurfColors.Aqua,
-                                        topLeft = Offset(box.left * size.width, box.top * size.height),
-                                        size = Size((box.right - box.left) * size.width, (box.bottom - box.top) * size.height),
-                                        style = Stroke(width = 1.5.dp.toPx()),
-                                    )
+@Composable
+private fun SmallButton(text: String, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.height(34.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+    ) { Text(text, fontSize = 13.sp) }
+}
+
+@Composable
+private fun Toggle(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, fontSize = 12.sp, maxLines = 1) },
+        modifier = modifier,
+        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
+    )
+}
+
+/** Réglages d'avant session, en quatre lignes courtes. Les explications sont dans « Infos ». */
+@Composable
+private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions) -> Unit, engine: RecordingEngine) {
+    var storages by remember { mutableStateOf(engine.storage.available()) }
+    LaunchedEffect(Unit) {
+        // Sondé toutes les 3 s : brancher ou retirer une carte SD / une clé USB se voit sans rien faire.
+        while (true) {
+            storages = withContext(Dispatchers.IO) { engine.storage.available() }
+            delay(3_000)
+        }
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Toggle("4K", !options.hd, Modifier.weight(1f)) { onOptionsChange(options.copy(hd = false)) }
+        Toggle("1080p", options.hd, Modifier.weight(1f)) { onOptionsChange(options.copy(hd = true)) }
+        Toggle("30 i/s", !options.fps60, Modifier.weight(1f)) { onOptionsChange(options.copy(fps60 = false)) }
+        Toggle("60 i/s", options.fps60, Modifier.weight(1f)) { onOptionsChange(options.copy(fps60 = true)) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Toggle("Session complète", options.fullSession, Modifier.weight(1f)) { onOptionsChange(options.copy(fullSession = !options.fullSession)) }
+        Toggle("Détection", options.detection, Modifier.weight(1f)) { onOptionsChange(options.copy(detection = !options.detection)) }
+    }
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        storages.forEach { choice ->
+            Toggle(
+                choice.label + (choice.freeBytes?.let { " · ${it / 1_000_000_000L} Go" } ?: ""),
+                options.storage == choice.name,
+            ) { onOptionsChange(options.copy(storage = choice.name)) }
+        }
+    }
+    val chosen = storages.firstOrNull { it.name == options.storage }
+    val freeGb = (chosen ?: storages.firstOrNull())?.freeBytes?.let { it / 1_000_000_000L }
+    val line = when {
+        chosen == null -> "Support absent : la session ira sur le téléphone"
+        freeGb == null -> "Espace libre inconnu"
+        options.fullSession && options.gigabytesPerHour() > 0 ->
+            "$freeGb Go libres · environ ${freeGb / options.gigabytesPerHour()} h de session complète"
+        else -> "$freeGb Go libres"
+    }
+    val warn = chosen == null || (options.fullSession && freeGb != null && freeGb < 2L * options.gigabytesPerHour())
+    Text(line, color = if (warn) SurfColors.Warn else SurfColors.Muted, fontSize = 11.sp, maxLines = 1)
+}
+
+@Composable
+private fun ZoomChips(state: EngineState, engine: RecordingEngine) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        listOf(1f, 2f, 5f).filter { it >= state.minZoom && it <= state.maxZoom }.forEach { ratio ->
+            Toggle("${ratio.toInt()}×", kotlin.math.abs(state.zoom - ratio) < 0.05f) { engine.setZoom(ratio) }
+        }
+        Text("Zoom ×%.1f".format(state.zoom), color = SurfColors.Foam, fontSize = 13.sp)
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Panneau « Infos » : aide, réglages avancés, diagnostic, test manuel, apprentissage.
+// ---------------------------------------------------------------------------------------------
+
+@Composable
+private fun InfoDialog(
+    state: EngineState,
+    options: SessionOptions,
+    onOptionsChange: (SessionOptions) -> Unit,
+    engine: RecordingEngine,
+    running: Boolean,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth(0.86f).fillMaxHeight(0.92f),
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Infos et réglages avancés", color = SurfColors.Aqua, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Button(onClick = onDismiss) { Text("Fermer") }
+                }
+                Row(Modifier.weight(1f).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Section("Aide") {
+                            Help("Zoom", "Pince l'image à deux doigts. Vers ×5 le téléphone passe sur le téléobjectif (30 i/s ou moins).")
+                            Help("4K / 1080p", "La 4K sert à recadrer ensuite sans perte de netteté. Sans recadrage, 1080p suffit et chauffe moins.")
+                            Help("30 / 60 i/s", "60 i/s est plus fluide mais exclut le téléobjectif.")
+                            Help("Session complète", "Enregistre tout, en fichiers de 2 minutes. Sans elle, seuls les clips de vagues sont gardés.")
+                            Help("Détection", "Repère les vagues et crée un clip : 5 s avant le décollage, 3 s après la fin.")
+                        }
+                        Section("Réglages avancés") {
+                            OptionSwitch("Forcer le téléobjectif", "Champ fixe ×5, sans zoom", options.tele) {
+                                if (!running) onOptionsChange(options.copy(tele = it))
+                            }
+                            if (running) Text("Modifiable seulement hors session.", color = SurfColors.Muted, fontSize = 11.sp)
+                        }
+                        LearningSection(engine)
+                    }
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (state.detectionEnabled && state.phase == Phase.RUNNING) DiagnosticSection(state)
+                        if (state.phase == Phase.RUNNING) {
+                            Section("Test manuel") {
+                                if (state.clipActive) {
+                                    Button(
+                                        onClick = engine::finishClip,
+                                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = SurfColors.Alert, contentColor = Color.White),
+                                    ) { Text("Fin de vague · +${CaptureConfig.POST_ROLL_SEC} s") }
+                                } else {
+                                    Button(onClick = engine::startClip, modifier = Modifier.fillMaxWidth().height(44.dp)) {
+                                        Text("Début de vague · -${CaptureConfig.PRE_ROLL_SEC} s")
+                                    }
                                 }
                             }
                         }
+                        state.lastClip?.let {
+                            Section("Dernier clip") { Text(it, color = SurfColors.Foam, fontSize = 13.sp) }
+                        }
+                        details(state)?.let {
+                            Section("Technique") { Text(it, color = SurfColors.Muted, fontSize = 12.sp, lineHeight = 17.sp) }
+                        }
                     }
-                    Text(
-                        "${snapshot.frames} analysées · ${snapshot.personsInFrame} personne(s) · confiance max %.2f · ${snapshot.inferenceMs} ms · écart d'horloge ${snapshot.clockOffsetMs} ms"
-                            .format(snapshot.bestConfidence),
-                        color = SurfColors.Muted,
-                        fontSize = 11.sp,
-                    )
-                }
-            }
-
-            Section("Image") {
-                ZoomChips(state, engine)
-                OutlinedButton(onClick = engine::relock, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        if (state.locked) "Exposition verrouillée · relancer" else "Exposition en réglage…",
-                        color = if (state.locked) SurfColors.Ok else SurfColors.Warn,
-                    )
-                }
-            }
-
-            Section("Test manuel · la détection automatique est aussi active") {
-                if (state.clipActive) {
-                    Button(
-                        onClick = engine::finishClip,
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = SurfColors.Alert, contentColor = Color.White),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                    ) { Text("Fin de vague · +${CaptureConfig.POST_ROLL_SEC} s") }
-                } else {
-                    Button(
-                        onClick = engine::startClip,
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                    ) { Text("Début de vague · -${CaptureConfig.PRE_ROLL_SEC} s") }
                 }
             }
         }
+    }
+}
 
-        state.message?.let {
+@Composable
+private fun Help(title: String, text: String) {
+    Column {
+        Text(title, color = SurfColors.Foam, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, color = SurfColors.Muted, fontSize = 12.sp, lineHeight = 16.sp)
+    }
+}
+
+@Composable
+private fun DiagnosticSection(state: EngineState) {
+    Section("Diagnostic de la détection") {
+        Text(
+            "Modèle : ${state.analysisStatus ?: "—"}\nImages reçues de la caméra : ${state.analysisReceived}",
+            color = SurfColors.Foam,
+            fontSize = 12.sp,
+        )
+        state.analysis?.let { snapshot ->
+            snapshot.thumbnail?.let { bitmap ->
+                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))) {
+                    Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
+                    Canvas(Modifier.fillMaxSize()) {
+                        for (box in snapshot.boxes) {
+                            drawRect(
+                                color = if (box.riding) SurfColors.Alert else SurfColors.Aqua,
+                                topLeft = Offset(box.left * size.width, box.top * size.height),
+                                size = Size((box.right - box.left) * size.width, (box.bottom - box.top) * size.height),
+                                style = Stroke(width = 1.5.dp.toPx()),
+                            )
+                        }
+                    }
+                }
+            }
             Text(
-                it,
-                color = SurfColors.Alert,
-                fontSize = 13.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0x33FF6B6B))
-                    .padding(12.dp),
+                "${snapshot.frames} analysées · ${snapshot.personsInFrame} personne(s) · confiance max %.2f · ${snapshot.inferenceMs} ms · écart d'horloge ${snapshot.clockOffsetMs} ms"
+                    .format(snapshot.bestConfidence),
+                color = SurfColors.Muted,
+                fontSize = 11.sp,
             )
         }
+    }
+}
 
-        state.lastClip?.let {
-            Section("Dernier clip") {
-                Text(it, color = SurfColors.Foam, fontSize = 13.sp)
-                Text("Galerie · dossier SurfCam", color = SurfColors.Muted, fontSize = 12.sp)
-            }
-        }
-
-        details(state)?.let {
-            Text(it, color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 16.sp)
+/** Ce que l'app a appris de tes retours (boutons « Bonne vague / Fausse alerte » dans Mes vidéos). */
+@Composable
+private fun LearningSection(engine: RecordingEngine) {
+    var records by remember { mutableStateOf(engine.learning.records()) }
+    var report by remember { mutableStateOf(engine.learning.lastReport()) }
+    val good = records.count { it.good == true }
+    val bad = records.count { it.good == false }
+    Section("Apprentissage") {
+        Text(
+            "${records.size} clip(s) automatique(s) suivis · $good bonne(s) vague(s) · $bad fausse(s) alerte(s) signalée(s).",
+            color = SurfColors.Foam,
+            fontSize = 12.sp,
+        )
+        Text(
+            report ?: "Dans « Mes vidéos », indique pour chaque clip automatique s'il était bon ou faux : l'app règle ses seuils d'après tes retours.",
+            color = SurfColors.Muted,
+            fontSize = 12.sp,
+            lineHeight = 16.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                engine.learning.recalibrate()
+                report = engine.learning.lastReport()
+                records = engine.learning.records()
+            }) { Text("Adapter", fontSize = 12.sp) }
+            OutlinedButton(onClick = {
+                engine.learning.reset()
+                report = null
+                records = engine.learning.records()
+            }) { Text("Réinitialiser", fontSize = 12.sp, color = SurfColors.Alert) }
         }
     }
 }
@@ -540,21 +590,6 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun ZoomChips(state: EngineState, engine: RecordingEngine) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        listOf(1f, 2f, 5f).filter { it >= state.minZoom && it <= state.maxZoom }.forEach { ratio ->
-            FilterChip(
-                selected = kotlin.math.abs(state.zoom - ratio) < 0.05f,
-                onClick = { engine.setZoom(ratio) },
-                label = { Text("${ratio.toInt()}×") },
-                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
-            )
-        }
-        Text("Zoom ×%.1f".format(state.zoom), color = SurfColors.Foam, fontSize = 13.sp)
-    }
-}
-
-@Composable
 private fun OptionSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Column(Modifier.weight(1f)) {
@@ -562,27 +597,6 @@ private fun OptionSwitch(title: String, subtitle: String, checked: Boolean, onCh
             Text(subtitle, color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp)
         }
         Switch(checked = checked, onCheckedChange = onChange)
-    }
-}
-
-@Composable
-private fun LensChoice(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
-    val shape = RoundedCornerShape(12.dp)
-    Column(
-        modifier = modifier
-            .clip(shape)
-            .background(if (selected) SurfColors.Aqua else Color(0x14FFFFFF))
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            title,
-            color = if (selected) SurfColors.OnAqua else SurfColors.Foam,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
-        )
-        Text(subtitle, color = if (selected) SurfColors.OnAqua else SurfColors.Muted, fontSize = 11.sp)
     }
 }
 
@@ -595,7 +609,6 @@ private fun details(state: EngineState): String? {
         append("\nTampon : %.1f s · %d Mo".format(state.bufferedSec, state.bufferedMb))
         if (state.keyFrameIntervalSec > 0f) append("\nImage clé toutes les %.1f s".format(state.keyFrameIntervalSec))
         append("\nZoom ${"%.1f".format(state.zoom)}×")
-        state.analysisStatus?.let { append("\n$it") }
     }
 }
 

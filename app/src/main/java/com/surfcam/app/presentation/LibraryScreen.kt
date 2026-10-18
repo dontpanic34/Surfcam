@@ -44,6 +44,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.surfcam.app.data.learning.FeedbackRecord
+import com.surfcam.app.data.learning.LearningRepository
+import com.surfcam.app.domain.naming.VideoNaming
 import com.surfcam.app.data.library.LibraryVideo
 import com.surfcam.app.data.library.VideoLibrary
 import com.surfcam.app.presentation.theme.SurfCamTheme
@@ -58,7 +61,7 @@ import java.util.Locale
 
 /** Les vidéos enregistrées par l'app : lecture, suppression, et état « en traitement » pour celles pas encore finies. */
 @Composable
-fun LibraryScreen(library: VideoLibrary, sessionRunning: Boolean, onBack: () -> Unit) {
+fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRunning: Boolean, onBack: () -> Unit) {
     var videos by remember { mutableStateOf<List<LibraryVideo>>(emptyList()) }
     var loaded by remember { mutableStateOf(false) }
     var toDelete by remember { mutableStateOf<LibraryVideo?>(null) }
@@ -66,11 +69,14 @@ fun LibraryScreen(library: VideoLibrary, sessionRunning: Boolean, onBack: () -> 
     // Progression des copies en cours (0 à 1), par vidéo.
     val copying = remember { mutableStateMapOf<String, Float>() }
     var copyMessage by remember { mutableStateOf<String?>(null) }
+    var feedback by remember { mutableStateOf<Map<String, FeedbackRecord>>(emptyMap()) }
+    var learningReport by remember { mutableStateOf(learning.lastReport()) }
 
     // Rafraîchi toutes les 3 s : une vidéo « en traitement » devient lisible sans rien faire.
     LaunchedEffect(Unit) {
         while (true) {
             videos = withContext(Dispatchers.IO) { library.list() }
+            feedback = withContext(Dispatchers.IO) { learning.records().associateBy { it.clipName } }
             loaded = true
             delay(3_000)
         }
@@ -90,6 +96,7 @@ fun LibraryScreen(library: VideoLibrary, sessionRunning: Boolean, onBack: () -> 
                 }
 
                 copyMessage?.let { Banner(it) }
+                learningReport?.let { Banner(it) }
 
                 val pendingCount = videos.count { it.pending }
                 if (pendingCount > 0) {
@@ -112,6 +119,17 @@ fun LibraryScreen(library: VideoLibrary, sessionRunning: Boolean, onBack: () -> 
                             library = library,
                             video = video,
                             copyProgress = copying[video.key],
+                            feedback = feedback[video.name],
+                            onJudge = { good ->
+                                scope.launch {
+                                    learningReport = withContext(Dispatchers.IO) {
+                                        learning.setJudgement(video.name, good)
+                                        learning.recalibrate()
+                                        feedback = learning.records().associateBy { it.clipName }
+                                        learning.lastReport()
+                                    }
+                                }
+                            },
                             onDelete = { toDelete = video },
                             onCopy = {
                                 copyMessage = null
@@ -137,6 +155,7 @@ fun LibraryScreen(library: VideoLibrary, sessionRunning: Boolean, onBack: () -> 
                     confirmButton = {
                         TextButton(onClick = {
                             library.delete(video)
+                            learning.forget(video.name)
                             videos = videos.filter { it.key != video.key }
                             toDelete = null
                         }) { Text("Supprimer", color = SurfColors.Alert) }
@@ -167,6 +186,8 @@ private fun VideoRow(
     library: VideoLibrary,
     video: LibraryVideo,
     copyProgress: Float?,
+    feedback: FeedbackRecord?,
+    onJudge: (Boolean) -> Unit,
     onDelete: () -> Unit,
     onCopy: () -> Unit,
 ) {
@@ -194,7 +215,7 @@ private fun VideoRow(
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
-                if (video.isSession) "Session complète" else "Clip de vague",
+                VideoNaming.displayTitle(video.name),
                 color = SurfColors.Foam,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.sp,
@@ -211,6 +232,17 @@ private fun VideoRow(
             )
             if (copyProgress != null) {
                 Text("Copie en cours : ${(copyProgress * 100).toInt()} %", color = SurfColors.Aqua, fontSize = 12.sp)
+            }
+            if (feedback != null && !video.pending) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (feedback.good == null) Text("Cette détection est-elle juste ?", color = SurfColors.Muted, fontSize = 12.sp)
+                    if (feedback.good != false) OutlinedButton(onClick = { onJudge(true) }) {
+                        Text(if (feedback.good == true) "✓ Bonne vague" else "Bonne vague", fontSize = 12.sp)
+                    }
+                    if (feedback.good != true) OutlinedButton(onClick = { onJudge(false) }) {
+                        Text(if (feedback.good == false) "✓ Fausse alerte" else "Fausse alerte", fontSize = 12.sp)
+                    }
+                }
             }
             if (video.pending) {
                 Text("En cours de traitement : pas encore lisible", color = SurfColors.Warn, fontSize = 12.sp)
