@@ -36,6 +36,8 @@ import com.surfcam.app.domain.model.CaptureConfig
 @Composable
 fun RecordingScreen(
     engine: RecordingEngine,
+    tele: Boolean,
+    onTeleChange: (Boolean) -> Unit,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
 ) {
@@ -60,7 +62,7 @@ fun RecordingScreen(
                         },
                     )
                 }
-                Controls(state, running, engine, onStartSession, onStopSession)
+                Controls(state, running, tele, onTeleChange, engine, onStartSession, onStopSession)
             }
         }
     }
@@ -70,6 +72,8 @@ fun RecordingScreen(
 private fun Controls(
     state: EngineState,
     running: Boolean,
+    tele: Boolean,
+    onTeleChange: (Boolean) -> Unit,
     engine: RecordingEngine,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
@@ -78,6 +82,13 @@ private fun Controls(
         modifier = Modifier.width(280.dp).fillMaxHeight().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (!running) {
+            Text("Objectif (choisi avant la session)", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !tele, onClick = { onTeleChange(false) }, label = { Text("Principal") })
+                FilterChip(selected = tele, onClick = { onTeleChange(true) }, label = { Text("Télé 5× optique") })
+            }
+        }
         if (running) {
             OutlinedButton(onClick = onStopSession, modifier = Modifier.fillMaxWidth()) { Text("Arrêter la session") }
         } else {
@@ -95,9 +106,9 @@ private fun Controls(
                 }
             }
 
-            Text("Zoom", style = MaterialTheme.typography.labelLarge)
+            Text("Zoom numérique", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(1f, 2f, 5f).filter { it >= state.minZoom && it <= state.maxZoom }.forEach { ratio ->
+                listOf(1f, 2f).filter { it >= state.minZoom && it <= state.maxZoom }.forEach { ratio ->
                     FilterChip(
                         selected = state.zoom == ratio,
                         onClick = { engine.setZoom(ratio) },
@@ -111,6 +122,7 @@ private fun Controls(
         }
 
         Text(statusText(state), style = MaterialTheme.typography.bodyMedium)
+        state.lensInfo?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         state.lastClip?.let { Text("Dernier clip : $it", style = MaterialTheme.typography.bodySmall) }
     }

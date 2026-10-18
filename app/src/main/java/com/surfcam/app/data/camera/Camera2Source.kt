@@ -5,6 +5,7 @@ import android.content.Context
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
@@ -20,9 +21,15 @@ import android.view.Surface
 import com.surfcam.app.domain.model.CaptureConfig
 import java.util.concurrent.Executor
 
+/** Objectif choisi pour la session : le principal, ou le téléobjectif optique (changement = nouvelle session). */
+enum class Lens { MAIN, TELE }
+
 /** Ce que le téléphone sait faire, et la caméra retenue pour filmer. */
 data class CameraProbe(
     val cameraId: String,
+    /** Si non nul : objectif physique à utiliser à l'intérieur de la caméra logique [cameraId]. */
+    val physicalId: String?,
+    val videoStreamUseCases: Boolean,
     val config: CaptureConfig,
     val fpsRange: Range<Int>,
     val sensorOrientation: Int,
@@ -39,6 +46,7 @@ class Camera2Source(context: Context) {
 
     interface Listener {
         fun onLockChanged(locked: Boolean)
+        fun onLensInfo(text: String)
         fun onError(message: String)
     }
 
@@ -54,6 +62,10 @@ class Camera2Source(context: Context) {
     private var previewSurface: Surface? = null
     private var fpsRange: Range<Int>? = null
     private var listener: Listener? = null
+    private var physicalId: String? = null
+    private var useStreamUseCases = false
+    private var retriedWithoutUseCases = false
+    private var lastLensInfo = ""
 
     private var zoom = 1f
     private var locked = false
@@ -62,7 +74,7 @@ class Camera2Source(context: Context) {
     private var closed = false
 
     /** Choisit la caméra, la définition et la cadence ; [maxFps] permet de retomber à 30 si 60 échoue. */
-    fun probe(maxFps: Int): CameraProbe {
+    fun probe(maxFps: Int, lens: Lens): CameraProbe {
         var best: Pair<String, CameraCharacteristics>? = null
         var bestZoom = 0f
         for (id in manager.cameraIdList) {
@@ -74,9 +86,28 @@ class Camera2Source(context: Context) {
                 best = id to c
             }
         }
-        val (id, chars) = best ?: throw IllegalStateException("Aucune caméra arrière")
+        val (id, logical) = best ?: throw IllegalStateException("Aucune caméra arrière")
 
-        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        // Téléobjectif : on cible l'objectif physique le plus long. Le zoom 5× de la caméra logique
+        // n'est que numérique dans ce mode de capture, il ne bascule pas sur le téléobjectif.
+        var cameraId = id
+        var physical: String? = null
+        var sizeChars = logical
+        if (lens == Lens.TELE) {
+            val mainEquiv = equivFocal(logical)
+            val tele = logical.physicalCameraIds
+                .mapNotNull { pid -> runCatching { pid to manager.getCameraCharacteristics(pid) }.getOrNull() }
+                .maxByOrNull { equivFocal(it.second) }
+            if (tele == null || equivFocal(tele.second) < 2.5f * mainEquiv) {
+                throw IllegalStateException("Pas de téléobjectif optique accessible sur ce téléphone")
+            }
+            sizeChars = tele.second
+            if (tele.first in manager.cameraIdList) cameraId = tele.first else physical = tele.first
+        }
+        // Réglages de contrôle (exposition, cadence) : ceux de la caméra réellement ouverte.
+        val chars = if (cameraId == id) logical else sizeChars
+
+        val map = sizeChars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             ?: throw IllegalStateException("Caméra sans configuration de flux")
         val sizes = map.getOutputSizes(MediaCodec::class.java)
             ?: throw IllegalStateException("La caméra ne sait pas filmer vers l'encodeur")
@@ -96,13 +127,17 @@ class Camera2Source(context: Context) {
             size.width >= 3840 -> 40_000_000
             else -> 20_000_000
         }
-        val zoomRange = chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+        val zoomRange = if (lens == Lens.TELE) null else chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+        val useCases = chars.get(CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES)
+        val videoUseCase = useCases?.contains(CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASE_VIDEO_RECORD.toLong()) == true
         characteristics = chars
         return CameraProbe(
-            cameraId = id,
+            cameraId = cameraId,
+            physicalId = physical,
+            videoStreamUseCases = videoUseCase,
             config = CaptureConfig(size.width, size.height, fps, bitrate),
             fpsRange = range,
-            sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
+            sensorOrientation = sizeChars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
             minZoom = zoomRange?.lower ?: 1f,
             maxZoom = zoomRange?.upper ?: 1f,
         )
@@ -113,6 +148,10 @@ class Camera2Source(context: Context) {
         this.encoderSurface = encoderSurface
         this.previewSurface = previewSurface
         this.fpsRange = probe.fpsRange
+        this.physicalId = probe.physicalId
+        this.useStreamUseCases = probe.videoStreamUseCases
+        this.retriedWithoutUseCases = false
+        this.lastLensInfo = ""
         this.listener = listener
         this.zoom = zoom
         closed = false
@@ -200,8 +239,8 @@ class Camera2Source(context: Context) {
         val encoder = encoderSurface ?: return
         session?.close()
         session = null
-        val outputs = mutableListOf(OutputConfiguration(encoder))
-        previewSurface?.let { outputs += OutputConfiguration(it) }
+        val outputs = mutableListOf(output(encoder, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASE_VIDEO_RECORD))
+        previewSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASE_PREVIEW) }
         try {
             camera.createCaptureSession(
                 SessionConfiguration(
@@ -220,7 +259,15 @@ class Camera2Source(context: Context) {
                         }
 
                         override fun onConfigureFailed(failed: CameraCaptureSession) {
-                            if (!closed) listener?.onError("Configuration de la caméra refusée")
+                            if (closed) return
+                            if (useStreamUseCases && !retriedWithoutUseCases) {
+                                // Certaines combinaisons refusent les cas d'usage de flux : on réessaie sans.
+                                retriedWithoutUseCases = true
+                                useStreamUseCases = false
+                                createSession()
+                            } else {
+                                listener?.onError("Configuration de la caméra refusée")
+                            }
                         }
                     },
                 ),
@@ -277,6 +324,7 @@ class Camera2Source(context: Context) {
             request: CaptureRequest,
             result: TotalCaptureResult,
         ) {
+            reportLens(result)
             if (locked || lockPending) return
             framesSinceChange++
             val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
@@ -294,6 +342,33 @@ class Camera2Source(context: Context) {
                 }
             }
         }
+    }
+
+    private fun output(surface: Surface, streamUseCase: Int): OutputConfiguration =
+        OutputConfiguration(surface).also {
+            physicalId?.let { id -> it.setPhysicalCameraId(id) }
+            if (useStreamUseCases) it.setStreamUseCase(streamUseCase.toLong())
+        }
+
+    /** Remonte l'objectif réellement utilisé, pour vérifier à l'écran que le zoom est bien optique. */
+    private fun reportLens(result: TotalCaptureResult) {
+        val active = result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID)
+        val focal = result.get(CaptureResult.LENS_FOCAL_LENGTH)
+        val text = buildString {
+            append("objectif ").append(active ?: physicalId ?: "unique")
+            if (focal != null) append(" · ").append("%.1f".format(focal)).append(" mm")
+        }
+        if (text != lastLensInfo) {
+            lastLensInfo = text
+            listener?.onLensInfo(text)
+        }
+    }
+
+    /** Focale équivalente 24x36 : permet de comparer les objectifs entre eux. */
+    private fun equivFocal(c: CameraCharacteristics): Float {
+        val focal = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: return 0f
+        val width = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.width ?: return 0f
+        return if (width > 0f) focal * 36f / width else 0f
     }
 
     private fun pickSize(sizes: Array<Size>): Size {

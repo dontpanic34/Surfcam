@@ -6,6 +6,7 @@ import android.os.PowerManager
 import android.view.Surface
 import com.surfcam.app.data.camera.Camera2Source
 import com.surfcam.app.data.camera.CameraProbe
+import com.surfcam.app.data.camera.Lens
 import com.surfcam.app.data.encoder.HevcEncoder
 import com.surfcam.app.data.storage.SavedClip
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
@@ -26,6 +27,8 @@ data class EngineState(
     val minZoom: Float = 1f,
     val maxZoom: Float = 1f,
     val locked: Boolean = false,
+    val lens: Lens = Lens.MAIN,
+    val lensInfo: String? = null,
     val bufferedSec: Float = 0f,
     val bufferedMb: Int = 0,
     val clipActive: Boolean = false,
@@ -59,17 +62,17 @@ class RecordingEngine(private val context: Context) {
 
     /** [displayRotationDegrees] : rotation de l'écran (0, 90, 180, 270) au moment du démarrage. */
     @Synchronized
-    fun start(displayRotationDegrees: Int) {
+    fun start(displayRotationDegrees: Int, lens: Lens) {
         if (_state.value.phase == Phase.STARTING || _state.value.phase == Phase.RUNNING) return
-        _state.value = EngineState(phase = Phase.STARTING, thermalStatus = power.currentThermalStatus)
+        _state.value = EngineState(phase = Phase.STARTING, lens = lens, thermalStatus = power.currentThermalStatus)
         power.addThermalStatusListener(mainExecutor, thermalListener)
 
         val source = Camera2Source(context)
         try {
-            val firstTry = tryStart(source, 60, displayRotationDegrees)
+            val firstTry = tryStart(source, 60, displayRotationDegrees, lens)
             if (!firstTry) {
                 teardownPipeline()
-                if (!tryStart(source, 30, displayRotationDegrees)) {
+                if (!tryStart(source, 30, displayRotationDegrees, lens)) {
                     throw IllegalStateException("L'encodeur H.265 refuse la 4K sur ce téléphone")
                 }
             }
@@ -127,8 +130,8 @@ class RecordingEngine(private val context: Context) {
         recorder?.finish(CaptureConfig.POST_ROLL_SEC * 1_000L)
     }
 
-    private fun tryStart(source: Camera2Source, maxFps: Int, rotationDegrees: Int): Boolean {
-        val probe: CameraProbe = source.probe(maxFps)
+    private fun tryStart(source: Camera2Source, maxFps: Int, rotationDegrees: Int, lens: Lens): Boolean {
+        val probe: CameraProbe = source.probe(maxFps, lens)
         val config = probe.config
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.
@@ -173,6 +176,10 @@ class RecordingEngine(private val context: Context) {
         source.open(probe, encoderSurface, previewSurface, 1f, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
+            }
+
+            override fun onLensInfo(text: String) {
+                _state.update { it.copy(lensInfo = text) }
             }
 
             override fun onError(message: String) {

@@ -10,6 +10,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.surfcam.app.SurfCamApp
 import com.surfcam.app.service.RecordingService
@@ -22,11 +26,14 @@ class MainActivity : ComponentActivity() {
         val engine = (application as SurfCamApp).engine
 
         setContent {
+            var tele by rememberSaveable { mutableStateOf(false) }
             val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-                if (granted[Manifest.permission.CAMERA] == true) startSession()
+                if (granted[Manifest.permission.CAMERA] == true) startSession(tele)
             }
             RecordingScreen(
                 engine = engine,
+                tele = tele,
+                onTeleChange = { tele = it },
                 onStartSession = {
                     val wanted = buildList {
                         add(Manifest.permission.CAMERA)
@@ -41,7 +48,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startSession() {
+    private fun startSession(tele: Boolean) {
         val rotation = when (display.rotation) {
             Surface.ROTATION_90 -> 90
             Surface.ROTATION_180 -> 180
@@ -50,6 +57,7 @@ class MainActivity : ComponentActivity() {
         }
         val intent = Intent(this, RecordingService::class.java)
             .putExtra(RecordingService.EXTRA_ROTATION_DEGREES, rotation)
+            .putExtra(RecordingService.EXTRA_TELE, tele)
         ContextCompat.startForegroundService(this, intent)
     }
 }
