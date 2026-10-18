@@ -32,6 +32,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val engine = (application as SurfCamApp).engine
+        // Si une session s'est mal terminée, on ne laisse pas le téléphone en silence total.
+        if (engine.state.value.phase != Phase.RUNNING && engine.state.value.phase != Phase.STARTING) {
+            com.surfcam.app.service.DoNotDisturb.restore(this)
+        }
 
         setContent {
             val app = application as SurfCamApp
@@ -43,7 +47,8 @@ class MainActivity : ComponentActivity() {
             var fps60 by rememberSaveable { mutableStateOf(false) }
             var detection by rememberSaveable { mutableStateOf(true) }
             var sleepScreen by rememberSaveable { mutableStateOf(true) }
-            val options = SessionOptions(tele = tele, fullSession = fullSession, hd = hd, fps60 = fps60, storage = storageVolume, detection = detection, sleepScreen = sleepScreen)
+            var doNotDisturb by rememberSaveable { mutableStateOf(true) }
+            val options = SessionOptions(tele = tele, fullSession = fullSession, hd = hd, fps60 = fps60, storage = storageVolume, detection = detection, sleepScreen = sleepScreen, doNotDisturb = doNotDisturb)
             var showLibrary by rememberSaveable { mutableStateOf(false) }
             val library = remember { VideoLibrary(applicationContext) }
             BackHandler(enabled = showLibrary) { showLibrary = false }
@@ -88,6 +93,7 @@ class MainActivity : ComponentActivity() {
                     storageVolume = it.storage
                     detection = it.detection
                     sleepScreen = it.sleepScreen
+                    doNotDisturb = it.doNotDisturb
                 },
                 onStartSession = {
                     val wanted = buildList {
@@ -118,6 +124,7 @@ class MainActivity : ComponentActivity() {
             .putExtra(RecordingService.EXTRA_STORAGE, options.storage)
             .putExtra(RecordingService.EXTRA_FPS60, options.fps60)
             .putExtra(RecordingService.EXTRA_DETECTION, options.detection)
+            .putExtra(RecordingService.EXTRA_DND, options.doNotDisturb)
         ContextCompat.startForegroundService(this, intent)
     }
 }

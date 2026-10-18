@@ -1,5 +1,10 @@
 package com.surfcam.app.presentation
 
+import android.content.Intent
+import android.provider.Settings
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
+import com.surfcam.app.service.DoNotDisturb
 import android.os.PowerManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -151,7 +156,34 @@ fun RecordingScreen(
     }
     val deviceForSleep by rememberDeviceStatus()
 
+    // Rappel avant de démarrer : le mode avion économise la batterie et évite les appels (une appli ne peut pas l'activer seule).
+    val context = LocalContext.current
+    var askAirplane by remember { mutableStateOf(false) }
+    val startGuarded = {
+        val airplane = Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1
+        if (airplane) onStartSession() else askAirplane = true
+    }
+
     SurfCamTheme {
+        if (askAirplane) {
+            AlertDialog(
+                onDismissRequest = { askAirplane = false },
+                title = { Text("Mode avion activé ?") },
+                text = { Text("Il économise la batterie et évite les appels pendant que tu surfes. Active-le depuis les réglages rapides, puis démarre.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        askAirplane = false
+                        onStartSession()
+                    }) { Text("Démarrer quand même") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        askAirplane = false
+                    }) { Text("Ouvrir les réglages") }
+                },
+            )
+        }
         if (crashReport != null) CrashDialog(crashReport, onDismissCrash)
         if (showInfo) InfoDialog(state, options, onOptionsChange, engine, running) { showInfo = false }
         Surface(
@@ -173,7 +205,7 @@ fun RecordingScreen(
                     Viewfinder(engine, state, hasCamera, Modifier.weight(1f).fillMaxHeight())
                     ControlPanel(
                         state, running, options, onOptionsChange, engine,
-                        onOpenLibrary, { showInfo = true }, onStartSession, onStopSession,
+                        onOpenLibrary, { showInfo = true }, startGuarded, onStopSession,
                     )
                 }
                 if (asleep) SleepOverlay(deviceForSleep) {
@@ -446,6 +478,7 @@ private fun Toggle(label: String, selected: Boolean, modifier: Modifier = Modifi
 /** Réglages d'avant session, en quatre lignes courtes. Les explications sont dans « Infos ». */
 @Composable
 private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions) -> Unit, engine: RecordingEngine) {
+    val context = LocalContext.current
     var storages by remember { mutableStateOf(engine.storage.available()) }
     LaunchedEffect(Unit) {
         // Sondé toutes les 3 s : brancher ou retirer une carte SD / une clé USB se voit sans rien faire.
@@ -467,6 +500,23 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Toggle("Écran noir après 1 min", options.sleepScreen, Modifier.weight(1f)) { onOptionsChange(options.copy(sleepScreen = !options.sleepScreen)) }
+        Toggle("Ne pas déranger", options.doNotDisturb, Modifier.weight(1f)) {
+            val turnOn = !options.doNotDisturb
+            onOptionsChange(options.copy(doNotDisturb = turnOn))
+            // Première fois : Android demande à l'utilisateur d'autoriser l'app dans ses réglages.
+            if (turnOn && !DoNotDisturb.isAllowed(context)) {
+                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+    }
+    val dndAllowed by produceState(DoNotDisturb.isAllowed(context)) {
+        while (true) {
+            value = DoNotDisturb.isAllowed(context)
+            delay(2_000)
+        }
+    }
+    if (options.doNotDisturb && !dndAllowed) {
+        Text("Ne pas déranger : autorisation à donner (touche la pastille)", color = SurfColors.Warn, fontSize = 11.sp, maxLines = 2)
     }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         storages.forEach { choice ->

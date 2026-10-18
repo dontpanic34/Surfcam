@@ -21,6 +21,8 @@ data class SessionOptions(
     val detection: Boolean = true,
     /** Écran noir après 1 minute sans toucher pendant une session (économie d'énergie) ; un toucher le réveille. */
     val sleepScreen: Boolean = true,
+    /** Silence total (« Ne pas déranger ») pendant la session : pas d'appel ni de notification. */
+    val doNotDisturb: Boolean = true,
 ) {
     val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
 

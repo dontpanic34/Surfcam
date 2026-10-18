@@ -28,6 +28,7 @@ class RecordingService : Service() {
         val engine = (application as SurfCamApp).engine
         if (intent?.action == ACTION_STOP) {
             engine.stop()
+            DoNotDisturb.restore(this)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -44,12 +45,14 @@ class RecordingService : Service() {
             fps60 = intent?.getBooleanExtra(EXTRA_FPS60, false) == true,
             detection = intent?.getBooleanExtra(EXTRA_DETECTION, true) != false,
         )
+        if (intent?.getBooleanExtra(EXTRA_DND, false) == true) DoNotDisturb.enable(this)
         engine.start(intent?.getIntExtra(EXTRA_ROTATION_DEGREES, 90) ?: 90, options)
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         (application as SurfCamApp).engine.stop()
+        DoNotDisturb.restore(this)
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
         super.onDestroy()
@@ -98,6 +101,7 @@ class RecordingService : Service() {
         const val EXTRA_STORAGE = "storage"
         const val EXTRA_FPS60 = "fps60"
         const val EXTRA_DETECTION = "detection"
+        const val EXTRA_DND = "dnd"
         private const val CHANNEL_ID = "session"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TIMEOUT_MS = 3 * 60 * 60 * 1000L
