@@ -4,14 +4,31 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Vague qui déferle -->
+    <!-- Cadre de visée, discret -->
     <path
-        android:fillColor="#2BD9C4"
-        android:pathData="M24,70 C24,50 38,36 56,36 C70,36 80,44 84,56 C78,52 70,52 66,58 C62,64 66,72 74,74 L84,74 L84,80 L24,80 Z" />
-    <!-- Cadre de visée -->
+        android:strokeColor="#4F6B7A"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M32,40 L32,34 L38,34 M70,34 L76,34 L76,40 M76,68 L76,74 L70,74 M38,74 L32,74 L32,68" />
+    <!-- Crête de la vague qui s'enroule -->
+    <path
+        android:strokeColor="#2BD9C4"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M35,62 C37,50 46,43 56,43 C64,43 70,48 70,55 C70,60 65,62 62,59 C60,57 61,54 64,54" />
+    <!-- Lignes d'eau -->
     <path
         android:strokeColor="#E9F3F5"
         android:strokeWidth="3"
         android:strokeLineCap="round"
-        android:pathData="M30,30 L30,24 L36,24 M78,24 L84,24 L84,30 M84,86 L84,92 L78,92 M36,92 L30,92 L30,86" />
+        android:strokeLineJoin="round"
+        android:pathData="M35,67 C40,64 44,70 49,67 C54,64 58,70 63,67 C66,65 69,65 71,66" />
+    <path
+        android:strokeColor="#7FB5C0"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M41,73 C45,71 48,75 52,73 C56,71 59,75 63,73" />
 </vector>
