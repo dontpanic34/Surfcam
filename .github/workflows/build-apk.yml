@@ -1,0 +1,47 @@
+name: Compilation de l'APK
+
+# À chaque envoi sur main : tests, compilation, puis publication de l'APK dans la release "debug-latest",
+# téléchargeable directement depuis le téléphone (page Releases du dépôt).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Tests et compilation
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
+
+      - name: Déplace le tag debug-latest sur ce commit
+        run: |
+          git tag -f debug-latest
+          git push -f origin debug-latest
+
+      - name: Publie l'APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: debug-latest
+          name: Dernière version de test
+          prerelease: true
+          body: "APK de debug compilé automatiquement depuis le dernier commit de main."
+          files: app/build/outputs/apk/debug/app-debug.apk

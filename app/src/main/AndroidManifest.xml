@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="true" />
+
+    <application
+        android:name=".SurfCamApp"
+        android:allowBackup="false"
+        android:label="SurfCam"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <activity
+            android:name=".presentation.MainActivity"
+            android:exported="true"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".service.RecordingService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
+    </application>
+</manifest>

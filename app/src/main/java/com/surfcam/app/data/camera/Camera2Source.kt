@@ -1,0 +1,309 @@
+package com.surfcam.app.data.camera
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.SessionConfiguration
+import android.media.MediaCodec
+import android.os.Handler
+import android.os.HandlerThread
+import android.util.Range
+import android.util.Size
+import android.view.Surface
+import com.surfcam.app.domain.model.CaptureConfig
+import java.util.concurrent.Executor
+
+/** Ce que le téléphone sait faire, et la caméra retenue pour filmer. */
+data class CameraProbe(
+    val cameraId: String,
+    val config: CaptureConfig,
+    val fpsRange: Range<Int>,
+    val sensorOrientation: Int,
+    val minZoom: Float,
+    val maxZoom: Float,
+)
+
+/**
+ * Caméra arrière pilotée directement avec Camera2 : la 4K part vers l'encodeur, un aperçu léger vers l'écran.
+ * Mise au point verrouillée à l'infini ; exposition et balance des blancs laissées converger puis verrouillées,
+ * pour que les reflets de l'eau ne fassent pas varier l'image.
+ */
+class Camera2Source(context: Context) {
+
+    interface Listener {
+        fun onLockChanged(locked: Boolean)
+        fun onError(message: String)
+    }
+
+    private val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    private val thread = HandlerThread("camera2").apply { start() }
+    private val handler = Handler(thread.looper)
+    private val executor = Executor { handler.post(it) }
+
+    private var characteristics: CameraCharacteristics? = null
+    private var device: CameraDevice? = null
+    private var session: CameraCaptureSession? = null
+    private var encoderSurface: Surface? = null
+    private var previewSurface: Surface? = null
+    private var fpsRange: Range<Int>? = null
+    private var listener: Listener? = null
+
+    private var zoom = 1f
+    private var locked = false
+    private var lockPending = false
+    private var framesSinceChange = 0
+    private var closed = false
+
+    /** Choisit la caméra, la définition et la cadence ; [maxFps] permet de retomber à 30 si 60 échoue. */
+    fun probe(maxFps: Int): CameraProbe {
+        var best: Pair<String, CameraCharacteristics>? = null
+        var bestZoom = 0f
+        for (id in manager.cameraIdList) {
+            val c = manager.getCameraCharacteristics(id)
+            if (c.get(CameraCharacteristics.LENS_FACING) != CameraCharacteristics.LENS_FACING_BACK) continue
+            val maxRatio = c.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)?.upper ?: 1f
+            if (maxRatio > bestZoom) {
+                bestZoom = maxRatio
+                best = id to c
+            }
+        }
+        val (id, chars) = best ?: throw IllegalStateException("Aucune caméra arrière")
+
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            ?: throw IllegalStateException("Caméra sans configuration de flux")
+        val sizes = map.getOutputSizes(MediaCodec::class.java)
+            ?: throw IllegalStateException("La caméra ne sait pas filmer vers l'encodeur")
+        val size = pickSize(sizes)
+
+        val minFrameNs = map.getOutputMinFrameDuration(MediaCodec::class.java, size)
+        val sizeMaxFps = if (minFrameNs > 0) (1_000_000_000L / minFrameNs).toInt() else 30
+        val ranges = chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)?.toList().orEmpty()
+        val wantedFps = if (maxFps >= 60 && sizeMaxFps >= 59 && ranges.any { it.upper >= 60 }) 60 else 30
+        val range = ranges.filter { it.upper == wantedFps }.let { r ->
+            r.firstOrNull { it.lower == wantedFps } ?: r.maxByOrNull { it.lower }
+        } ?: ranges.maxByOrNull { it.upper } ?: Range(30, 30)
+
+        val fps = range.upper
+        val bitrate = when {
+            size.width >= 3840 && fps >= 60 -> 60_000_000
+            size.width >= 3840 -> 40_000_000
+            else -> 20_000_000
+        }
+        val zoomRange = chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+        characteristics = chars
+        return CameraProbe(
+            cameraId = id,
+            config = CaptureConfig(size.width, size.height, fps, bitrate),
+            fpsRange = range,
+            sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
+            minZoom = zoomRange?.lower ?: 1f,
+            maxZoom = zoomRange?.upper ?: 1f,
+        )
+    }
+
+    @SuppressLint("MissingPermission")
+    fun open(probe: CameraProbe, encoderSurface: Surface, previewSurface: Surface?, zoom: Float, listener: Listener) {
+        this.encoderSurface = encoderSurface
+        this.previewSurface = previewSurface
+        this.fpsRange = probe.fpsRange
+        this.listener = listener
+        this.zoom = zoom
+        closed = false
+        manager.openCamera(
+            probe.cameraId,
+            object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    if (closed) {
+                        camera.close()
+                        return
+                    }
+                    device = camera
+                    createSession()
+                }
+
+                override fun onDisconnected(camera: CameraDevice) {
+                    camera.close()
+                    device = null
+                    if (!closed) listener.onError("Caméra déconnectée")
+                }
+
+                override fun onError(camera: CameraDevice, error: Int) {
+                    camera.close()
+                    device = null
+                    if (!closed) listener.onError("Erreur caméra ($error)")
+                }
+            },
+            handler,
+        )
+    }
+
+    /** Branche ou débranche l'aperçu : la session est recréée, l'encodeur garde la même surface. */
+    fun setPreviewSurface(surface: Surface?) {
+        handler.post {
+            if (previewSurface === surface) return@post
+            previewSurface = surface
+            if (device != null && !closed) createSession()
+        }
+    }
+
+    fun setZoom(ratio: Float) {
+        handler.post {
+            zoom = ratio
+            unlock()
+            applyRequest()
+        }
+    }
+
+    /** Relâche puis refait converger l'exposition et la balance des blancs (changement de lumière). */
+    fun relock() {
+        handler.post {
+            unlock()
+            applyRequest()
+        }
+    }
+
+    fun stop() {
+        closed = true
+        handler.post {
+            try {
+                session?.stopRepeating()
+            } catch (_: Exception) {
+            }
+            session?.close()
+            session = null
+            device?.close()
+            device = null
+        }
+    }
+
+    fun release() {
+        stop()
+        thread.quitSafely()
+    }
+
+    private fun unlock() {
+        locked = false
+        lockPending = false
+        framesSinceChange = 0
+        listener?.onLockChanged(false)
+    }
+
+    private fun createSession() {
+        val camera = device ?: return
+        val encoder = encoderSurface ?: return
+        session?.close()
+        session = null
+        val outputs = mutableListOf(OutputConfiguration(encoder))
+        previewSurface?.let { outputs += OutputConfiguration(it) }
+        try {
+            camera.createCaptureSession(
+                SessionConfiguration(
+                    SessionConfiguration.SESSION_REGULAR,
+                    outputs,
+                    executor,
+                    object : CameraCaptureSession.StateCallback() {
+                        override fun onConfigured(configured: CameraCaptureSession) {
+                            if (closed) {
+                                configured.close()
+                                return
+                            }
+                            session = configured
+                            unlock()
+                            applyRequest()
+                        }
+
+                        override fun onConfigureFailed(failed: CameraCaptureSession) {
+                            if (!closed) listener?.onError("Configuration de la caméra refusée")
+                        }
+                    },
+                ),
+            )
+        } catch (e: Exception) {
+            listener?.onError("Session caméra impossible : ${e.message}")
+        }
+    }
+
+    private fun applyRequest() {
+        val camera = device ?: return
+        val current = session ?: return
+        val chars = characteristics ?: return
+        val encoder = encoderSurface ?: return
+        try {
+            val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+            builder.addTarget(encoder)
+            previewSurface?.let { builder.addTarget(it) }
+            fpsRange?.let { builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
+
+            // Mise au point à l'infini : le surfeur est à plus de 50 m.
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+            builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0f)
+
+            // Caméra sur trépied : aucune stabilisation, elle déformerait le cadrage.
+            if (supports(chars.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES), CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)) {
+                builder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
+            }
+            if (supports(chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION), CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF)) {
+                builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF)
+            }
+
+            builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoom)
+
+            if (locked) {
+                if (chars.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) == true) {
+                    builder.set(CaptureRequest.CONTROL_AE_LOCK, true)
+                }
+                if (chars.get(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE) == true) {
+                    builder.set(CaptureRequest.CONTROL_AWB_LOCK, true)
+                }
+            }
+            current.setRepeatingRequest(builder.build(), captureCallback, handler)
+        } catch (e: Exception) {
+            if (!closed) listener?.onError("Requête caméra impossible : ${e.message}")
+        }
+    }
+
+    private fun supports(available: IntArray?, mode: Int): Boolean = available?.contains(mode) == true
+
+    private val captureCallback = object : CameraCaptureSession.CaptureCallback() {
+        override fun onCaptureCompleted(
+            session: CameraCaptureSession,
+            request: CaptureRequest,
+            result: TotalCaptureResult,
+        ) {
+            if (locked || lockPending) return
+            framesSinceChange++
+            val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
+            val converged = aeState == null ||
+                aeState == CaptureResult.CONTROL_AE_STATE_CONVERGED ||
+                aeState == CaptureResult.CONTROL_AE_STATE_LOCKED
+            if (framesSinceChange >= CONVERGENCE_FRAMES && converged) {
+                lockPending = true
+                handler.post {
+                    if (closed) return@post
+                    locked = true
+                    lockPending = false
+                    applyRequest()
+                    listener?.onLockChanged(true)
+                }
+            }
+        }
+    }
+
+    private fun pickSize(sizes: Array<Size>): Size {
+        sizes.firstOrNull { it.width == 3840 && it.height == 2160 }?.let { return it }
+        val widescreen = sizes.filter { it.width * 9 == it.height * 16 }
+        return (widescreen.ifEmpty { sizes.toList() }).maxBy { it.width * it.height }
+    }
+
+    private companion object {
+        // Environ deux secondes de convergence avant de verrouiller.
+        const val CONVERGENCE_FRAMES = 90
+    }
+}
