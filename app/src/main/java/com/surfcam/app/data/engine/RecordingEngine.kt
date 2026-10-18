@@ -65,15 +65,17 @@ class RecordingEngine(private val context: Context) {
     @Synchronized
     fun start(displayRotationDegrees: Int, lens: Lens) {
         if (_state.value.phase == Phase.STARTING || _state.value.phase == Phase.RUNNING) return
-        // Libère l'aperçu (ou les restes d'une session en erreur) avant de rouvrir la caméra pour filmer.
-        releaseCamera()
-        teardownPipeline()
-        _state.value = EngineState(phase = Phase.STARTING, lens = lens, thermalStatus = power.currentThermalStatus)
-        power.removeThermalStatusListener(thermalListener)
-        power.addThermalStatusListener(mainExecutor, thermalListener)
-
-        val source = Camera2Source(context)
+        _state.value = EngineState(phase = Phase.STARTING, lens = lens)
+        var source: Camera2Source? = null
         try {
+            // Libère l'aperçu (ou les restes d'une session en erreur) avant de rouvrir la caméra pour filmer.
+            releaseCamera()
+            teardownPipeline()
+            _state.update { it.copy(thermalStatus = power.currentThermalStatus) }
+            power.removeThermalStatusListener(thermalListener)
+            power.addThermalStatusListener(mainExecutor, thermalListener)
+
+            source = Camera2Source(context)
             val firstTry = tryStart(source, 60, displayRotationDegrees, lens)
             if (!firstTry) {
                 teardownPipeline()
@@ -82,10 +84,13 @@ class RecordingEngine(private val context: Context) {
                 }
             }
             camera = source
-        } catch (e: Exception) {
-            source.release()
-            teardownPipeline()
-            fail(e.message ?: "Démarrage impossible")
+        } catch (e: Throwable) {
+            source?.release()
+            try {
+                teardownPipeline()
+            } catch (_: Throwable) {
+            }
+            fail("${e.javaClass.simpleName} : ${e.message ?: "démarrage impossible"}")
         }
     }
 

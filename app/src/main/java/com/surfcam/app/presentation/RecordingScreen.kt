@@ -15,7 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -47,6 +51,8 @@ fun RecordingScreen(
     engine: RecordingEngine,
     tele: Boolean,
     hasCamera: Boolean,
+    crashReport: String?,
+    onDismissCrash: () -> Unit,
     onTeleChange: (Boolean) -> Unit,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
@@ -75,6 +81,7 @@ fun RecordingScreen(
     }
 
     MaterialTheme {
+        if (crashReport != null) CrashDialog(crashReport, onDismissCrash)
         Surface(modifier = Modifier.fillMaxSize()) {
             Row(modifier = Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
@@ -96,6 +103,26 @@ fun RecordingScreen(
             }
         }
     }
+}
+
+@Composable
+private fun CrashDialog(report: String, onDismiss: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("L'app s'est arrêtée la dernière fois") },
+        text = {
+            Text(
+                report.take(3000),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { clipboard.setText(AnnotatedString(report)) }) { Text("Copier") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
+    )
 }
 
 @Composable

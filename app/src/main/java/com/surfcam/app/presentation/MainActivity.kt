@@ -29,6 +29,8 @@ class MainActivity : ComponentActivity() {
         val engine = (application as SurfCamApp).engine
 
         setContent {
+            val app = application as SurfCamApp
+            var crash by remember { mutableStateOf(app.readLastCrash()) }
             var tele by rememberSaveable { mutableStateOf(false) }
             var hasCamera by remember {
                 mutableStateOf(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
@@ -47,6 +49,11 @@ class MainActivity : ComponentActivity() {
                 engine = engine,
                 tele = tele,
                 hasCamera = hasCamera,
+                crashReport = crash,
+                onDismissCrash = {
+                    app.clearLastCrash()
+                    crash = null
+                },
                 onTeleChange = { tele = it },
                 onStartSession = {
                     val wanted = buildList {
