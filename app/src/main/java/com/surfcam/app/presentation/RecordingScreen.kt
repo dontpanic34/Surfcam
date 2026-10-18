@@ -1,6 +1,5 @@
 package com.surfcam.app.presentation
 
-import android.os.Environment
 import android.os.PowerManager
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -73,6 +72,9 @@ import com.surfcam.app.data.engine.SessionOptions
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.presentation.theme.SurfColors
 import com.surfcam.app.presentation.theme.SurfCamTheme
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 
 @Composable
 fun RecordingScreen(
@@ -368,7 +370,7 @@ private fun ControlPanel(
                 )
                 OptionSwitch(
                     "Enregistrer toute la session",
-                    "Fichiers de 5 min dans Movies/SurfCam · environ ${options.gigabytesPerHour()} Go par heure",
+                    "Fichiers de 2 min dans Movies/SurfCam · environ ${options.gigabytesPerHour()} Go par heure",
                     options.fullSession,
                 ) { onOptionsChange(options.copy(fullSession = it)) }
                 OptionSwitch(
@@ -376,13 +378,49 @@ private fun ControlPanel(
                     "Crée un clip à chaque vague repérée",
                     options.detection,
                 ) { onOptionsChange(options.copy(detection = it)) }
-                val freeGb = remember { Environment.getExternalStorageDirectory().usableSpace / 1_000_000_000L }
-                Text(
-                    "Espace libre : $freeGb Go" +
-                        if (options.fullSession && options.gigabytesPerHour() > 0) " · environ ${freeGb / options.gigabytesPerHour()} h possibles" else "",
-                    color = if (options.fullSession && freeGb < 2L * options.gigabytesPerHour()) SurfColors.Warn else SurfColors.Muted,
-                    fontSize = 12.sp,
-                )
+                var storages by remember { mutableStateOf(engine.storage.available()) }
+                LaunchedEffect(Unit) {
+                    // Sondé toutes les 3 s : brancher ou retirer une carte SD / une clé USB se voit sans rien faire.
+                    while (true) {
+                        storages = withContext(Dispatchers.IO) { engine.storage.available() }
+                        delay(3_000)
+                    }
+                }
+                Text("Enregistrer sur", color = SurfColors.Muted, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    storages.forEach { choice ->
+                        FilterChip(
+                            selected = options.storage == choice.name,
+                            onClick = { onOptionsChange(options.copy(storage = choice.name)) },
+                            label = {
+                                Text(
+                                    choice.label + (choice.freeBytes?.let { " · ${it / 1_000_000_000L} Go" } ?: ""),
+                                    fontSize = 12.sp,
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
+                        )
+                    }
+                }
+                if (storages.none { it.removable }) {
+                    Text(
+                        "Pour enregistrer sur une carte SD ou une clé USB : branche un lecteur (USB-C). Le support apparaîtra ici. Format exFAT recommandé.",
+                        color = SurfColors.Muted,
+                        fontSize = 11.sp,
+                    )
+                }
+                if (storages.none { it.name == options.storage }) {
+                    Text("Le support choisi n'est pas branché : la session enregistrera sur le téléphone.", color = SurfColors.Warn, fontSize = 11.sp)
+                }
+                val freeGb = (storages.firstOrNull { it.name == options.storage } ?: storages.firstOrNull())?.freeBytes?.let { it / 1_000_000_000L }
+                if (freeGb != null) {
+                    Text(
+                        "Espace libre : $freeGb Go" +
+                            if (options.fullSession && options.gigabytesPerHour() > 0) " · environ ${freeGb / options.gigabytesPerHour()} h possibles" else "",
+                        color = if (options.fullSession && freeGb < 2L * options.gigabytesPerHour()) SurfColors.Warn else SurfColors.Muted,
+                        fontSize = 12.sp,
+                    )
+                }
             }
         }
 

@@ -23,6 +23,7 @@ import com.surfcam.app.data.camera.CameraProbe
 import com.surfcam.app.data.camera.Lens
 import com.surfcam.app.data.encoder.HevcEncoder
 import com.surfcam.app.data.storage.SavedClip
+import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
 import com.surfcam.app.domain.clip.ClipAction
 import com.surfcam.app.domain.model.CaptureConfig
@@ -79,6 +80,14 @@ class RecordingEngine(private val context: Context) {
     private val _state = MutableStateFlow(EngineState())
     val state: StateFlow<EngineState> = _state.asStateFlow()
 
+    /** Où les vidéos sont écrites ; l'écran y lit aussi la liste des supports branchés. */
+    val storage = StorageTarget(context).also { target ->
+        target.onFallback = { message ->
+            _state.update { it.copy(message = message) }
+            alert("SurfCam : stockage externe retiré", message)
+        }
+    }
+
     private val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     private val mainExecutor = Executor { it.run() }
 
@@ -116,12 +125,21 @@ class RecordingEngine(private val context: Context) {
     fun start(displayRotationDegrees: Int, options: SessionOptions) {
         if (_state.value.phase == Phase.STARTING || _state.value.phase == Phase.RUNNING) return
         clipsSaved = 0
+        // Le support choisi doit être branché ; sinon on enregistre sur le téléphone, en le disant.
+        val storageMessage = if (options.storage == StorageTarget.PHONE || storage.available().any { it.name == options.storage }) {
+            storage.select(options.storage)
+            null
+        } else {
+            storage.select(StorageTarget.PHONE)
+            "Le support choisi n'est pas branché : enregistrement sur le téléphone"
+        }
         _state.value = EngineState(
             phase = Phase.STARTING,
             lens = options.lens,
             zoom = desiredZoom,
             detectionEnabled = options.detection,
             fullSession = options.fullSession,
+            message = storageMessage,
         )
         if (freeBytes() < MIN_START_FREE_BYTES) {
             fail("Espace libre insuffisant pour démarrer : il faut au moins 1,5 Go")
@@ -262,7 +280,7 @@ class RecordingEngine(private val context: Context) {
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.
         val hint = (probe.sensorOrientation - rotationDegrees + 360) % 360
-        val clips = ClipRecorder(context, buffer, hint) { saved, error -> onClipResult(saved, error) }
+        val clips = ClipRecorder(context, buffer, hint, storage) { saved, error -> onClipResult(saved, error) }
         ring = buffer
         recorder = clips
         sampleCount = 0
@@ -270,7 +288,7 @@ class RecordingEngine(private val context: Context) {
         lastStatsPtsUs = -1L
 
         val sessionRecorder = if (options.fullSession) {
-            SessionRecorder(context, hint) { part, message ->
+            SessionRecorder(context, hint, storage) { part, message ->
                 _state.update { it.copy(sessionPart = part, message = message ?: it.message) }
             }
         } else {
@@ -419,7 +437,8 @@ class RecordingEngine(private val context: Context) {
     // Garde-fous : espace, chaleur, batterie. En cas de danger, les fichiers sont refermés proprement.
     // ------------------------------------------------------------------------------------------
 
-    private fun freeBytes(): Long = Environment.getExternalStorageDirectory().usableSpace
+    // Espace libre du support d'enregistrement ; s'il est inconnu, on ne bloque pas (une erreur d'écriture le dira).
+    private fun freeBytes(): Long = storage.freeBytes() ?: Long.MAX_VALUE
 
     private fun startSafetyChecks() {
         safetyRunning = true

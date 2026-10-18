@@ -15,6 +15,8 @@ data class SessionOptions(
      * principal (recadrage numérique). À 30, le zoom peut basculer sur le téléobjectif vers ×5.
      */
     val fps60: Boolean = false,
+    /** Volume MediaStore où enregistrer : "external_primary" (téléphone) ou le nom d'une carte SD / clé USB branchée. */
+    val storage: String = "external_primary",
     /** Détection automatique des vagues (clips créés tout seuls). */
     val detection: Boolean = true,
 ) {

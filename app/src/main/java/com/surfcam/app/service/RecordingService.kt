@@ -40,6 +40,7 @@ class RecordingService : Service() {
             tele = intent?.getBooleanExtra(EXTRA_TELE, false) == true,
             fullSession = intent?.getBooleanExtra(EXTRA_FULL_SESSION, false) == true,
             hd = intent?.getBooleanExtra(EXTRA_HD, false) == true,
+            storage = intent?.getStringExtra(EXTRA_STORAGE) ?: "external_primary",
             fps60 = intent?.getBooleanExtra(EXTRA_FPS60, false) == true,
             detection = intent?.getBooleanExtra(EXTRA_DETECTION, true) != false,
         )
@@ -94,6 +95,7 @@ class RecordingService : Service() {
         const val EXTRA_TELE = "tele"
         const val EXTRA_FULL_SESSION = "full_session"
         const val EXTRA_HD = "hd"
+        const val EXTRA_STORAGE = "storage"
         const val EXTRA_FPS60 = "fps60"
         const val EXTRA_DETECTION = "detection"
         private const val CHANNEL_ID = "session"

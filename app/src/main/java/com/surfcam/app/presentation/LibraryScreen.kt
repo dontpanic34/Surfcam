@@ -28,7 +28,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,6 +50,7 @@ import com.surfcam.app.presentation.theme.SurfCamTheme
 import com.surfcam.app.presentation.theme.SurfColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -59,6 +62,10 @@ fun LibraryScreen(library: VideoLibrary, sessionRunning: Boolean, onBack: () -> 
     var videos by remember { mutableStateOf<List<LibraryVideo>>(emptyList()) }
     var loaded by remember { mutableStateOf(false) }
     var toDelete by remember { mutableStateOf<LibraryVideo?>(null) }
+    val scope = rememberCoroutineScope()
+    // Progression des copies en cours (0 à 1), par vidéo.
+    val copying = remember { mutableStateMapOf<String, Float>() }
+    var copyMessage by remember { mutableStateOf<String?>(null) }
 
     // Rafraîchi toutes les 3 s : une vidéo « en traitement » devient lisible sans rien faire.
     LaunchedEffect(Unit) {
@@ -82,6 +89,8 @@ fun LibraryScreen(library: VideoLibrary, sessionRunning: Boolean, onBack: () -> 
                     )
                 }
 
+                copyMessage?.let { Banner(it) }
+
                 val pendingCount = videos.count { it.pending }
                 if (pendingCount > 0) {
                     Banner(
@@ -98,8 +107,24 @@ fun LibraryScreen(library: VideoLibrary, sessionRunning: Boolean, onBack: () -> 
                 }
 
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
-                    items(videos, key = { it.id }) { video ->
-                        VideoRow(library, video, onDelete = { toDelete = video })
+                    items(videos, key = { it.key }) { video ->
+                        VideoRow(
+                            library = library,
+                            video = video,
+                            copyProgress = copying[video.key],
+                            onDelete = { toDelete = video },
+                            onCopy = {
+                                copyMessage = null
+                                copying[video.key] = 0f
+                                scope.launch {
+                                    val ok = withContext(Dispatchers.IO) {
+                                        library.copyToPhone(video) { copying[video.key] = it }
+                                    }
+                                    copying.remove(video.key)
+                                    copyMessage = if (ok) "Copiée sur le téléphone : ${video.name}" else "La copie a échoué : ${video.name}"
+                                }
+                            },
+                        )
                     }
                 }
             }
@@ -112,7 +137,7 @@ fun LibraryScreen(library: VideoLibrary, sessionRunning: Boolean, onBack: () -> 
                     confirmButton = {
                         TextButton(onClick = {
                             library.delete(video)
-                            videos = videos.filter { it.id != video.id }
+                            videos = videos.filter { it.key != video.key }
                             toDelete = null
                         }) { Text("Supprimer", color = SurfColors.Alert) }
                     },
@@ -138,7 +163,13 @@ private fun Banner(text: String) {
 }
 
 @Composable
-private fun VideoRow(library: VideoLibrary, video: LibraryVideo, onDelete: () -> Unit) {
+private fun VideoRow(
+    library: VideoLibrary,
+    video: LibraryVideo,
+    copyProgress: Float?,
+    onDelete: () -> Unit,
+    onCopy: () -> Unit,
+) {
     val context = LocalContext.current
     val thumbnail by produceState<Bitmap?>(null, video.id, video.pending) {
         value = if (video.pending) null else withContext(Dispatchers.IO) { library.thumbnail(video, 320, 180) }
@@ -173,7 +204,14 @@ private fun VideoRow(library: VideoLibrary, video: LibraryVideo, onDelete: () ->
                 color = SurfColors.Muted,
                 fontSize = 12.sp,
             )
-            Text(video.name, color = SurfColors.Muted, fontSize = 10.sp)
+            Text(
+                (if (video.isExternal) "Sur : ${video.volumeLabel}" else "Sur le téléphone") + " · ${video.name}",
+                color = if (video.isExternal) SurfColors.Info else SurfColors.Muted,
+                fontSize = 11.sp,
+            )
+            if (copyProgress != null) {
+                Text("Copie en cours : ${(copyProgress * 100).toInt()} %", color = SurfColors.Aqua, fontSize = 12.sp)
+            }
             if (video.pending) {
                 Text("En cours de traitement : pas encore lisible", color = SurfColors.Warn, fontSize = 12.sp)
             }
@@ -191,6 +229,9 @@ private fun VideoRow(library: VideoLibrary, video: LibraryVideo, onDelete: () ->
                     }
                 },
             ) { Text("Lire") }
+            if (video.isExternal) {
+                OutlinedButton(enabled = !video.pending && copyProgress == null, onClick = onCopy) { Text("Copier sur le téléphone", fontSize = 11.sp) }
+            }
             TextButton(enabled = !video.pending, onClick = onDelete) { Text("Supprimer", color = SurfColors.Alert) }
         }
     }

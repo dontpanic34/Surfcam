@@ -2,8 +2,8 @@ package com.surfcam.app.data.engine
 
 import android.content.Context
 import android.media.MediaFormat
-import android.os.Environment
 import com.surfcam.app.data.storage.ClipWriter
+import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.model.EncodedSample
 import java.util.concurrent.Executors
 
@@ -15,6 +15,7 @@ import java.util.concurrent.Executors
 class SessionRecorder(
     private val context: Context,
     private val orientationHint: Int,
+    private val target: StorageTarget,
     private val segmentSec: Int = 120,
     private val onEvent: (parts: Int, message: String?) -> Unit,
 ) {
@@ -47,24 +48,32 @@ class SessionRecorder(
             if (dueForNewSegment) {
                 if (!sample.isKeyFrame) return
                 closeWriter()
-                if (Environment.getExternalStorageDirectory().usableSpace < MIN_FREE_BYTES) {
+                val free = target.freeBytes()
+                if (free != null && free < MIN_FREE_BYTES) {
                     failed = true
                     onEvent(parts, "Espace insuffisant : l'enregistrement complet est arrêté (les clips continuent)")
                     return
                 }
                 parts++
-                writer = ClipWriter(context, fmt, orientationHint, "SurfCam_Session", "_partie%02d".format(parts))
+                writer = ClipWriter(context, fmt, orientationHint, "SurfCam_Session", "_partie%02d".format(parts), target.volume)
                 segmentStartUs = sample.ptsUs
                 onEvent(parts, null)
             }
             writer?.write(sample)
         } catch (e: Exception) {
-            failed = true
             try {
                 closeWriter()
             } catch (_: Exception) {
             }
-            onEvent(parts, "Enregistrement complet interrompu : ${e.message}")
+            writer = null
+            if (target.isExternal) {
+                // Carte retirée ou câble débranché : on continue sur le téléphone, au prochain segment.
+                target.fallBackToPhone("Stockage externe retiré : la session continue sur le téléphone")
+                onEvent(parts, "Stockage externe retiré : la session continue sur le téléphone")
+            } else {
+                failed = true
+                onEvent(parts, "Enregistrement complet interrompu : ${e.message}")
+            }
         }
     }
 

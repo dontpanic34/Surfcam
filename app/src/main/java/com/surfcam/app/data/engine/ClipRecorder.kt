@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaFormat
 import com.surfcam.app.data.storage.ClipWriter
 import com.surfcam.app.data.storage.SavedClip
+import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
 import com.surfcam.app.domain.model.EncodedSample
 import java.util.concurrent.Executors
@@ -18,6 +19,7 @@ class ClipRecorder(
     private val context: Context,
     private val ring: EncodedRingBuffer,
     private val orientationHint: Int,
+    private val target: StorageTarget,
     private val onResult: (SavedClip?, String?) -> Unit,
 ) {
     private val executor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
@@ -58,7 +60,14 @@ class ClipRecorder(
         active = true
         executor.execute {
             try {
-                val w = ClipWriter(context, fmt, orientationHint)
+                val w = try {
+                    ClipWriter(context, fmt, orientationHint, volume = target.volume)
+                } catch (e: Exception) {
+                    if (!target.isExternal) throw e
+                    // Support externe indisponible : le clip est écrit sur le téléphone, rien n'est perdu.
+                    target.fallBackToPhone("Stockage externe indisponible : les vidéos sont enregistrées sur le téléphone")
+                    ClipWriter(context, fmt, orientationHint, volume = target.volume)
+                }
                 writer = w
                 snapshot.forEach { w.write(it) }
             } catch (e: Exception) {

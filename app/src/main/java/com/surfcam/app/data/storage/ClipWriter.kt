@@ -26,6 +26,8 @@ class ClipWriter(
     orientationHint: Int,
     namePrefix: String = "SurfCam",
     nameSuffix: String = "",
+    /** Volume MediaStore où créer le fichier (le téléphone par défaut, ou une carte SD / clé USB). */
+    volume: String = StorageTarget.PHONE,
 ) {
     private val resolver = context.contentResolver
     private val name = namePrefix + "_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + nameSuffix + ".mp4"
@@ -46,7 +48,7 @@ class ClipWriter(
             put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SurfCam")
             put(MediaStore.Video.Media.IS_PENDING, 1)
         }
-        uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+        uri = resolver.insert(StorageTarget.videoUri(volume), values)
             ?: throw IllegalStateException("Impossible de créer le fichier vidéo")
         try {
             descriptor = resolver.openFileDescriptor(uri, "w")
