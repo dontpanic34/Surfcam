@@ -19,6 +19,8 @@ data class SessionOptions(
     val storage: String = "external_primary",
     /** Détection automatique des vagues (clips créés tout seuls). */
     val detection: Boolean = true,
+    /** Écran noir après 1 minute sans toucher pendant une session (économie d'énergie) ; un toucher le réveille. */
+    val sleepScreen: Boolean = true,
 ) {
     val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
 

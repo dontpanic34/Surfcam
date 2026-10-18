@@ -42,7 +42,8 @@ class MainActivity : ComponentActivity() {
             var storageVolume by rememberSaveable { mutableStateOf("external_primary") }
             var fps60 by rememberSaveable { mutableStateOf(false) }
             var detection by rememberSaveable { mutableStateOf(true) }
-            val options = SessionOptions(tele = tele, fullSession = fullSession, hd = hd, fps60 = fps60, storage = storageVolume, detection = detection)
+            var sleepScreen by rememberSaveable { mutableStateOf(true) }
+            val options = SessionOptions(tele = tele, fullSession = fullSession, hd = hd, fps60 = fps60, storage = storageVolume, detection = detection, sleepScreen = sleepScreen)
             var showLibrary by rememberSaveable { mutableStateOf(false) }
             val library = remember { VideoLibrary(applicationContext) }
             BackHandler(enabled = showLibrary) { showLibrary = false }
@@ -86,6 +87,7 @@ class MainActivity : ComponentActivity() {
                     fps60 = it.fps60
                     storageVolume = it.storage
                     detection = it.detection
+                    sleepScreen = it.sleepScreen
                 },
                 onStartSession = {
                     val wanted = buildList {

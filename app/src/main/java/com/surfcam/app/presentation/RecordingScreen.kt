@@ -1,6 +1,10 @@
 package com.surfcam.app.presentation
 
 import android.os.PowerManager
+import android.os.SystemClock
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.platform.LocalView
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.BorderStroke
@@ -80,6 +84,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 
+private const val SLEEP_AFTER_MS = 60_000L
+
 @Composable
 fun RecordingScreen(
     engine: RecordingEngine,
@@ -116,19 +122,57 @@ fun RecordingScreen(
         }
     }
 
+    // Écran noir après une minute sans toucher pendant une session ; un toucher le réveille.
+    val view = LocalView.current
+    var lastTouch by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    var asleep by remember { mutableStateOf(false) }
+    LaunchedEffect(running, options.sleepScreen) {
+        asleep = false
+        lastTouch = SystemClock.elapsedRealtime()
+        if (!running || !options.sleepScreen) return@LaunchedEffect
+        while (true) {
+            delay(1_000)
+            if (!asleep && SystemClock.elapsedRealtime() - lastTouch >= SLEEP_AFTER_MS) asleep = true
+        }
+    }
+    DisposableEffect(asleep) {
+        val window = (view.context as? android.app.Activity)?.window
+        window?.attributes = window?.attributes?.also { it.screenBrightness = if (asleep) 0.01f else -1f }
+        onDispose {
+            window?.attributes = window?.attributes?.also { it.screenBrightness = -1f }
+        }
+    }
+    val deviceForSleep by rememberDeviceStatus()
+
     SurfCamTheme {
         if (crashReport != null) CrashDialog(crashReport, onDismissCrash)
         if (showInfo) InfoDialog(state, options, onOptionsChange, engine, running) { showInfo = false }
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Row(
-                modifier = Modifier.fillMaxSize().padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Viewfinder(engine, state, hasCamera, Modifier.weight(1f).fillMaxHeight())
-                ControlPanel(
-                    state, running, options, onOptionsChange, engine,
-                    onOpenLibrary, { showInfo = true }, onStartSession, onStopSession,
-                )
+        Surface(
+            modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        lastTouch = SystemClock.elapsedRealtime()
+                    }
+                }
+            },
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Viewfinder(engine, state, hasCamera, Modifier.weight(1f).fillMaxHeight())
+                    ControlPanel(
+                        state, running, options, onOptionsChange, engine,
+                        onOpenLibrary, { showInfo = true }, onStartSession, onStopSession,
+                    )
+                }
+                if (asleep) SleepOverlay(deviceForSleep) {
+                    asleep = false
+                    lastTouch = SystemClock.elapsedRealtime()
+                }
             }
         }
     }
@@ -190,6 +234,16 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             )
         }
 
+        val horizon by rememberHorizonAngle()
+        if (hasCamera) horizon?.let { angle ->
+            HorizonLevel(angle)
+            InfoChip(
+                levelLabel(angle),
+                levelColor(angle),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
+            )
+        }
+
         val (label, color) = statusPill(state)
         Pill(label, color, modifier = Modifier.align(Alignment.TopStart).padding(12.dp))
 
@@ -198,6 +252,22 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             val config = state.config
+            val device by rememberDeviceStatus()
+            device?.let { d ->
+                if (d.batteryPercent >= 0) {
+                    InfoChip(
+                        "Batterie ${d.batteryPercent} %" + if (d.charging) " ⚡" else "",
+                        if (d.batteryPercent <= 15 && !d.charging) SurfColors.Alert else SurfColors.Foam,
+                    )
+                }
+                d.temperatureC?.let { t ->
+                    // Le degré est celui de la batterie ; l'état du système (normale, forte...) reste donné à côté.
+                    val color = if (state.thermalStatus > PowerManager.THERMAL_STATUS_LIGHT) {
+                        if (temperatureColor(t) == SurfColors.Ok) thermalColor(state.thermalStatus) else temperatureColor(t)
+                    } else temperatureColor(t)
+                    InfoChip("%.1f °C · %s".format(t, thermalLabel(state.thermalStatus)).replace('.', ','), color)
+                }
+            }
             if (state.phase == Phase.RUNNING && config != null) {
                 if (state.fullSession) InfoChip("REC session · partie ${state.sessionPart}", SurfColors.Alert)
                 InfoChip(resolutionLabel(config), SurfColors.Foam)
@@ -207,7 +277,6 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                         if (state.actualFps < config.fps * 0.85f) SurfColors.Warn else SurfColors.Foam,
                     )
                 }
-                InfoChip("Chauffe ${thermalLabel(state.thermalStatus)}", thermalColor(state.thermalStatus))
             }
         }
 
@@ -395,6 +464,9 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Toggle("Session complète", options.fullSession, Modifier.weight(1f)) { onOptionsChange(options.copy(fullSession = !options.fullSession)) }
         Toggle("Détection", options.detection, Modifier.weight(1f)) { onOptionsChange(options.copy(detection = !options.detection)) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Toggle("Écran noir après 1 min", options.sleepScreen, Modifier.weight(1f)) { onOptionsChange(options.copy(sleepScreen = !options.sleepScreen)) }
     }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         storages.forEach { choice ->
