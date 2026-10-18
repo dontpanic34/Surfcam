@@ -7,6 +7,7 @@ import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
+import java.util.concurrent.atomic.AtomicBoolean
 import android.view.Surface
 import com.surfcam.app.domain.clip.ClipAction
 import com.surfcam.app.domain.clip.ClipPlanner
@@ -55,9 +56,16 @@ class AnalysisPipeline(
         fun onReceived(count: Int)
     }
 
-    private val thread = HandlerThread("analysis").apply { start() }
-    private val handler = Handler(thread.looper)
-    private val reader = ImageReader.newInstance(WIDTH, HEIGHT, ImageFormat.YUV_420_888, 3)
+    // Deux fils distincts : l'un ne fait que prélever et rendre les images de la caméra (rapide, quelques ms), l'autre
+    // exécute le modèle (lent, environ 0,3 s). Garder une image pendant l'analyse bloquerait la caméra entière.
+    private val readerThread = HandlerThread("analysis-reader").apply { start() }
+    private val readerHandler = Handler(readerThread.looper)
+    private val inferenceThread = HandlerThread("analysis-inference").apply { start() }
+    private val inferenceHandler = Handler(inferenceThread.looper)
+    private val reader = ImageReader.newInstance(WIDTH, HEIGHT, ImageFormat.YUV_420_888, 4)
+
+    /** Vrai tant que le modèle lit le tenseur d'entrée : on ne le réécrit pas avant la fin de l'analyse. */
+    private val busy = AtomicBoolean(false)
 
     private val letterbox = Letterbox(WIDTH, HEIGHT, OnnxPersonDetector.MODEL_WIDTH, OnnxPersonDetector.MODEL_HEIGHT)
     private val converter = YuvToTensor()
@@ -87,18 +95,21 @@ class AnalysisPipeline(
     val surface: Surface get() = reader.surface
 
     init {
-        handler.post { loadModel() }
-        reader.setOnImageAvailableListener({ onImage() }, handler)
+        inferenceHandler.post { loadModel() }
+        reader.setOnImageAvailableListener({ onImage() }, readerHandler)
     }
 
     fun release() {
         released = true
         reader.setOnImageAvailableListener(null, null)
-        handler.post {
+        readerHandler.post {
+            reader.close()
+            readerThread.quitSafely()
+        }
+        inferenceHandler.post {
             detector?.close()
             detector = null
-            reader.close()
-            thread.quitSafely()
+            inferenceThread.quitSafely()
         }
     }
 
@@ -111,27 +122,41 @@ class AnalysisPipeline(
         }
     }
 
+    /** Fil de lecture : copie l'image dans le tenseur, la rend aussitôt à la caméra, puis passe la main au modèle. */
     private fun onImage() {
         val image = try {
             reader.acquireLatestImage()
         } catch (_: IllegalStateException) {
             null
         } ?: return
-        var stage = "reception"
         try {
             received++
             if (received == 1 || received % HEARTBEAT_EVERY == 0) listener.onReceived(received)
-            val model = detector
-            if (released || paused || model == null) return
+            if (released || paused || detector == null || busy.get()) return
             val timestampUs = image.timestamp / 1_000
             if (!throttle.accept(timestampUs)) return
 
-            val started = SystemClock.elapsedRealtime()
-            stage = "conversion de l'image"
             converter.convert(image, input, letterbox)
-            stage = "modele"
-            val detections = model.detect(input, letterbox, timestampUs)
-            stage = "suivi"
+            busy.set(true)
+            inferenceHandler.post { analyse(timestampUs) }
+        } catch (t: Throwable) {
+            fail("conversion de l'image", t)
+        } finally {
+            image.close()
+        }
+    }
+
+    /** Fil d'analyse : modèle, suivi, détection de vague, clips. Libère le tenseur à la fin. */
+    private fun analyse(timestampUs: Long) {
+        try {
+            val model = detector ?: return
+            val started = SystemClock.elapsedRealtime()
+            val detections = try {
+                model.detect(input, letterbox, timestampUs)
+            } catch (t: Throwable) {
+                fail("modele", t)
+                return
+            }
             frames++
             if (frames % THUMBNAIL_EVERY == 1) thumbnail = makeThumbnail()
             val tracks = tracker.update(detections, timestampUs)
@@ -158,11 +183,15 @@ class AnalysisPipeline(
                 ),
             )
         } catch (t: Throwable) {
-            released = true
-            listener.onStatus("Analyse arrêtée ($stage) : ${t.javaClass.simpleName} ${t.message ?: ""}".trim())
+            fail("suivi", t)
         } finally {
-            image.close()
+            busy.set(false)
         }
+    }
+
+    private fun fail(stage: String, t: Throwable) {
+        released = true
+        listener.onStatus("Analyse arrêtée ($stage) : ${t.javaClass.simpleName} ${t.message ?: ""}".trim())
     }
 
     /** Vignette 320×180 de l'image telle que le modèle la reçoit (échantillonnée, sans les bandes grises). */
@@ -190,7 +219,7 @@ class AnalysisPipeline(
         const val THUMB_WIDTH = 320
         const val THUMB_HEIGHT = 180
         const val THUMBNAIL_EVERY = 5
-        const val HEARTBEAT_EVERY = 15
+        const val HEARTBEAT_EVERY = 30
         const val WIDTH = CaptureConfig.ANALYSIS_WIDTH
         const val HEIGHT = CaptureConfig.ANALYSIS_HEIGHT
         const val MIN_INTERVAL_US = CaptureConfig.ANALYSIS_INTERVAL_MS * 1_000L

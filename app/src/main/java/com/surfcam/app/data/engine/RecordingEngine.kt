@@ -46,6 +46,8 @@ data class EngineState(
     val lensInfo: String? = null,
     val maxFpsAtSize: Int = 0,
     val keyFrameIntervalSec: Float = 0f,
+    /** Cadence réellement obtenue de la caméra (images par seconde), mesurée sur la vidéo encodée. */
+    val actualFps: Float = 0f,
     val bufferedSec: Float = 0f,
     val bufferedMb: Int = 0,
     val clipActive: Boolean = false,
@@ -95,6 +97,7 @@ class RecordingEngine(private val context: Context) {
     private var severeSinceMs = 0L
     private var lowSpaceWarned = false
     private var lastKeyFramePtsUs = -1L
+    private var lastStatsPtsUs = -1L
 
     private val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
         _state.update { it.copy(thermalStatus = status) }
@@ -264,6 +267,7 @@ class RecordingEngine(private val context: Context) {
         recorder = clips
         sampleCount = 0
         lastKeyFramePtsUs = -1L
+        lastStatsPtsUs = -1L
 
         val sessionRecorder = if (options.fullSession) {
             SessionRecorder(context, hint) { part, message ->
@@ -320,7 +324,14 @@ class RecordingEngine(private val context: Context) {
                     }
                     lastKeyFramePtsUs = sample.ptsUs
                 }
-                if (++sampleCount % STATS_EVERY == 0L) publishBufferStats(buffer)
+                if (++sampleCount % STATS_EVERY == 0L) {
+                    publishBufferStats(buffer)
+                    if (lastStatsPtsUs >= 0 && sample.ptsUs > lastStatsPtsUs) {
+                        val fps = STATS_EVERY * 1_000_000f / (sample.ptsUs - lastStatsPtsUs)
+                        _state.update { it.copy(actualFps = fps) }
+                    }
+                    lastStatsPtsUs = sample.ptsUs
+                }
             }
 
             override fun onError(error: Exception) {

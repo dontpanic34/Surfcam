@@ -190,6 +190,12 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             if (state.phase == Phase.RUNNING && config != null) {
                 if (state.fullSession) InfoChip("REC session · partie ${state.sessionPart}", SurfColors.Alert)
                 InfoChip(resolutionLabel(config), SurfColors.Foam)
+                if (state.actualFps > 0f) {
+                    InfoChip(
+                        "%.0f i/s réels".format(state.actualFps),
+                        if (state.actualFps < config.fps * 0.85f) SurfColors.Warn else SurfColors.Foam,
+                    )
+                }
                 InfoChip("%.0f s en mémoire".format(state.bufferedSec), SurfColors.Foam)
                 state.analysis?.let { InfoChip("Analyse ${it.inferenceMs} ms", SurfColors.Foam) }
                 InfoChip("Chauffe ${thermalLabel(state.thermalStatus)}", thermalColor(state.thermalStatus))
