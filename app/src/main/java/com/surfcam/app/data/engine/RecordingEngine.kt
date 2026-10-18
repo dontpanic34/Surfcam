@@ -72,7 +72,7 @@ class RecordingEngine(private val context: Context) {
             releaseCamera()
             teardownPipeline()
             _state.update { it.copy(thermalStatus = power.currentThermalStatus) }
-            power.removeThermalStatusListener(thermalListener)
+            unregisterThermalListener()
             power.addThermalStatusListener(mainExecutor, thermalListener)
 
             source = Camera2Source(context)
@@ -97,7 +97,7 @@ class RecordingEngine(private val context: Context) {
     @Synchronized
     fun stop() {
         if (_state.value.phase == Phase.IDLE || _state.value.phase == Phase.PREVIEW) return
-        power.removeThermalStatusListener(thermalListener)
+        unregisterThermalListener()
         releaseCamera()
         teardownPipeline()
         _state.update { it.copy(phase = Phase.IDLE, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, message = null) }
@@ -255,6 +255,14 @@ class RecordingEngine(private val context: Context) {
                 lastClip = saved?.let { s -> "${s.name} (${"%.1f".format(s.durationSec)} s, ${s.sizeBytes / (1024 * 1024)} Mo)" } ?: it.lastClip,
                 message = error,
             )
+        }
+    }
+
+    /** Android lève une exception si l'écouteur n'a jamais été ajouté ; ici ce n'est pas une erreur. */
+    private fun unregisterThermalListener() {
+        try {
+            power.removeThermalStatusListener(thermalListener)
+        } catch (_: IllegalArgumentException) {
         }
     }
 
