@@ -29,6 +29,7 @@ data class EngineState(
     val locked: Boolean = false,
     val lens: Lens = Lens.MAIN,
     val lensInfo: String? = null,
+    val maxFpsAtSize: Int = 0,
     val bufferedSec: Float = 0f,
     val bufferedMb: Int = 0,
     val clipActive: Boolean = false,
@@ -168,6 +169,7 @@ class RecordingEngine(private val context: Context) {
             it.copy(
                 phase = Phase.RUNNING,
                 config = config,
+                maxFpsAtSize = probe.maxFpsAtSize,
                 zoom = 1f,
                 minZoom = probe.minZoom,
                 maxZoom = probe.maxZoom,

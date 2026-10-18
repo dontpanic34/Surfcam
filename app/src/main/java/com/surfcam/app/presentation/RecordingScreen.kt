@@ -135,7 +135,11 @@ private fun statusText(state: EngineState): String = buildString {
         Phase.STARTING -> append("Démarrage…")
         Phase.ERROR -> append("Erreur")
         Phase.RUNNING -> {
-            if (config != null) append("${config.width}×${config.height} à ${config.fps} i/s\n")
+            if (config != null) {
+                append("${config.width}×${config.height} à ${config.fps} i/s")
+                if (state.maxFpsAtSize in 1 until 59) append(" (max ${state.maxFpsAtSize} avec cet objectif)")
+                append("\n")
+            }
             append("Tampon : %.1f s (%d Mo)\n".format(state.bufferedSec, state.bufferedMb))
             append("Zoom ${"%.1f".format(state.zoom)}×")
         }

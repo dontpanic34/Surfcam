@@ -30,6 +30,8 @@ data class CameraProbe(
     /** Si non nul : objectif physique à utiliser à l'intérieur de la caméra logique [cameraId]. */
     val physicalId: String?,
     val videoStreamUseCases: Boolean,
+    /** Cadence maximale annoncée par l'objectif pour cette définition (peut être inférieure à 60). */
+    val maxFpsAtSize: Int,
     val config: CaptureConfig,
     val fpsRange: Range<Int>,
     val sensorOrientation: Int,
@@ -135,6 +137,7 @@ class Camera2Source(context: Context) {
             cameraId = cameraId,
             physicalId = physical,
             videoStreamUseCases = videoUseCase,
+            maxFpsAtSize = sizeMaxFps,
             config = CaptureConfig(size.width, size.height, fps, bitrate),
             fpsRange = range,
             sensorOrientation = sizeChars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
@@ -331,7 +334,8 @@ class Camera2Source(context: Context) {
             val converged = aeState == null ||
                 aeState == CaptureResult.CONTROL_AE_STATE_CONVERGED ||
                 aeState == CaptureResult.CONTROL_AE_STATE_LOCKED
-            if (framesSinceChange >= CONVERGENCE_FRAMES && converged) {
+            // Convergence normale, ou verrouillage forcé si la lumière faible empêche d'y arriver.
+            if ((framesSinceChange >= CONVERGENCE_FRAMES && converged) || framesSinceChange >= MAX_CONVERGENCE_FRAMES) {
                 lockPending = true
                 handler.post {
                     if (closed) return@post
@@ -380,5 +384,8 @@ class Camera2Source(context: Context) {
     private companion object {
         // Environ deux secondes de convergence avant de verrouiller.
         const val CONVERGENCE_FRAMES = 90
+
+        // Au plus environ quatre à huit secondes d'attente, selon la cadence.
+        const val MAX_CONVERGENCE_FRAMES = 240
     }
 }
