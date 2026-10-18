@@ -3,28 +3,37 @@ package com.surfcam.app.presentation
 import android.os.PowerManager
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.TextButton
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -32,19 +41,27 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import com.surfcam.app.data.camera.Lens
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.surfcam.app.data.camera.Lens
 import com.surfcam.app.data.engine.EngineState
 import com.surfcam.app.data.engine.Phase
 import com.surfcam.app.data.engine.RecordingEngine
 import com.surfcam.app.domain.model.CaptureConfig
+import com.surfcam.app.presentation.theme.SurfColors
+import com.surfcam.app.presentation.theme.SurfCamTheme
 
 @Composable
 fun RecordingScreen(
@@ -80,30 +97,284 @@ fun RecordingScreen(
         }
     }
 
-    MaterialTheme {
+    SurfCamTheme {
         if (crashReport != null) CrashDialog(crashReport, onDismissCrash)
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Row(modifier = Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
-                        factory = { context ->
-                            SurfaceView(context).apply {
-                                holder.setFixedSize(CaptureConfig.PREVIEW_WIDTH, CaptureConfig.PREVIEW_HEIGHT)
-                                holder.addCallback(object : SurfaceHolder.Callback {
-                                    override fun surfaceCreated(h: SurfaceHolder) = engine.setPreviewSurface(h.surface)
-                                    override fun surfaceChanged(h: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
-                                    override fun surfaceDestroyed(h: SurfaceHolder) = engine.setPreviewSurface(null)
-                                })
-                            }
-                        },
-                    )
-                }
-                Controls(state, running, tele, onTeleChange, engine, onStartSession, onStopSession)
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Row(
+                modifier = Modifier.fillMaxSize().padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Viewfinder(engine, state, hasCamera, Modifier.weight(1f).fillMaxHeight())
+                ControlPanel(state, running, tele, onTeleChange, engine, onStartSession, onStopSession)
             }
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Viseur : l'image de la caméra, avec l'état de la session en pastilles par-dessus.
+// ---------------------------------------------------------------------------------------------
+
+@Composable
+private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: Boolean, modifier: Modifier) {
+    Box(
+        modifier = modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+            factory = { context ->
+                SurfaceView(context).apply {
+                    holder.setFixedSize(CaptureConfig.PREVIEW_WIDTH, CaptureConfig.PREVIEW_HEIGHT)
+                    holder.addCallback(object : SurfaceHolder.Callback {
+                        override fun surfaceCreated(h: SurfaceHolder) = engine.setPreviewSurface(h.surface)
+                        override fun surfaceChanged(h: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+                        override fun surfaceDestroyed(h: SurfaceHolder) = engine.setPreviewSurface(null)
+                    })
+                }
+            },
+        )
+
+        if (!hasCamera) {
+            Text(
+                "Autorise l'accès à la caméra pour voir l'image",
+                color = SurfColors.Muted,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+
+        val (label, color) = statusPill(state)
+        Pill(label, color, modifier = Modifier.align(Alignment.TopStart).padding(12.dp))
+
+        Row(
+            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val config = state.config
+            if (state.phase == Phase.RUNNING && config != null) {
+                InfoChip(resolutionLabel(config), SurfColors.Foam)
+                InfoChip("%.0f s en mémoire".format(state.bufferedSec), SurfColors.Foam)
+                InfoChip("Chauffe ${thermalLabel(state.thermalStatus)}", thermalColor(state.thermalStatus))
+            }
+        }
+
+        state.lensInfo?.let {
+            InfoChip(it, SurfColors.Muted, modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun Pill(text: String, color: Color, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color(0xCC0B1620))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.width(8.dp))
+        Text(text, color = SurfColors.Foam, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun InfoChip(text: String, color: Color, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        color = color,
+        fontSize = 12.sp,
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xCC0B1620))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+    )
+}
+
+private fun statusPill(state: EngineState): Pair<String, Color> = when (state.phase) {
+    Phase.IDLE -> "Prêt" to SurfColors.Muted
+    Phase.PREVIEW -> "Aperçu · rien n'est enregistré" to SurfColors.Info
+    Phase.STARTING -> "Démarrage…" to SurfColors.Warn
+    Phase.ERROR -> "Erreur" to SurfColors.Alert
+    Phase.RUNNING ->
+        if (state.clipActive) "Vague en cours d'enregistrement" to SurfColors.Alert
+        else "En veille · prêt à enregistrer" to SurfColors.Ok
+}
+
+private fun resolutionLabel(config: CaptureConfig): String {
+    val name = if (config.width >= 3840) "4K" else "${config.height}p"
+    return "$name · ${config.fps} i/s"
+}
+
+// ---------------------------------------------------------------------------------------------
+// Panneau de commandes.
+// ---------------------------------------------------------------------------------------------
+
+@Composable
+private fun ControlPanel(
+    state: EngineState,
+    running: Boolean,
+    tele: Boolean,
+    onTeleChange: (Boolean) -> Unit,
+    engine: RecordingEngine,
+    onStartSession: () -> Unit,
+    onStopSession: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.width(300.dp).fillMaxHeight().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("SurfCam", color = SurfColors.Aqua, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+
+        if (!running) {
+            Section("Objectif · à choisir avant la session") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LensChoice("Principal", "4K · 60 i/s", !tele, { onTeleChange(false) }, Modifier.weight(1f))
+                    LensChoice("Télé 5×", "4K · 30 i/s", tele, { onTeleChange(true) }, Modifier.weight(1f))
+                }
+                Text(
+                    if (tele) "Plus de détail, champ étroit : à utiliser quand tu connais ta zone."
+                    else "Grand champ : tu es plus petit à l'image, mais tu ne sors pas du cadre.",
+                    color = SurfColors.Muted,
+                    fontSize = 12.sp,
+                )
+            }
+        }
+
+        if (running) {
+            OutlinedButton(
+                onClick = onStopSession,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                border = BorderStroke(1.5.dp, SurfColors.Alert),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = SurfColors.Alert),
+            ) { Text("Arrêter la session", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+        } else {
+            Button(
+                onClick = onStartSession,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+            ) { Text("Démarrer la session", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+        }
+
+        if (state.phase == Phase.RUNNING) {
+            Section("Image") {
+                Text("Zoom numérique", color = SurfColors.Muted, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(1f, 2f).filter { it >= state.minZoom && it <= state.maxZoom }.forEach { ratio ->
+                        FilterChip(
+                            selected = state.zoom == ratio,
+                            onClick = { engine.setZoom(ratio) },
+                            label = { Text("${ratio.toInt()}×") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = SurfColors.Aqua,
+                                selectedLabelColor = SurfColors.OnAqua,
+                            ),
+                        )
+                    }
+                }
+                OutlinedButton(onClick = engine::relock, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        if (state.locked) "Exposition verrouillée · relancer" else "Exposition en réglage…",
+                        color = if (state.locked) SurfColors.Ok else SurfColors.Warn,
+                    )
+                }
+            }
+
+            Section("Test manuel · remplacé bientôt par l'IA") {
+                if (state.clipActive) {
+                    Button(
+                        onClick = engine::finishClip,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SurfColors.Alert, contentColor = Color.White),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                    ) { Text("Fin de vague · +${CaptureConfig.POST_ROLL_SEC} s") }
+                } else {
+                    Button(
+                        onClick = engine::startClip,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                    ) { Text("Début de vague · -${CaptureConfig.PRE_ROLL_SEC} s") }
+                }
+            }
+        }
+
+        state.message?.let {
+            Text(
+                it,
+                color = SurfColors.Alert,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0x33FF6B6B))
+                    .padding(12.dp),
+            )
+        }
+
+        state.lastClip?.let {
+            Section("Dernier clip") {
+                Text(it, color = SurfColors.Foam, fontSize = 13.sp)
+                Text("Galerie · dossier SurfCam", color = SurfColors.Muted, fontSize = 12.sp)
+            }
+        }
+
+        details(state)?.let {
+            Text(it, color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 16.sp)
+        }
+    }
+}
+
+@Composable
+private fun Section(title: String, content: @Composable () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(title, color = SurfColors.Aqua, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        content()
+    }
+}
+
+@Composable
+private fun LensChoice(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(if (selected) SurfColors.Aqua else Color(0x14FFFFFF))
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            title,
+            color = if (selected) SurfColors.OnAqua else SurfColors.Foam,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+        )
+        Text(subtitle, color = if (selected) SurfColors.OnAqua else SurfColors.Muted, fontSize = 11.sp)
+    }
+}
+
+private fun details(state: EngineState): String? {
+    if (state.phase != Phase.RUNNING) return null
+    val config = state.config ?: return null
+    return buildString {
+        append("${config.width}×${config.height} à ${config.fps} i/s")
+        if (state.maxFpsAtSize in 1 until 59) append(" (max ${state.maxFpsAtSize} avec cet objectif)")
+        append("\nTampon : %.1f s · %d Mo".format(state.bufferedSec, state.bufferedMb))
+        if (state.keyFrameIntervalSec > 0f) append("\nImage clé toutes les %.1f s".format(state.keyFrameIntervalSec))
+        append("\nZoom ${"%.1f".format(state.zoom)}×")
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Rapport de plantage.
+// ---------------------------------------------------------------------------------------------
 
 @Composable
 private fun CrashDialog(report: String, onDismiss: () -> Unit) {
@@ -125,87 +396,6 @@ private fun CrashDialog(report: String, onDismiss: () -> Unit) {
     )
 }
 
-@Composable
-private fun Controls(
-    state: EngineState,
-    running: Boolean,
-    tele: Boolean,
-    onTeleChange: (Boolean) -> Unit,
-    engine: RecordingEngine,
-    onStartSession: () -> Unit,
-    onStopSession: () -> Unit,
-) {
-    Column(
-        modifier = Modifier.width(280.dp).fillMaxHeight().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (!running) {
-            Text("Objectif (choisi avant la session)", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = !tele, onClick = { onTeleChange(false) }, label = { Text("Principal") })
-                FilterChip(selected = tele, onClick = { onTeleChange(true) }, label = { Text("Télé 5× optique") })
-            }
-        }
-        if (running) {
-            OutlinedButton(onClick = onStopSession, modifier = Modifier.fillMaxWidth()) { Text("Arrêter la session") }
-        } else {
-            Button(onClick = onStartSession, modifier = Modifier.fillMaxWidth()) { Text("Démarrer la session") }
-        }
-
-        if (state.phase == Phase.RUNNING) {
-            if (state.clipActive) {
-                Button(onClick = engine::finishClip, modifier = Modifier.fillMaxWidth()) {
-                    Text("Fin de vague (+${CaptureConfig.POST_ROLL_SEC} s)")
-                }
-            } else {
-                Button(onClick = engine::startClip, modifier = Modifier.fillMaxWidth()) {
-                    Text("Début de vague (-${CaptureConfig.PRE_ROLL_SEC} s)")
-                }
-            }
-
-            Text("Zoom numérique", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(1f, 2f).filter { it >= state.minZoom && it <= state.maxZoom }.forEach { ratio ->
-                    FilterChip(
-                        selected = state.zoom == ratio,
-                        onClick = { engine.setZoom(ratio) },
-                        label = { Text("${ratio.toInt()}×") },
-                    )
-                }
-            }
-            OutlinedButton(onClick = engine::relock, modifier = Modifier.fillMaxWidth()) {
-                Text(if (state.locked) "Exposition verrouillée · relancer" else "Exposition en réglage…")
-            }
-        }
-
-        Text(statusText(state), style = MaterialTheme.typography.bodyMedium)
-        state.lensInfo?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-        state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        state.lastClip?.let { Text("Dernier clip : $it", style = MaterialTheme.typography.bodySmall) }
-    }
-}
-
-private fun statusText(state: EngineState): String = buildString {
-    val config = state.config
-    when (state.phase) {
-        Phase.IDLE -> append("Session arrêtée")
-        Phase.PREVIEW -> append("Aperçu : rien n'est enregistré")
-        Phase.STARTING -> append("Démarrage…")
-        Phase.ERROR -> append("Erreur")
-        Phase.RUNNING -> {
-            if (config != null) {
-                append("${config.width}×${config.height} à ${config.fps} i/s")
-                if (state.maxFpsAtSize in 1 until 59) append(" (max ${state.maxFpsAtSize} avec cet objectif)")
-                append("\n")
-            }
-            append("Tampon : %.1f s (%d Mo)\n".format(state.bufferedSec, state.bufferedMb))
-            if (state.keyFrameIntervalSec > 0f) append("Image clé toutes les %.1f s\n".format(state.keyFrameIntervalSec))
-            append("Zoom ${"%.1f".format(state.zoom)}×")
-        }
-    }
-    if (state.phase != Phase.IDLE && state.phase != Phase.PREVIEW) append("\nChauffe : ${thermalLabel(state.thermalStatus)}")
-}
-
 private fun thermalLabel(status: Int): String = when (status) {
     PowerManager.THERMAL_STATUS_NONE -> "normale"
     PowerManager.THERMAL_STATUS_LIGHT -> "légère"
@@ -213,4 +403,10 @@ private fun thermalLabel(status: Int): String = when (status) {
     PowerManager.THERMAL_STATUS_SEVERE -> "forte"
     PowerManager.THERMAL_STATUS_CRITICAL -> "critique"
     else -> "extrême"
+}
+
+private fun thermalColor(status: Int): Color = when {
+    status <= PowerManager.THERMAL_STATUS_LIGHT -> SurfColors.Ok
+    status == PowerManager.THERMAL_STATUS_MODERATE -> SurfColors.Warn
+    else -> SurfColors.Alert
 }

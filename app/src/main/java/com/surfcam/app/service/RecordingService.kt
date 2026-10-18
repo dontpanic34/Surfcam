@@ -73,7 +73,7 @@ class RecordingService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.presence_video_online)
+            .setSmallIcon(com.surfcam.app.R.drawable.ic_notification)
             .setContentTitle("SurfCam surveille la mer")
             .setContentText("Les clips de vagues sont enregistrés automatiquement")
             .setContentIntent(open)

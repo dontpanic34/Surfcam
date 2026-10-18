@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Vague qui déferle -->
+    <path
+        android:fillColor="#2BD9C4"
+        android:pathData="M24,70 C24,50 38,36 56,36 C70,36 80,44 84,56 C78,52 70,52 66,58 C62,64 66,72 74,74 L84,74 L84,80 L24,80 Z" />
+    <!-- Cadre de visée -->
+    <path
+        android:strokeColor="#E9F3F5"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M30,30 L30,24 L36,24 M78,24 L84,24 L84,30 M84,86 L84,92 L78,92 M36,92 L30,92 L30,86" />
+</vector>
