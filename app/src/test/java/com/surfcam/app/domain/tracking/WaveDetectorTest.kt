@@ -141,6 +141,29 @@ class WaveDetectorTest {
     }
 
     @Test
+    fun fastRiderKeepsOneTrackAtLowFrameRateEvenWithMissedFrames() {
+        // Analyse à 5 images/s, surfeur à 4 longueurs de corps/s (0,8 longueur par image), une image ratée sur 5.
+        val tracker = SurferTracker()
+        val ids = mutableSetOf<Int>()
+        for (i in 0 until 40) {
+            val t = i * 200_000L
+            if (i % 5 == 3) { tracker.update(emptyList(), t); continue }
+            val tracks = tracker.update(listOf(surfer(100f + i * 48f, height = 60f, tsUs = t)), t)
+            ids += tracks.map { it.id }
+        }
+        assertEquals(1, ids.size)
+    }
+
+    @Test
+    fun surferInManeuverWiderThanTallStillCounts() {
+        // Boîte presque carrée (0,95) pendant la manœuvre : ne doit pas faire perdre le départ.
+        val events = replay(12f, height = 57f, width = 60f) { t ->
+            if (t < 3f) 100f else 100f + (t - 3f) * 3f * 60f
+        }
+        assertTrue(events.any { it.second is WaveEvent.Started })
+    }
+
+    @Test
     fun trackerKeepsTheSameIdAndDropsLostTracks() {
         val tracker = SurferTracker()
         var id = -1

@@ -2,12 +2,17 @@ package com.surfcam.app.domain.tracking
 
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 
 data class TrackerConfig(
     /** Confiance minimale pour ouvrir un nouveau suivi. */
     val minConfidence: Float = 0.25f,
-    /** Distance maximale d'association, en hauteurs de corps : au-delà, c'est une autre personne. */
-    val maxJumpInBodyHeights: Float = 1.5f,
+    /** Distance maximale d'association, en longueurs de corps, entre deux images consécutives. */
+    val maxJumpInBodyLengths: Float = 1.2f,
+    /** Tolérance supplémentaire par seconde écoulée depuis la dernière détection (image ratée, surfeur masqué). */
+    val extraJumpPerSecond: Float = 2.0f,
+    /** Lissage de la vitesse estimée, utilisée pour prédire la position suivante. */
+    val velocitySmoothing: Float = 0.6f,
     /** Un suivi sans détection depuis plus longtemps que ça est abandonné. */
     val maxMissingUs: Long = 2_000_000,
     /** Durée d'historique gardée par suivi, pour mesurer les vitesses. */
@@ -34,6 +39,12 @@ class Track(val id: Int, first: Detection, private val historyUs: Long) {
         internal set
     val firstSeenUs: Long = first.timestampUs
     var hits: Int = 1
+        internal set
+
+    /** Vitesse estimée du centre de la boîte, en pixels par seconde. */
+    var velocityX: Float = 0f
+        internal set
+    var velocityY: Float = 0f
         internal set
 
     private val points = ArrayDeque<TrackPoint>()
@@ -94,10 +105,16 @@ class SurferTracker(private val config: TrackerConfig = TrackerConfig()) {
         }
         val candidates = mutableListOf<Triple<Float, Track, Detection>>()
         for (track in tracks) {
+            val dt = (timestampUs - track.lastSeenUs) / 1_000_000f
+            val predictedX = track.box.centerX + track.velocityX * dt
+            val predictedY = track.box.centerY + track.velocityY * dt
+            val gate = config.maxJumpInBodyLengths + config.extraJumpPerSecond * dt
             for (det in detections) {
-                val scale = max(track.box.height, det.box.height).coerceAtLeast(1f)
-                val cost = hypot(track.box.centerX - det.box.centerX, track.box.centerY - det.box.centerY) / scale
-                if (cost <= config.maxJumpInBodyHeights) candidates += Triple(cost, track, det)
+                val length = max(max(track.box.height, track.box.width), max(det.box.height, det.box.width)).coerceAtLeast(1f)
+                val fromPrediction = hypot(predictedX - det.box.centerX, predictedY - det.box.centerY)
+                val fromLastPosition = hypot(track.box.centerX - det.box.centerX, track.box.centerY - det.box.centerY)
+                val cost = min(fromPrediction, fromLastPosition) / length
+                if (cost <= gate) candidates += Triple(cost, track, det)
             }
         }
         val usedTracks = HashSet<Int>()
@@ -108,6 +125,12 @@ class SurferTracker(private val config: TrackerConfig = TrackerConfig()) {
             usedDetections += det
             val a = config.boxSmoothing
             val old = track.box
+            val dtSec = (timestampUs - track.lastSeenUs) / 1_000_000f
+            if (dtSec > 0f) {
+                val v = config.velocitySmoothing
+                track.velocityX = v * (det.box.centerX - old.centerX) / dtSec + (1 - v) * track.velocityX
+                track.velocityY = v * (det.box.centerY - old.centerY) / dtSec + (1 - v) * track.velocityY
+            }
             track.box = BoundingBox(
                 a * det.box.left + (1 - a) * old.left,
                 a * det.box.top + (1 - a) * old.top,
