@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.util.concurrent.Executor
 
-enum class Phase { IDLE, STARTING, RUNNING, ERROR }
+enum class Phase { IDLE, PREVIEW, STARTING, RUNNING, ERROR }
 
 data class EngineState(
     val phase: Phase = Phase.IDLE,
@@ -65,7 +65,11 @@ class RecordingEngine(private val context: Context) {
     @Synchronized
     fun start(displayRotationDegrees: Int, lens: Lens) {
         if (_state.value.phase == Phase.STARTING || _state.value.phase == Phase.RUNNING) return
+        // Libère l'aperçu (ou les restes d'une session en erreur) avant de rouvrir la caméra pour filmer.
+        releaseCamera()
+        teardownPipeline()
         _state.value = EngineState(phase = Phase.STARTING, lens = lens, thermalStatus = power.currentThermalStatus)
+        power.removeThermalStatusListener(thermalListener)
         power.addThermalStatusListener(mainExecutor, thermalListener)
 
         val source = Camera2Source(context)
@@ -87,12 +91,54 @@ class RecordingEngine(private val context: Context) {
 
     @Synchronized
     fun stop() {
-        if (_state.value.phase == Phase.IDLE) return
+        if (_state.value.phase == Phase.IDLE || _state.value.phase == Phase.PREVIEW) return
         power.removeThermalStatusListener(thermalListener)
-        camera?.release()
-        camera = null
+        releaseCamera()
         teardownPipeline()
         _state.update { it.copy(phase = Phase.IDLE, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, message = null) }
+    }
+
+    /** Ouvre la caméra en aperçu seul, sans rien enregistrer, pour cadrer avant de démarrer la session. */
+    @Synchronized
+    fun startPreview(lens: Lens) {
+        val current = _state.value
+        if (current.phase == Phase.STARTING || current.phase == Phase.RUNNING || current.phase == Phase.ERROR) return
+        if (current.phase == Phase.PREVIEW && current.lens == lens) return
+        releaseCamera()
+
+        val source = Camera2Source(context)
+        try {
+            val probe = source.probe(30, lens)
+            camera = source
+            _state.value = EngineState(
+                phase = Phase.PREVIEW,
+                lens = lens,
+                minZoom = probe.minZoom,
+                maxZoom = probe.maxZoom,
+            )
+            source.open(probe, null, previewSurface, 1f, object : Camera2Source.Listener {
+                override fun onLockChanged(locked: Boolean) = Unit
+
+                override fun onLensInfo(text: String) {
+                    _state.update { it.copy(lensInfo = text) }
+                }
+
+                override fun onError(message: String) {
+                    _state.update { it.copy(phase = Phase.IDLE, message = message) }
+                }
+            })
+        } catch (e: Exception) {
+            source.release()
+            camera = null
+            _state.value = EngineState(phase = Phase.IDLE, lens = lens, message = e.message ?: "Aperçu impossible")
+        }
+    }
+
+    @Synchronized
+    fun stopPreview() {
+        if (_state.value.phase != Phase.PREVIEW) return
+        releaseCamera()
+        _state.value = EngineState(phase = Phase.IDLE, lens = _state.value.lens)
     }
 
     @Synchronized
@@ -205,6 +251,11 @@ class RecordingEngine(private val context: Context) {
                 message = error,
             )
         }
+    }
+
+    private fun releaseCamera() {
+        camera?.releaseBlocking()
+        camera = null
     }
 
     private fun teardownPipeline() {

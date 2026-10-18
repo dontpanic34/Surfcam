@@ -22,7 +22,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.surfcam.app.data.camera.Lens
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -37,12 +46,33 @@ import com.surfcam.app.domain.model.CaptureConfig
 fun RecordingScreen(
     engine: RecordingEngine,
     tele: Boolean,
+    hasCamera: Boolean,
     onTeleChange: (Boolean) -> Unit,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
 ) {
     val state by engine.state.collectAsStateWithLifecycle()
     val running = state.phase == Phase.RUNNING || state.phase == Phase.STARTING
+
+    // Aperçu seul tant que l'écran est visible et qu'aucune session n'est en cours.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var resumed by remember { mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) resumed = true
+            if (event == Lifecycle.Event.ON_PAUSE) resumed = false
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(state.phase, tele, resumed, hasCamera) {
+        val idle = state.phase == Phase.IDLE || state.phase == Phase.PREVIEW
+        if (resumed && hasCamera && idle) {
+            engine.startPreview(if (tele) Lens.TELE else Lens.MAIN)
+        } else if (!resumed) {
+            engine.stopPreview()
+        }
+    }
 
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
@@ -132,6 +162,7 @@ private fun statusText(state: EngineState): String = buildString {
     val config = state.config
     when (state.phase) {
         Phase.IDLE -> append("Session arrêtée")
+        Phase.PREVIEW -> append("Aperçu : rien n'est enregistré")
         Phase.STARTING -> append("Démarrage…")
         Phase.ERROR -> append("Erreur")
         Phase.RUNNING -> {
@@ -144,7 +175,7 @@ private fun statusText(state: EngineState): String = buildString {
             append("Zoom ${"%.1f".format(state.zoom)}×")
         }
     }
-    if (state.phase != Phase.IDLE) append("\nChauffe : ${thermalLabel(state.thermalStatus)}")
+    if (state.phase != Phase.IDLE && state.phase != Phase.PREVIEW) append("\nChauffe : ${thermalLabel(state.thermalStatus)}")
 }
 
 private fun thermalLabel(status: Int): String = when (status) {

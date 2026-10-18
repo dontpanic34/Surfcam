@@ -19,7 +19,9 @@ import android.util.Range
 import android.util.Size
 import android.view.Surface
 import com.surfcam.app.domain.model.CaptureConfig
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
 
 /** Objectif choisi pour la session : le principal, ou le téléobjectif optique (changement = nouvelle session). */
 enum class Lens { MAIN, TELE }
@@ -60,6 +62,7 @@ class Camera2Source(context: Context) {
     private var characteristics: CameraCharacteristics? = null
     private var device: CameraDevice? = null
     private var session: CameraCaptureSession? = null
+    // Nul en mode aperçu seul (avant la session) : la caméra ne filme alors que vers l'écran.
     private var encoderSurface: Surface? = null
     private var previewSurface: Surface? = null
     private var fpsRange: Range<Int>? = null
@@ -147,7 +150,7 @@ class Camera2Source(context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    fun open(probe: CameraProbe, encoderSurface: Surface, previewSurface: Surface?, zoom: Float, listener: Listener) {
+    fun open(probe: CameraProbe, encoderSurface: Surface?, previewSurface: Surface?, zoom: Float, listener: Listener) {
         this.encoderSurface = encoderSurface
         this.previewSurface = previewSurface
         this.fpsRange = probe.fpsRange
@@ -230,6 +233,25 @@ class Camera2Source(context: Context) {
         thread.quitSafely()
     }
 
+    /** Ferme la caméra et attend que ce soit fait : indispensable avant de la rouvrir aussitôt après. */
+    fun releaseBlocking() {
+        closed = true
+        val done = CountDownLatch(1)
+        handler.post {
+            try {
+                session?.stopRepeating()
+            } catch (_: Exception) {
+            }
+            session?.close()
+            session = null
+            device?.close()
+            device = null
+            done.countDown()
+        }
+        done.await(1, TimeUnit.SECONDS)
+        thread.quitSafely()
+    }
+
     private fun unlock() {
         locked = false
         lockPending = false
@@ -239,11 +261,12 @@ class Camera2Source(context: Context) {
 
     private fun createSession() {
         val camera = device ?: return
-        val encoder = encoderSurface ?: return
         session?.close()
         session = null
-        val outputs = mutableListOf(output(encoder, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD))
+        val outputs = mutableListOf<OutputConfiguration>()
+        encoderSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD) }
         previewSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW) }
+        if (outputs.isEmpty()) return
         try {
             camera.createCaptureSession(
                 SessionConfiguration(
@@ -284,10 +307,12 @@ class Camera2Source(context: Context) {
         val camera = device ?: return
         val current = session ?: return
         val chars = characteristics ?: return
-        val encoder = encoderSurface ?: return
+        val encoder = encoderSurface
+        if (encoder == null && previewSurface == null) return
         try {
-            val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
-            builder.addTarget(encoder)
+            val template = if (encoder != null) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
+            val builder = camera.createCaptureRequest(template)
+            encoder?.let { builder.addTarget(it) }
             previewSurface?.let { builder.addTarget(it) }
             fpsRange?.let { builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
 

@@ -2,6 +2,7 @@ package com.surfcam.app.presentation
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.Surface
@@ -10,7 +11,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -27,12 +30,23 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var tele by rememberSaveable { mutableStateOf(false) }
+            var hasCamera by remember {
+                mutableStateOf(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+            }
+            val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasCamera = it }
+            LaunchedEffect(Unit) {
+                if (!hasCamera) askCamera.launch(Manifest.permission.CAMERA)
+            }
             val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-                if (granted[Manifest.permission.CAMERA] == true) startSession(tele)
+                if (granted[Manifest.permission.CAMERA] == true) {
+                    hasCamera = true
+                    startSession(tele)
+                }
             }
             RecordingScreen(
                 engine = engine,
                 tele = tele,
+                hasCamera = hasCamera,
                 onTeleChange = { tele = it },
                 onStartSession = {
                     val wanted = buildList {
