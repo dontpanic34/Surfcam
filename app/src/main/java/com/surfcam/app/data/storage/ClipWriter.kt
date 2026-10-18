@@ -24,9 +24,11 @@ class ClipWriter(
     context: Context,
     format: MediaFormat,
     orientationHint: Int,
+    namePrefix: String = "SurfCam",
+    nameSuffix: String = "",
 ) {
     private val resolver = context.contentResolver
-    private val name = "SurfCam_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".mp4"
+    private val name = namePrefix + "_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + nameSuffix + ".mp4"
     private val uri: Uri
     private val descriptor: ParcelFileDescriptor
     private val muxer: MediaMuxer

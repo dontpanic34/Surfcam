@@ -11,7 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.PowerManager
 import com.surfcam.app.SurfCamApp
-import com.surfcam.app.data.camera.Lens
+import com.surfcam.app.data.engine.SessionOptions
 import com.surfcam.app.presentation.MainActivity
 
 /**
@@ -36,8 +36,13 @@ class RecordingService : Service() {
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
         acquireWakeLock()
-        val lens = if (intent?.getBooleanExtra(EXTRA_TELE, false) == true) Lens.TELE else Lens.MAIN
-        engine.start(intent?.getIntExtra(EXTRA_ROTATION_DEGREES, 90) ?: 90, lens)
+        val options = SessionOptions(
+            tele = intent?.getBooleanExtra(EXTRA_TELE, false) == true,
+            fullSession = intent?.getBooleanExtra(EXTRA_FULL_SESSION, false) == true,
+            hd = intent?.getBooleanExtra(EXTRA_HD, false) == true,
+            detection = intent?.getBooleanExtra(EXTRA_DETECTION, true) != false,
+        )
+        engine.start(intent?.getIntExtra(EXTRA_ROTATION_DEGREES, 90) ?: 90, options)
         return START_NOT_STICKY
     }
 
@@ -86,6 +91,9 @@ class RecordingService : Service() {
         const val ACTION_STOP = "com.surfcam.app.STOP"
         const val EXTRA_ROTATION_DEGREES = "rotation_degrees"
         const val EXTRA_TELE = "tele"
+        const val EXTRA_FULL_SESSION = "full_session"
+        const val EXTRA_HD = "hd"
+        const val EXTRA_DETECTION = "detection"
         private const val CHANNEL_ID = "session"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TIMEOUT_MS = 3 * 60 * 60 * 1000L

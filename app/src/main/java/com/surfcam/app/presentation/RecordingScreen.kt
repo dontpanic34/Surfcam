@@ -1,5 +1,6 @@
 package com.surfcam.app.presentation
 
+import android.os.Environment
 import android.os.PowerManager
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -34,6 +35,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,10 +63,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.surfcam.app.data.camera.Lens
 import com.surfcam.app.data.engine.EngineState
 import com.surfcam.app.data.engine.Phase
 import com.surfcam.app.data.engine.RecordingEngine
+import com.surfcam.app.data.engine.SessionOptions
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.presentation.theme.SurfColors
 import com.surfcam.app.presentation.theme.SurfCamTheme
@@ -72,11 +74,11 @@ import com.surfcam.app.presentation.theme.SurfCamTheme
 @Composable
 fun RecordingScreen(
     engine: RecordingEngine,
-    tele: Boolean,
+    options: SessionOptions,
     hasCamera: Boolean,
     crashReport: String?,
     onDismissCrash: () -> Unit,
-    onTeleChange: (Boolean) -> Unit,
+    onOptionsChange: (SessionOptions) -> Unit,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
 ) {
@@ -94,10 +96,10 @@ fun RecordingScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(state.phase, tele, resumed, hasCamera) {
+    LaunchedEffect(state.phase, options.tele, resumed, hasCamera) {
         val idle = state.phase == Phase.IDLE || state.phase == Phase.PREVIEW
         if (resumed && hasCamera && idle) {
-            engine.startPreview(if (tele) Lens.TELE else Lens.MAIN)
+            engine.startPreview(options.lens)
         } else if (!resumed) {
             engine.stopPreview()
         }
@@ -111,7 +113,7 @@ fun RecordingScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Viewfinder(engine, state, hasCamera, Modifier.weight(1f).fillMaxHeight())
-                ControlPanel(state, running, tele, onTeleChange, engine, onStartSession, onStopSession)
+                ControlPanel(state, running, options, onOptionsChange, engine, onStartSession, onStopSession)
             }
         }
     }
@@ -172,6 +174,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
         ) {
             val config = state.config
             if (state.phase == Phase.RUNNING && config != null) {
+                if (state.fullSession) InfoChip("REC session · partie ${state.sessionPart}", SurfColors.Alert)
                 InfoChip(resolutionLabel(config), SurfColors.Foam)
                 InfoChip("%.0f s en mémoire".format(state.bufferedSec), SurfColors.Foam)
                 state.analysis?.let { InfoChip("Analyse ${it.inferenceMs} ms", SurfColors.Foam) }
@@ -221,6 +224,8 @@ private fun statusPill(state: EngineState): Pair<String, Color> = when (state.ph
     Phase.RUNNING -> when {
         state.clipActive -> "Vague en cours d'enregistrement" to SurfColors.Alert
         state.analysis?.riding == true -> "Vague détectée" to SurfColors.Alert
+        !state.detectionEnabled ->
+            (if (state.fullSession) "Session complète en cours d'enregistrement" else "Session en cours · détection désactivée") to SurfColors.Ok
         state.analysisStatus?.startsWith("Détection indisponible") == true -> "Mode manuel · détection indisponible" to SurfColors.Warn
         state.analysisStatus?.startsWith("Analyse arrêtée") == true -> "Détection arrêtée (voir le détail)" to SurfColors.Alert
         state.analysisStatus == "Chargement du modèle…" -> "Chargement de la détection…" to SurfColors.Warn
@@ -243,8 +248,8 @@ private fun resolutionLabel(config: CaptureConfig): String {
 private fun ControlPanel(
     state: EngineState,
     running: Boolean,
-    tele: Boolean,
-    onTeleChange: (Boolean) -> Unit,
+    options: SessionOptions,
+    onOptionsChange: (SessionOptions) -> Unit,
     engine: RecordingEngine,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
@@ -258,13 +263,48 @@ private fun ControlPanel(
         if (!running) {
             Section("Objectif · à choisir avant la session") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LensChoice("Principal", "4K · 60 i/s", !tele, { onTeleChange(false) }, Modifier.weight(1f))
-                    LensChoice("Télé 5×", "4K · 30 i/s", tele, { onTeleChange(true) }, Modifier.weight(1f))
+                    LensChoice("Principal", if (options.hd) "1080p" else "4K", !options.tele, { onOptionsChange(options.copy(tele = false)) }, Modifier.weight(1f))
+                    LensChoice("Télé 5×", if (options.hd) "1080p" else "4K", options.tele, { onOptionsChange(options.copy(tele = true)) }, Modifier.weight(1f))
                 }
                 Text(
-                    if (tele) "Plus de détail, champ étroit : à utiliser quand tu connais ta zone."
+                    if (options.tele) "Plus de détail, champ étroit : à utiliser quand tu connais ta zone."
                     else "Grand champ : tu es plus petit à l'image, mais tu ne sors pas du cadre.",
                     color = SurfColors.Muted,
+                    fontSize = 12.sp,
+                )
+            }
+
+            Section("Enregistrement") {
+                Text("Définition", color = SurfColors.Muted, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !options.hd,
+                        onClick = { onOptionsChange(options.copy(hd = false)) },
+                        label = { Text("4K") },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
+                    )
+                    FilterChip(
+                        selected = options.hd,
+                        onClick = { onOptionsChange(options.copy(hd = true)) },
+                        label = { Text("1080p") },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
+                    )
+                }
+                OptionSwitch(
+                    "Enregistrer toute la session",
+                    "Fichiers de 5 min dans Movies/SurfCam · environ ${options.gigabytesPerHour()} Go par heure",
+                    options.fullSession,
+                ) { onOptionsChange(options.copy(fullSession = it)) }
+                OptionSwitch(
+                    "Détection automatique des vagues",
+                    "Crée un clip à chaque vague repérée",
+                    options.detection,
+                ) { onOptionsChange(options.copy(detection = it)) }
+                val freeGb = remember { Environment.getExternalStorageDirectory().usableSpace / 1_000_000_000L }
+                Text(
+                    "Espace libre : $freeGb Go" +
+                        if (options.fullSession && options.gigabytesPerHour() > 0) " · environ ${freeGb / options.gigabytesPerHour()} h possibles" else "",
+                    color = if (options.fullSession && freeGb < 2L * options.gigabytesPerHour()) SurfColors.Warn else SurfColors.Muted,
                     fontSize = 12.sp,
                 )
             }
@@ -285,7 +325,7 @@ private fun ControlPanel(
         }
 
         if (state.phase == Phase.RUNNING) {
-            Section("Diagnostic de la détection") {
+            if (state.detectionEnabled) Section("Diagnostic de la détection") {
                 Text(
                     "Modèle : ${state.analysisStatus ?: "—"}\nImages reçues de la caméra : ${state.analysisReceived}",
                     color = SurfColors.Foam,
@@ -395,6 +435,17 @@ private fun Section(title: String, content: @Composable () -> Unit) {
     ) {
         Text(title, color = SurfColors.Aqua, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         content()
+    }
+}
+
+@Composable
+private fun OptionSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = SurfColors.Foam, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp)
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

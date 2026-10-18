@@ -43,6 +43,10 @@ data class EngineState(
     val analysisStatus: String? = null,
     /** Images que la caméra a envoyées à l'analyse (0 = le flux d'analyse ne reçoit rien). */
     val analysisReceived: Int = 0,
+    val detectionEnabled: Boolean = true,
+    val fullSession: Boolean = false,
+    /** Numéro du fichier de la session complète en cours d'écriture (0 = aucun). */
+    val sessionPart: Int = 0,
     val lastClip: String? = null,
     val thermalStatus: Int = PowerManager.THERMAL_STATUS_NONE,
     val message: String? = null,
@@ -65,6 +69,7 @@ class RecordingEngine(private val context: Context) {
     private var ring: EncodedRingBuffer? = null
     private var recorder: ClipRecorder? = null
     private var analysis: AnalysisPipeline? = null
+    private var session: SessionRecorder? = null
     private var previewSurface: Surface? = null
     private var sampleCount = 0L
     private var lastKeyFramePtsUs = -1L
@@ -75,9 +80,14 @@ class RecordingEngine(private val context: Context) {
 
     /** [displayRotationDegrees] : rotation de l'écran (0, 90, 180, 270) au moment du démarrage. */
     @Synchronized
-    fun start(displayRotationDegrees: Int, lens: Lens) {
+    fun start(displayRotationDegrees: Int, options: SessionOptions) {
         if (_state.value.phase == Phase.STARTING || _state.value.phase == Phase.RUNNING) return
-        _state.value = EngineState(phase = Phase.STARTING, lens = lens)
+        _state.value = EngineState(
+            phase = Phase.STARTING,
+            lens = options.lens,
+            detectionEnabled = options.detection,
+            fullSession = options.fullSession,
+        )
         var source: Camera2Source? = null
         try {
             // Libère l'aperçu (ou les restes d'une session en erreur) avant de rouvrir la caméra pour filmer.
@@ -88,10 +98,10 @@ class RecordingEngine(private val context: Context) {
             power.addThermalStatusListener(mainExecutor, thermalListener)
 
             source = Camera2Source(context)
-            val firstTry = tryStart(source, 60, displayRotationDegrees, lens)
+            val firstTry = tryStart(source, 60, displayRotationDegrees, options)
             if (!firstTry) {
                 teardownPipeline()
-                if (!tryStart(source, 30, displayRotationDegrees, lens)) {
+                if (!tryStart(source, 30, displayRotationDegrees, options)) {
                     throw IllegalStateException("L'encodeur H.265 refuse la 4K sur ce téléphone")
                 }
             }
@@ -112,7 +122,7 @@ class RecordingEngine(private val context: Context) {
         unregisterThermalListener()
         releaseCamera()
         teardownPipeline()
-        _state.update { it.copy(phase = Phase.IDLE, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, message = null) }
+        _state.update { it.copy(phase = Phase.IDLE, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, sessionPart = 0, message = null) }
     }
 
     /** Ouvre la caméra en aperçu seul, sans rien enregistrer, pour cadrer avant de démarrer la session. */
@@ -194,8 +204,8 @@ class RecordingEngine(private val context: Context) {
         recorder?.finish(CaptureConfig.POST_ROLL_SEC * 1_000L)
     }
 
-    private fun tryStart(source: Camera2Source, maxFps: Int, rotationDegrees: Int, lens: Lens): Boolean {
-        val probe: CameraProbe = source.probe(maxFps, lens)
+    private fun tryStart(source: Camera2Source, maxFps: Int, rotationDegrees: Int, options: SessionOptions): Boolean {
+        val probe: CameraProbe = source.probe(maxFps, options.lens, options.hd)
         val config = probe.config
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.
@@ -206,7 +216,16 @@ class RecordingEngine(private val context: Context) {
         sampleCount = 0
         lastKeyFramePtsUs = -1L
 
-        val pipeline = AnalysisPipeline(context, object : AnalysisPipeline.Listener {
+        val sessionRecorder = if (options.fullSession) {
+            SessionRecorder(context, hint) { part, message ->
+                _state.update { it.copy(sessionPart = part, message = message ?: it.message) }
+            }
+        } else {
+            null
+        }
+        session = sessionRecorder
+
+        val pipeline = if (!options.detection) null else AnalysisPipeline(context, object : AnalysisPipeline.Listener {
             // Appelé depuis le thread d'analyse : pas de verrou du moteur ici, pour éviter tout blocage à l'arrêt.
             override fun onClipAction(action: ClipAction) {
                 when (action) {
@@ -231,16 +250,20 @@ class RecordingEngine(private val context: Context) {
             }
         })
         analysis = pipeline
-        _state.update { it.copy(analysisStatus = "Chargement du modèle…") }
+        _state.update {
+            it.copy(analysisStatus = if (pipeline != null) "Chargement du modèle…" else "Détection désactivée")
+        }
 
         val enc = HevcEncoder(config, object : HevcEncoder.Listener {
             override fun onFormat(format: MediaFormat) {
                 clips.format = format
+                sessionRecorder?.format = format
             }
 
             override fun onSample(sample: EncodedSample) {
                 buffer.add(sample)
                 clips.onLiveSample(sample)
+                sessionRecorder?.onSample(sample)
                 if (sample.isKeyFrame) {
                     if (lastKeyFramePtsUs >= 0) {
                         val interval = (sample.ptsUs - lastKeyFramePtsUs) / 1_000_000f
@@ -273,7 +296,7 @@ class RecordingEngine(private val context: Context) {
                 maxZoom = probe.maxZoom,
             )
         }
-        source.open(probe, encoderSurface, previewSurface, pipeline.surface, 1f, object : Camera2Source.Listener {
+        source.open(probe, encoderSurface, previewSurface, pipeline?.surface, 1f, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
             }
@@ -330,6 +353,8 @@ class RecordingEngine(private val context: Context) {
         encoder = null
         analysis?.release()
         analysis = null
+        session?.release()
+        session = null
         recorder?.release()
         recorder = null
         ring?.clear()

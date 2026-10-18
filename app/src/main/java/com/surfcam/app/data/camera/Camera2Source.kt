@@ -84,7 +84,7 @@ class Camera2Source(context: Context) {
     private var closed = false
 
     /** Choisit la caméra, la définition et la cadence ; [maxFps] permet de retomber à 30 si 60 échoue. */
-    fun probe(maxFps: Int, lens: Lens): CameraProbe {
+    fun probe(maxFps: Int, lens: Lens, hd: Boolean = false): CameraProbe {
         var best: Pair<String, CameraCharacteristics>? = null
         var bestZoom = 0f
         for (id in manager.cameraIdList) {
@@ -121,7 +121,7 @@ class Camera2Source(context: Context) {
             ?: throw IllegalStateException("Caméra sans configuration de flux")
         val sizes = map.getOutputSizes(MediaCodec::class.java)
             ?: throw IllegalStateException("La caméra ne sait pas filmer vers l'encodeur")
-        val size = pickSize(sizes)
+        val size = pickSize(sizes, hd)
 
         val minFrameNs = map.getOutputMinFrameDuration(MediaCodec::class.java, size)
         val sizeMaxFps = if (minFrameNs > 0) (1_000_000_000L / minFrameNs).toInt() else 30
@@ -135,7 +135,8 @@ class Camera2Source(context: Context) {
         val bitrate = when {
             size.width >= 3840 && fps >= 60 -> 60_000_000
             size.width >= 3840 -> 40_000_000
-            else -> 20_000_000
+            fps >= 60 -> 25_000_000
+            else -> 15_000_000
         }
         val zoomRange = if (lens == Lens.TELE) null else chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
         val useCases = chars.get(CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES)
@@ -422,7 +423,12 @@ class Camera2Source(context: Context) {
         return if (width > 0f) focal * 36f / width else 0f
     }
 
-    private fun pickSize(sizes: Array<Size>): Size {
+    private fun pickSize(sizes: Array<Size>, hd: Boolean): Size {
+        if (hd) {
+            sizes.firstOrNull { it.width == 1920 && it.height == 1080 }?.let { return it }
+            val widescreen = sizes.filter { it.width * 9 == it.height * 16 && it.width <= 1920 }
+            widescreen.maxByOrNull { it.width * it.height }?.let { return it }
+        }
         sizes.firstOrNull { it.width == 3840 && it.height == 2160 }?.let { return it }
         val widescreen = sizes.filter { it.width * 9 == it.height * 16 }
         return (widescreen.ifEmpty { sizes.toList() }).maxBy { it.width * it.height }
