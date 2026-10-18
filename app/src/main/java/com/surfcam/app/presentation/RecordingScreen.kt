@@ -5,6 +5,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +50,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
@@ -299,6 +301,32 @@ private fun ControlPanel(
                     Text(
                         if (state.locked) "Exposition verrouillée · relancer" else "Exposition en réglage…",
                         color = if (state.locked) SurfColors.Ok else SurfColors.Warn,
+                    )
+                }
+            }
+
+            state.analysis?.let { snapshot ->
+                Section("Ce que voit la détection") {
+                    snapshot.thumbnail?.let { bitmap ->
+                        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))) {
+                            Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
+                            Canvas(Modifier.fillMaxSize()) {
+                                for (box in snapshot.boxes) {
+                                    drawRect(
+                                        color = if (box.riding) SurfColors.Alert else SurfColors.Aqua,
+                                        topLeft = Offset(box.left * size.width, box.top * size.height),
+                                        size = Size((box.right - box.left) * size.width, (box.bottom - box.top) * size.height),
+                                        style = Stroke(width = 1.5.dp.toPx()),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        "${snapshot.frames} images · ${snapshot.personsInFrame} personne(s) · confiance max %.2f · ${snapshot.inferenceMs} ms"
+                            .format(snapshot.bestConfidence),
+                        color = SurfColors.Muted,
+                        fontSize = 11.sp,
                     )
                 }
             }
