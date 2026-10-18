@@ -96,11 +96,11 @@ fun HorizonLevel(angleDeg: Float, modifier: Modifier = Modifier) {
     }
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
-            val half = size.width * 0.18f
+            val half = 34.dp.toPx()
             val c = center
             drawLine(Color(0x99FFFFFF), Offset(c.x - half, c.y), Offset(c.x + half, c.y), strokeWidth = 1.dp.toPx())
             rotate(degrees = angleDeg, pivot = c) {
-                drawLine(color, Offset(c.x - half * 1.3f, c.y), Offset(c.x + half * 1.3f, c.y), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(color, Offset(c.x - half, c.y + 4.dp.toPx()), Offset(c.x + half, c.y + 4.dp.toPx()), strokeWidth = 1.5.dp.toPx(), cap = StrokeCap.Round)
             }
         }
     }

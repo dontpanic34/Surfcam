@@ -274,14 +274,14 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
         }
 
         val horizon by rememberHorizonAngle()
-        if (hasCamera) horizon?.let { angle ->
+        if (hasCamera) horizon?.takeIf { kotlin.math.abs(it) <= 30f }?.let { angle ->
             HorizonLevel(angle)
             Text(
                 levelLabel(angle),
                 color = levelColor(angle),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.align(Alignment.Center).offset(y = (-22).dp),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.align(Alignment.Center).offset(y = (-16).dp),
             )
         }
 
@@ -426,6 +426,11 @@ private fun ControlPanel(
             SmallButton("Infos", onOpenInfo)
         }
 
+        // Zone centrale défilante en secours : le bouton Démarrer / Arrêter reste toujours visible en bas.
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
         if (running) {
             OutlinedButton(onClick = engine::relock, modifier = Modifier.fillMaxWidth().height(40.dp)) {
                 Text(
@@ -437,8 +442,7 @@ private fun ControlPanel(
         } else {
             SetupGrid(options, onOptionsChange, engine)
         }
-
-        Spacer(Modifier.weight(1f))
+        }
 
         if (running) {
             OutlinedButton(
@@ -499,7 +503,7 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
         Toggle("Détection", options.detection, Modifier.weight(1f)) { onOptionsChange(options.copy(detection = !options.detection)) }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Toggle("Écran noir après 1 min", options.sleepScreen, Modifier.weight(1f)) { onOptionsChange(options.copy(sleepScreen = !options.sleepScreen)) }
+        Toggle("Écran noir", options.sleepScreen, Modifier.weight(1f)) { onOptionsChange(options.copy(sleepScreen = !options.sleepScreen)) }
         Toggle("Ne pas déranger", options.doNotDisturb, Modifier.weight(1f)) {
             val turnOn = !options.doNotDisturb
             onOptionsChange(options.copy(doNotDisturb = turnOn))
@@ -516,7 +520,7 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
         }
     }
     if (options.doNotDisturb && !dndAllowed) {
-        Text("Ne pas déranger : autorisation à donner (touche la pastille)", color = SurfColors.Warn, fontSize = 11.sp, maxLines = 2)
+        Text("Ne pas déranger : autorisation requise", color = SurfColors.Warn, fontSize = 11.sp, maxLines = 1)
     }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         storages.forEach { choice ->
