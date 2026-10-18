@@ -41,6 +41,8 @@ data class CameraProbe(
     val sensorOrientation: Int,
     val minZoom: Float,
     val maxZoom: Float,
+    /** Focale de l'objectif exprimée en pixels de l'image d'analyse, à zoom ×1 (sert à estimer la distance des surfeurs). */
+    val focalPx1x: Float = 0f,
 )
 
 /**
@@ -88,6 +90,10 @@ class Camera2Source(context: Context) {
 
     private var zoom = 1f
     private var locked = false
+
+    /** Faux (défaut) : exposition et balance des blancs restent automatiques toute la session, comme l'appli vidéo du Pixel. */
+    @Volatile
+    var lockExposure = false
     private var lockPending = false
     private var framesSinceChange = 0
     private var closed = false
@@ -161,6 +167,7 @@ class Camera2Source(context: Context) {
             sensorOrientation = sizeChars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
             minZoom = maxOf(1f, zoomRange?.lower ?: 1f),
             maxZoom = minOf(zoomRange?.upper ?: 1f, MAX_ZOOM),
+            focalPx1x = equivFocal(chars) / 36f * CaptureConfig.ANALYSIS_WIDTH,
         )
     }
 
@@ -406,7 +413,7 @@ class Camera2Source(context: Context) {
             result: TotalCaptureResult,
         ) {
             reportLens(result)
-            if (locked || lockPending) return
+            if (!lockExposure || locked || lockPending) return
             framesSinceChange++
             val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
             val converged = aeState == null ||

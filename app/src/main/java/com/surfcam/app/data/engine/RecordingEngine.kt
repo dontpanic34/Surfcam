@@ -47,6 +47,8 @@ data class EngineState(
     val locked: Boolean = false,
     val lens: Lens = Lens.MAIN,
     val lensInfo: String? = null,
+    /** Focale en pixels de l'image d'analyse à zoom ×1 : permet d'estimer la distance d'un surfeur. */
+    val focalPx1x: Float = 0f,
     val maxFpsAtSize: Int = 0,
     val keyFrameIntervalSec: Float = 0f,
     /** Cadence réellement obtenue de la caméra (images par seconde), mesurée sur la vidéo encodée. */
@@ -206,6 +208,19 @@ class RecordingEngine(private val context: Context) {
         try {
             val probe = source.probe(30, lens)
             camera = source
+            // Le modèle tourne aussi pendant l'aperçu : il sert à estimer la distance du surfeur et le zoom conseillé.
+            analysis?.release()
+            val previewPipeline = AnalysisPipeline(context, object : AnalysisPipeline.Listener {
+                override fun onClipAction(action: ClipAction) = Unit
+                override fun onSnapshot(snapshot: AnalysisSnapshot) {
+                    _state.update { if (it.phase == Phase.PREVIEW) it.copy(analysis = snapshot) else it }
+                }
+                override fun onStatus(message: String?) = Unit
+                override fun onReceived(count: Int) = Unit
+                override fun newestEncodedPtsUs(): Long? = null
+                override fun onRide(stats: RideStats) = Unit
+            })
+            analysis = previewPipeline
             val zoom = desiredZoom.coerceIn(probe.minZoom, probe.maxZoom)
             _state.value = EngineState(
                 phase = Phase.PREVIEW,
@@ -213,10 +228,11 @@ class RecordingEngine(private val context: Context) {
                 zoom = zoom,
                 minZoom = probe.minZoom,
                 maxZoom = probe.maxZoom,
+                focalPx1x = probe.focalPx1x,
                 endedReason = current.endedReason,
                 lastSummary = current.lastSummary,
             )
-            source.open(probe, null, previewSurface, null, zoom, object : Camera2Source.Listener {
+            source.open(probe, null, previewSurface, previewPipeline.surface, zoom, object : Camera2Source.Listener {
                 override fun onLockChanged(locked: Boolean) = Unit
 
                 override fun onLensInfo(text: String) {
@@ -394,8 +410,10 @@ class RecordingEngine(private val context: Context) {
                 zoom = startZoom,
                 minZoom = probe.minZoom,
                 maxZoom = probe.maxZoom,
+                focalPx1x = probe.focalPx1x,
             )
         }
+        source.lockExposure = options.lockExposure
         source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
@@ -567,6 +585,10 @@ class RecordingEngine(private val context: Context) {
     private fun releaseCamera() {
         camera?.releaseBlocking()
         camera = null
+        if (_state.value.phase == Phase.PREVIEW || _state.value.phase == Phase.IDLE) {
+            analysis?.release()
+            analysis = null
+        }
     }
 
     private fun teardownPipeline() {

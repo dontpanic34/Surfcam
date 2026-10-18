@@ -48,7 +48,8 @@ class MainActivity : ComponentActivity() {
             var detection by rememberSaveable { mutableStateOf(true) }
             var sleepScreen by rememberSaveable { mutableStateOf(true) }
             var doNotDisturb by rememberSaveable { mutableStateOf(true) }
-            val options = SessionOptions(tele = tele, fullSession = fullSession, hd = hd, fps60 = fps60, storage = storageVolume, detection = detection, sleepScreen = sleepScreen, doNotDisturb = doNotDisturb)
+            var lockExposure by rememberSaveable { mutableStateOf(false) }
+            val options = SessionOptions(tele = tele, fullSession = fullSession, hd = hd, fps60 = fps60, storage = storageVolume, detection = detection, sleepScreen = sleepScreen, doNotDisturb = doNotDisturb, lockExposure = lockExposure)
             var showLibrary by rememberSaveable { mutableStateOf(false) }
             val library = remember { VideoLibrary(applicationContext) }
             BackHandler(enabled = showLibrary) { showLibrary = false }
@@ -94,6 +95,7 @@ class MainActivity : ComponentActivity() {
                     detection = it.detection
                     sleepScreen = it.sleepScreen
                     doNotDisturb = it.doNotDisturb
+                    lockExposure = it.lockExposure
                 },
                 onStartSession = {
                     val wanted = buildList {
@@ -125,6 +127,7 @@ class MainActivity : ComponentActivity() {
             .putExtra(RecordingService.EXTRA_FPS60, options.fps60)
             .putExtra(RecordingService.EXTRA_DETECTION, options.detection)
             .putExtra(RecordingService.EXTRA_DND, options.doNotDisturb)
+            .putExtra(RecordingService.EXTRA_LOCK_EXPOSURE, options.lockExposure)
         ContextCompat.startForegroundService(this, intent)
     }
 }

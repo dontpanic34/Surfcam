@@ -23,6 +23,8 @@ data class SessionOptions(
     val sleepScreen: Boolean = true,
     /** Silence total (« Ne pas déranger ») pendant la session : pas d'appel ni de notification. */
     val doNotDisturb: Boolean = true,
+    /** Fige l'exposition après convergence. Par défaut elle reste automatique pour suivre les nuages. */
+    val lockExposure: Boolean = false,
 ) {
     val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
 

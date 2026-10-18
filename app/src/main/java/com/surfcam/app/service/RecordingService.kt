@@ -44,6 +44,7 @@ class RecordingService : Service() {
             storage = intent?.getStringExtra(EXTRA_STORAGE) ?: "external_primary",
             fps60 = intent?.getBooleanExtra(EXTRA_FPS60, false) == true,
             detection = intent?.getBooleanExtra(EXTRA_DETECTION, true) != false,
+            lockExposure = intent?.getBooleanExtra(EXTRA_LOCK_EXPOSURE, false) == true,
         )
         if (intent?.getBooleanExtra(EXTRA_DND, false) == true) DoNotDisturb.enable(this)
         engine.start(intent?.getIntExtra(EXTRA_ROTATION_DEGREES, 90) ?: 90, options)
@@ -102,6 +103,7 @@ class RecordingService : Service() {
         const val EXTRA_FPS60 = "fps60"
         const val EXTRA_DETECTION = "detection"
         const val EXTRA_DND = "dnd"
+        const val EXTRA_LOCK_EXPOSURE = "lock_exposure"
         private const val CHANNEL_ID = "session"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TIMEOUT_MS = 3 * 60 * 60 * 1000L

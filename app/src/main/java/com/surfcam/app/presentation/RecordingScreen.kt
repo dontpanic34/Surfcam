@@ -5,6 +5,7 @@ import android.provider.Settings
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
 import com.surfcam.app.service.DoNotDisturb
+import com.surfcam.app.domain.geometry.DistanceEstimator
 import android.os.PowerManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -273,6 +274,26 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             )
         }
 
+        // Distance estimée du surfeur le plus grand dans l'image, et zoom qui le rendrait bien lisible.
+        val target = state.analysis?.boxes?.maxByOrNull { it.bottom - it.top }
+        if (target != null && state.focalPx1x > 0f) {
+            val heightPx = (target.bottom - target.top) * CaptureConfig.ANALYSIS_HEIGHT
+            val distance = DistanceEstimator.distanceMeters(state.focalPx1x * state.zoom, heightPx)
+            if (distance != null) {
+                val advised = DistanceEstimator.recommendedZoom(
+                    state.zoom, heightPx, CaptureConfig.ANALYSIS_HEIGHT.toFloat(), state.minZoom, state.maxZoom,
+                )
+                val hint = if (kotlin.math.abs(advised - state.zoom) / state.zoom > 0.2f) {
+                    " · zoom conseillé ×%s".format(("%.1f".format(advised)).replace(".0", "").replace('.', ','))
+                } else " · bonne taille"
+                InfoChip(
+                    "Surfeur à ≈ ${DistanceEstimator.rounded(distance)} m$hint",
+                    SurfColors.Foam,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
+                )
+            }
+        }
+
         val horizon by rememberHorizonAngle()
         if (hasCamera) horizon?.takeIf { kotlin.math.abs(it) <= 30f }?.let { angle ->
             HorizonLevel(angle)
@@ -432,12 +453,16 @@ private fun ControlPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
         if (running) {
-            OutlinedButton(onClick = engine::relock, modifier = Modifier.fillMaxWidth().height(40.dp)) {
-                Text(
-                    if (state.locked) "Exposition verrouillée · relancer" else "Exposition en réglage…",
-                    color = if (state.locked) SurfColors.Ok else SurfColors.Warn,
-                    fontSize = 13.sp,
-                )
+            if (options.lockExposure) {
+                OutlinedButton(onClick = engine::relock, modifier = Modifier.fillMaxWidth().height(40.dp)) {
+                    Text(
+                        if (state.locked) "Exposition verrouillée · relancer" else "Exposition en réglage…",
+                        color = if (state.locked) SurfColors.Ok else SurfColors.Warn,
+                        fontSize = 13.sp,
+                    )
+                }
+            } else {
+                Text("Exposition automatique", color = SurfColors.Ok, fontSize = 13.sp)
             }
         } else {
             SetupGrid(options, onOptionsChange, engine)
@@ -668,6 +693,9 @@ private fun InfoDialog(
                         Section("Réglages avancés") {
                             OptionSwitch("Forcer le téléobjectif", "Champ fixe ×5, sans zoom", options.tele) {
                                 if (!running) onOptionsChange(options.copy(tele = it))
+                            }
+                            OptionSwitch("Verrouiller l'exposition", "À activer seulement si l'image « pompe » (clair/sombre) quand un surfeur passe", options.lockExposure) {
+                                if (!running) onOptionsChange(options.copy(lockExposure = it))
                             }
                             if (running) Text("Modifiable seulement hors session.", color = SurfColors.Muted, fontSize = 11.sp)
                         }
