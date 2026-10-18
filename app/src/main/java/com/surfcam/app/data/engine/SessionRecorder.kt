@@ -8,14 +8,14 @@ import com.surfcam.app.domain.model.EncodedSample
 import java.util.concurrent.Executors
 
 /**
- * Enregistre toute la session en fichiers MP4 de [segmentSec] secondes. Un fichier MP4 n'est lisible que s'il a
+ * Enregistre toute la session en fichiers MP4 de [segmentSec] secondes (2 minutes : c'est le maximum perdu en cas de coupure brutale). Un fichier MP4 n'est lisible que s'il a
  * été refermé proprement : en cas de panne (batterie, plantage), seul le segment en cours est perdu, pas la session.
  * Chaque segment commence sur une image clé. L'écriture se fait sur son propre thread.
  */
 class SessionRecorder(
     private val context: Context,
     private val orientationHint: Int,
-    private val segmentSec: Int = 300,
+    private val segmentSec: Int = 120,
     private val onEvent: (parts: Int, message: String?) -> Unit,
 ) {
     private val executor = Executors.newSingleThreadExecutor { Thread(it, "session-writer") }
@@ -74,7 +74,7 @@ class SessionRecorder(
     }
 
     private companion object {
-        // En dessous de 3 Go libres, on n'ouvre pas de nouveau segment (un segment de 5 min fait environ 2 Go en 4K).
-        const val MIN_FREE_BYTES = 3L * 1024 * 1024 * 1024
+        // En dessous de 900 Mo libres, on n'ouvre pas de nouveau segment (le garde-fou du moteur coupe à 800 Mo).
+        const val MIN_FREE_BYTES = 900L * 1024 * 1024
     }
 }

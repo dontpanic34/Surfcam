@@ -74,6 +74,10 @@ class AnalysisPipeline(
 
     @Volatile
     private var released = false
+
+    /** En pause (téléphone trop chaud) : les images sont reçues puis jetées sans être analysées. */
+    @Volatile
+    var paused = false
     private val throttle = FrameThrottle(MIN_INTERVAL_US)
     private var frames = 0
     private var received = 0
@@ -118,7 +122,7 @@ class AnalysisPipeline(
             received++
             if (received == 1 || received % HEARTBEAT_EVERY == 0) listener.onReceived(received)
             val model = detector
-            if (released || model == null) return
+            if (released || paused || model == null) return
             val timestampUs = image.timestamp / 1_000
             if (!throttle.accept(timestampUs)) return
 

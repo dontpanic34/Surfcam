@@ -1,9 +1,21 @@
 package com.surfcam.app.data.engine
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.MediaFormat
+import android.os.BatteryManager
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.view.Surface
+import com.surfcam.app.R
+import com.surfcam.app.service.RecordingService
 import com.surfcam.app.data.analysis.AnalysisPipeline
 import com.surfcam.app.data.analysis.AnalysisSnapshot
 import com.surfcam.app.data.camera.Camera2Source
@@ -47,6 +59,8 @@ data class EngineState(
     val fullSession: Boolean = false,
     /** Numéro du fichier de la session complète en cours d'écriture (0 = aucun). */
     val sessionPart: Int = 0,
+    /** Raison de l'arrêt automatique de la dernière session (espace, chaleur, batterie) ; null sinon. */
+    val endedReason: String? = null,
     val lastClip: String? = null,
     val thermalStatus: Int = PowerManager.THERMAL_STATUS_NONE,
     val message: String? = null,
@@ -72,10 +86,23 @@ class RecordingEngine(private val context: Context) {
     private var session: SessionRecorder? = null
     private var previewSurface: Surface? = null
     private var sampleCount = 0L
+    private var desiredZoom = 1f
+    private val safetyHandler = Handler(Looper.getMainLooper())
+    private var safetyRunning = false
+    private var severeSinceMs = 0L
+    private var lowSpaceWarned = false
     private var lastKeyFramePtsUs = -1L
 
     private val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
         _state.update { it.copy(thermalStatus = status) }
+        safetyHandler.post { checkThermal(status) }
+    }
+
+    private val safetyTick = object : Runnable {
+        override fun run() {
+            checkSafety()
+            if (safetyRunning) safetyHandler.postDelayed(this, SAFETY_PERIOD_MS)
+        }
     }
 
     /** [displayRotationDegrees] : rotation de l'écran (0, 90, 180, 270) au moment du démarrage. */
@@ -85,9 +112,14 @@ class RecordingEngine(private val context: Context) {
         _state.value = EngineState(
             phase = Phase.STARTING,
             lens = options.lens,
+            zoom = desiredZoom,
             detectionEnabled = options.detection,
             fullSession = options.fullSession,
         )
+        if (freeBytes() < MIN_START_FREE_BYTES) {
+            fail("Espace libre insuffisant pour démarrer : il faut au moins 1,5 Go")
+            return
+        }
         var source: Camera2Source? = null
         try {
             // Libère l'aperçu (ou les restes d'une session en erreur) avant de rouvrir la caméra pour filmer.
@@ -106,6 +138,7 @@ class RecordingEngine(private val context: Context) {
                 }
             }
             camera = source
+            startSafetyChecks()
         } catch (e: Throwable) {
             source?.release()
             try {
@@ -119,6 +152,7 @@ class RecordingEngine(private val context: Context) {
     @Synchronized
     fun stop() {
         if (_state.value.phase == Phase.IDLE || _state.value.phase == Phase.PREVIEW) return
+        stopSafetyChecks()
         unregisterThermalListener()
         releaseCamera()
         teardownPipeline()
@@ -137,13 +171,16 @@ class RecordingEngine(private val context: Context) {
         try {
             val probe = source.probe(30, lens)
             camera = source
+            val zoom = desiredZoom.coerceIn(probe.minZoom, probe.maxZoom)
             _state.value = EngineState(
                 phase = Phase.PREVIEW,
                 lens = lens,
+                zoom = zoom,
                 minZoom = probe.minZoom,
                 maxZoom = probe.maxZoom,
+                endedReason = current.endedReason,
             )
-            source.open(probe, null, previewSurface, null, 1f, object : Camera2Source.Listener {
+            source.open(probe, null, previewSurface, null, zoom, object : Camera2Source.Listener {
                 override fun onLockChanged(locked: Boolean) = Unit
 
                 override fun onLensInfo(text: String) {
@@ -157,7 +194,7 @@ class RecordingEngine(private val context: Context) {
         } catch (e: Exception) {
             source.release()
             camera = null
-            _state.value = EngineState(phase = Phase.IDLE, lens = lens, message = e.message ?: "Aperçu impossible")
+            _state.value = EngineState(phase = Phase.IDLE, lens = lens, message = e.message ?: "Aperçu impossible", endedReason = current.endedReason)
         }
     }
 
@@ -165,7 +202,7 @@ class RecordingEngine(private val context: Context) {
     fun stopPreview() {
         if (_state.value.phase != Phase.PREVIEW) return
         releaseCamera()
-        _state.value = EngineState(phase = Phase.IDLE, lens = _state.value.lens)
+        _state.value = EngineState(phase = Phase.IDLE, lens = _state.value.lens, endedReason = _state.value.endedReason)
     }
 
     @Synchronized
@@ -178,6 +215,7 @@ class RecordingEngine(private val context: Context) {
     fun setZoom(ratio: Float) {
         val s = _state.value
         val clamped = ratio.coerceIn(s.minZoom, s.maxZoom)
+        desiredZoom = clamped
         _state.update { it.copy(zoom = clamped) }
         camera?.setZoom(clamped)
     }
@@ -286,17 +324,18 @@ class RecordingEngine(private val context: Context) {
         }
         encoder = enc
 
+        val startZoom = desiredZoom.coerceIn(probe.minZoom, probe.maxZoom)
         _state.update {
             it.copy(
                 phase = Phase.RUNNING,
                 config = config,
                 maxFpsAtSize = probe.maxFpsAtSize,
-                zoom = 1f,
+                zoom = startZoom,
                 minZoom = probe.minZoom,
                 maxZoom = probe.maxZoom,
             )
         }
-        source.open(probe, encoderSurface, previewSurface, pipeline?.surface, 1f, object : Camera2Source.Listener {
+        source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
             }
@@ -335,6 +374,106 @@ class RecordingEngine(private val context: Context) {
         }
     }
 
+    // ------------------------------------------------------------------------------------------
+    // Garde-fous : espace, chaleur, batterie. En cas de danger, les fichiers sont refermés proprement.
+    // ------------------------------------------------------------------------------------------
+
+    private fun freeBytes(): Long = Environment.getExternalStorageDirectory().usableSpace
+
+    private fun startSafetyChecks() {
+        safetyRunning = true
+        severeSinceMs = 0L
+        lowSpaceWarned = false
+        safetyHandler.removeCallbacks(safetyTick)
+        safetyHandler.postDelayed(safetyTick, SAFETY_PERIOD_MS)
+    }
+
+    private fun stopSafetyChecks() {
+        safetyRunning = false
+        safetyHandler.removeCallbacks(safetyTick)
+    }
+
+    private fun checkSafety() {
+        if (_state.value.phase != Phase.RUNNING) return
+        val free = freeBytes()
+        if (free <= STOP_FREE_BYTES) {
+            safeStop("Il reste moins de 800 Mo d'espace libre")
+            return
+        }
+        if (free <= WARN_FREE_BYTES && !lowSpaceWarned) {
+            lowSpaceWarned = true
+            val message = "Espace presque plein : ${free / 1_000_000} Mo libres. La session s'arrêtera à 800 Mo."
+            _state.update { it.copy(message = message) }
+            alert("SurfCam : espace presque plein", message)
+        }
+        val battery = batteryPercent()
+        if (battery != null && battery.first <= STOP_BATTERY_PERCENT && !battery.second) {
+            safeStop("Batterie presque vide (${battery.first} %)")
+            return
+        }
+        checkThermal(_state.value.thermalStatus)
+    }
+
+    private fun checkThermal(status: Int) {
+        if (_state.value.phase != Phase.RUNNING) return
+        if (status >= PowerManager.THERMAL_STATUS_CRITICAL) {
+            safeStop("Surchauffe critique du téléphone")
+            return
+        }
+        if (status >= PowerManager.THERMAL_STATUS_SEVERE) {
+            val now = System.currentTimeMillis()
+            if (severeSinceMs == 0L) {
+                // Premier palier : on coupe l'analyse (la partie qui chauffe le plus après l'encodage 4K) et on prévient.
+                severeSinceMs = now
+                analysis?.paused = true
+                val message = "Le téléphone chauffe fort : la détection est coupée pour le refroidir"
+                _state.update { it.copy(analysisStatus = "Détection en pause : chaleur", message = message) }
+                alert("SurfCam : le téléphone chauffe", message)
+            } else if (now - severeSinceMs > SEVERE_LIMIT_MS) {
+                safeStop("Le téléphone est resté trop chaud pendant 2 minutes")
+            }
+        } else {
+            severeSinceMs = 0L
+        }
+    }
+
+    /** Arrête la session proprement : les fichiers en cours sont refermés avant de couper, puis l'utilisateur est prévenu. */
+    private fun safeStop(reason: String) {
+        _state.update { it.copy(endedReason = reason) }
+        alert("SurfCam a arrêté la session", "$reason. Tes vidéos sont sauvegardées.")
+        stop()
+        context.startService(Intent(context, RecordingService::class.java).setAction(RecordingService.ACTION_STOP))
+    }
+
+    private fun batteryPercent(): Pair<Int, Boolean>? {
+        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        if (level < 0 || scale <= 0) return null
+        val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL ||
+            intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) > 0
+        return (level * 100 / scale) to charging
+    }
+
+    private fun alert(title: String, text: String) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(ALERT_CHANNEL, "Alertes de session", NotificationManager.IMPORTANCE_HIGH),
+        )
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        val builder = Notification.Builder(context, ALERT_CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+        if (launch != null) {
+            builder.setContentIntent(PendingIntent.getActivity(context, 2, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+        }
+        manager.notify(ALERT_ID, builder.build())
+    }
+
     /** Android lève une exception si l'écouteur n'a jamais été ajouté ; ici ce n'est pas une erreur. */
     private fun unregisterThermalListener() {
         try {
@@ -367,5 +506,15 @@ class RecordingEngine(private val context: Context) {
 
     private companion object {
         const val STATS_EVERY = 30L
+        const val SAFETY_PERIOD_MS = 5_000L
+
+        // Espace : on coupe à 800 Mo (demandé), on prévient à 1,5 Go, on refuse de démarrer sous 1,5 Go.
+        const val STOP_FREE_BYTES = 800L * 1024 * 1024
+        const val WARN_FREE_BYTES = 1_500L * 1024 * 1024
+        const val MIN_START_FREE_BYTES = 1_500L * 1024 * 1024
+        const val STOP_BATTERY_PERCENT = 3
+        const val SEVERE_LIMIT_MS = 120_000L
+        const val ALERT_CHANNEL = "alertes"
+        const val ALERT_ID = 2
     }
 }

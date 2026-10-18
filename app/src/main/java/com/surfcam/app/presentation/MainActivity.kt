@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.Surface
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,7 +20,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.surfcam.app.SurfCamApp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.surfcam.app.data.engine.Phase
 import com.surfcam.app.data.engine.SessionOptions
+import com.surfcam.app.data.library.VideoLibrary
 import com.surfcam.app.service.RecordingService
 
 class MainActivity : ComponentActivity() {
@@ -37,6 +41,9 @@ class MainActivity : ComponentActivity() {
             var hd by rememberSaveable { mutableStateOf(false) }
             var detection by rememberSaveable { mutableStateOf(true) }
             val options = SessionOptions(tele, fullSession, hd, detection)
+            var showLibrary by rememberSaveable { mutableStateOf(false) }
+            val library = remember { VideoLibrary(applicationContext) }
+            BackHandler(enabled = showLibrary) { showLibrary = false }
             var hasCamera by remember {
                 mutableStateOf(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
             }
@@ -50,8 +57,18 @@ class MainActivity : ComponentActivity() {
                     startSession(options)
                 }
             }
+            if (showLibrary) {
+                val phase by engine.state.collectAsStateWithLifecycle()
+                LibraryScreen(
+                    library = library,
+                    sessionRunning = phase.phase == Phase.RUNNING || phase.phase == Phase.STARTING,
+                    onBack = { showLibrary = false },
+                )
+                return@setContent
+            }
             RecordingScreen(
                 engine = engine,
+                onOpenLibrary = { showLibrary = true },
                 options = options,
                 hasCamera = hasCamera,
                 crashReport = crash,

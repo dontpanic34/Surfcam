@@ -150,8 +150,8 @@ class Camera2Source(context: Context) {
             config = CaptureConfig(size.width, size.height, fps, bitrate),
             fpsRange = range,
             sensorOrientation = sizeChars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
-            minZoom = zoomRange?.lower ?: 1f,
-            maxZoom = zoomRange?.upper ?: 1f,
+            minZoom = maxOf(1f, zoomRange?.lower ?: 1f),
+            maxZoom = minOf(zoomRange?.upper ?: 1f, MAX_ZOOM),
         )
     }
 
@@ -215,8 +215,10 @@ class Camera2Source(context: Context) {
 
     fun setZoom(ratio: Float) {
         handler.post {
+            // Vers 5×, la caméra bascule sur le téléobjectif : l'exposition est alors à refaire converger.
+            val crossesTelephotoSwitch = (zoom < TELEPHOTO_SWITCH) != (ratio < TELEPHOTO_SWITCH)
             zoom = ratio
-            unlock()
+            if (crossesTelephotoSwitch) unlock()
             applyRequest()
         }
     }
@@ -437,6 +439,10 @@ class Camera2Source(context: Context) {
     private companion object {
         // Environ deux secondes de convergence avant de verrouiller.
         const val CONVERGENCE_FRAMES = 90
+
+        // Zoom maximal proposé (au-delà, l'image n'est plus que du recadrage numérique) et seuil du téléobjectif.
+        const val MAX_ZOOM = 10f
+        const val TELEPHOTO_SWITCH = 5f
 
         // Au plus environ quatre à huit secondes d'attente, selon la cadence.
         const val MAX_CONVERGENCE_FRAMES = 240

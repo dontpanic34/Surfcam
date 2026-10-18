@@ -7,6 +7,7 @@ import android.view.SurfaceView
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -43,11 +44,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -74,6 +77,7 @@ import com.surfcam.app.presentation.theme.SurfCamTheme
 @Composable
 fun RecordingScreen(
     engine: RecordingEngine,
+    onOpenLibrary: () -> Unit,
     options: SessionOptions,
     hasCamera: Boolean,
     crashReport: String?,
@@ -113,7 +117,7 @@ fun RecordingScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Viewfinder(engine, state, hasCamera, Modifier.weight(1f).fillMaxHeight())
-                ControlPanel(state, running, options, onOptionsChange, engine, onStartSession, onStopSession)
+                ControlPanel(state, running, options, onOptionsChange, engine, onOpenLibrary, onStartSession, onStopSession)
             }
         }
     }
@@ -139,6 +143,16 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                         override fun surfaceChanged(h: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
                         override fun surfaceDestroyed(h: SurfaceHolder) = engine.setPreviewSurface(null)
                     })
+                }
+            },
+        )
+
+        // Pincement à deux doigts : zoom continu, comme dans l'appareil photo.
+        val currentZoom by rememberUpdatedState(state.zoom)
+        Box(
+            Modifier.fillMaxSize().pointerInput(Unit) {
+                detectTransformGestures { _, _, zoomChange, _ ->
+                    if (zoomChange != 1f) engine.setZoom(currentZoom * zoomChange)
                 }
             },
         )
@@ -184,6 +198,9 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
 
         state.lensInfo?.let {
             InfoChip(it, SurfColors.Muted, modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
+        }
+        if (state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) {
+            InfoChip("×%.1f".format(state.zoom), SurfColors.Foam, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp))
         }
     }
 }
@@ -251,6 +268,7 @@ private fun ControlPanel(
     options: SessionOptions,
     onOptionsChange: (SessionOptions) -> Unit,
     engine: RecordingEngine,
+    onOpenLibrary: () -> Unit,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
 ) {
@@ -258,20 +276,39 @@ private fun ControlPanel(
         modifier = Modifier.width(300.dp).fillMaxHeight().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("SurfCam", color = SurfColors.Aqua, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("SurfCam", color = SurfColors.Aqua, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            OutlinedButton(onClick = onOpenLibrary) { Text("Mes vidéos") }
+        }
 
         if (!running) {
-            Section("Objectif · à choisir avant la session") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LensChoice("Principal", if (options.hd) "1080p" else "4K", !options.tele, { onOptionsChange(options.copy(tele = false)) }, Modifier.weight(1f))
-                    LensChoice("Télé 5×", if (options.hd) "1080p" else "4K", options.tele, { onOptionsChange(options.copy(tele = true)) }, Modifier.weight(1f))
-                }
+            state.endedReason?.let {
                 Text(
-                    if (options.tele) "Plus de détail, champ étroit : à utiliser quand tu connais ta zone."
-                    else "Grand champ : tu es plus petit à l'image, mais tu ne sors pas du cadre.",
+                    "Session arrêtée automatiquement : $it.\nTes vidéos ont été sauvegardées : ouvre « Mes vidéos ».",
+                    color = SurfColors.Warn,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0x33FFC857))
+                        .padding(12.dp),
+                )
+            }
+        }
+
+        if (!running) {
+            Section("Zoom") {
+                Text(
+                    "Pince l'image avec deux doigts pour zoomer. Vers ×5, le téléphone passe seul sur le téléobjectif.",
                     color = SurfColors.Muted,
                     fontSize = 12.sp,
                 )
+                ZoomChips(state, engine)
+                OptionSwitch(
+                    "Forcer le téléobjectif",
+                    "Champ fixe ×5, sans zoom : à utiliser si le zoom automatique ne bascule pas",
+                    options.tele,
+                ) { onOptionsChange(options.copy(tele = it)) }
             }
 
             Section("Enregistrement") {
@@ -357,20 +394,7 @@ private fun ControlPanel(
             }
 
             Section("Image") {
-                Text("Zoom numérique", color = SurfColors.Muted, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(1f, 2f).filter { it >= state.minZoom && it <= state.maxZoom }.forEach { ratio ->
-                        FilterChip(
-                            selected = state.zoom == ratio,
-                            onClick = { engine.setZoom(ratio) },
-                            label = { Text("${ratio.toInt()}×") },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = SurfColors.Aqua,
-                                selectedLabelColor = SurfColors.OnAqua,
-                            ),
-                        )
-                    }
-                }
+                ZoomChips(state, engine)
                 OutlinedButton(onClick = engine::relock, modifier = Modifier.fillMaxWidth()) {
                     Text(
                         if (state.locked) "Exposition verrouillée · relancer" else "Exposition en réglage…",
@@ -435,6 +459,21 @@ private fun Section(title: String, content: @Composable () -> Unit) {
     ) {
         Text(title, color = SurfColors.Aqua, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         content()
+    }
+}
+
+@Composable
+private fun ZoomChips(state: EngineState, engine: RecordingEngine) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        listOf(1f, 2f, 5f).filter { it >= state.minZoom && it <= state.maxZoom }.forEach { ratio ->
+            FilterChip(
+                selected = kotlin.math.abs(state.zoom - ratio) < 0.05f,
+                onClick = { engine.setZoom(ratio) },
+                label = { Text("${ratio.toInt()}×") },
+                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
+            )
+        }
+        Text("Zoom ×%.1f".format(state.zoom), color = SurfColors.Foam, fontSize = 13.sp)
     }
 }
 
