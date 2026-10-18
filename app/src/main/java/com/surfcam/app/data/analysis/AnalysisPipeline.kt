@@ -49,6 +49,9 @@ class AnalysisPipeline(
 
         /** Message sur l'état de l'analyse ; null quand tout va bien. */
         fun onStatus(message: String?)
+
+        /** Nombre d'images reçues de la caméra jusqu'ici, même si elles n'ont pas pu être analysées. */
+        fun onReceived(count: Int)
     }
 
     private val thread = HandlerThread("analysis").apply { start() }
@@ -72,6 +75,7 @@ class AnalysisPipeline(
     private var released = false
     private var lastProcessedUs = Long.MIN_VALUE
     private var frames = 0
+    private var received = 0
     private var thumbnail: Bitmap? = null
 
     /** Surface à brancher sur la caméra pour alimenter l'analyse. */
@@ -108,7 +112,10 @@ class AnalysisPipeline(
         } catch (_: IllegalStateException) {
             null
         } ?: return
+        var stage = "reception"
         try {
+            received++
+            if (received == 1 || received % HEARTBEAT_EVERY == 0) listener.onReceived(received)
             val model = detector
             if (released || model == null) return
             val timestampUs = image.timestamp / 1_000
@@ -116,8 +123,11 @@ class AnalysisPipeline(
             lastProcessedUs = timestampUs
 
             val started = SystemClock.elapsedRealtime()
+            stage = "conversion de l'image"
             converter.convert(image, input, letterbox)
+            stage = "modele"
             val detections = model.detect(input, letterbox, timestampUs)
+            stage = "suivi"
             frames++
             if (frames % THUMBNAIL_EVERY == 1) thumbnail = makeThumbnail()
             val tracks = tracker.update(detections, timestampUs)
@@ -145,7 +155,7 @@ class AnalysisPipeline(
             )
         } catch (t: Throwable) {
             released = true
-            listener.onStatus("Analyse arrêtée : ${t.message ?: t.javaClass.simpleName}")
+            listener.onStatus("Analyse arrêtée ($stage) : ${t.javaClass.simpleName} ${t.message ?: ""}".trim())
         } finally {
             image.close()
         }
@@ -176,6 +186,7 @@ class AnalysisPipeline(
         const val THUMB_WIDTH = 320
         const val THUMB_HEIGHT = 180
         const val THUMBNAIL_EVERY = 5
+        const val HEARTBEAT_EVERY = 15
         const val WIDTH = CaptureConfig.ANALYSIS_WIDTH
         const val HEIGHT = CaptureConfig.ANALYSIS_HEIGHT
         const val MIN_INTERVAL_US = CaptureConfig.ANALYSIS_INTERVAL_MS * 1_000L

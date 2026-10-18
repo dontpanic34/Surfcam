@@ -222,7 +222,10 @@ private fun statusPill(state: EngineState): Pair<String, Color> = when (state.ph
         state.clipActive -> "Vague en cours d'enregistrement" to SurfColors.Alert
         state.analysis?.riding == true -> "Vague détectée" to SurfColors.Alert
         state.analysisStatus?.startsWith("Détection indisponible") == true -> "Mode manuel · détection indisponible" to SurfColors.Warn
+        state.analysisStatus?.startsWith("Analyse arrêtée") == true -> "Détection arrêtée (voir le détail)" to SurfColors.Alert
         state.analysisStatus == "Chargement du modèle…" -> "Chargement de la détection…" to SurfColors.Warn
+        state.analysisReceived == 0 -> "Détection : aucune image reçue de la caméra" to SurfColors.Warn
+        state.analysis == null -> "Détection prête · en attente d'analyse" to SurfColors.Warn
         else -> "En veille · détection active" to SurfColors.Ok
     }
 }
@@ -282,6 +285,37 @@ private fun ControlPanel(
         }
 
         if (state.phase == Phase.RUNNING) {
+            Section("Diagnostic de la détection") {
+                Text(
+                    "Modèle : ${state.analysisStatus ?: "—"}\nImages reçues de la caméra : ${state.analysisReceived}",
+                    color = SurfColors.Foam,
+                    fontSize = 12.sp,
+                )
+                state.analysis?.let { snapshot ->
+                    snapshot.thumbnail?.let { bitmap ->
+                        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))) {
+                            Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
+                            Canvas(Modifier.fillMaxSize()) {
+                                for (box in snapshot.boxes) {
+                                    drawRect(
+                                        color = if (box.riding) SurfColors.Alert else SurfColors.Aqua,
+                                        topLeft = Offset(box.left * size.width, box.top * size.height),
+                                        size = Size((box.right - box.left) * size.width, (box.bottom - box.top) * size.height),
+                                        style = Stroke(width = 1.5.dp.toPx()),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        "${snapshot.frames} analysées · ${snapshot.personsInFrame} personne(s) · confiance max %.2f · ${snapshot.inferenceMs} ms"
+                            .format(snapshot.bestConfidence),
+                        color = SurfColors.Muted,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+
             Section("Image") {
                 Text("Zoom numérique", color = SurfColors.Muted, fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -301,32 +335,6 @@ private fun ControlPanel(
                     Text(
                         if (state.locked) "Exposition verrouillée · relancer" else "Exposition en réglage…",
                         color = if (state.locked) SurfColors.Ok else SurfColors.Warn,
-                    )
-                }
-            }
-
-            state.analysis?.let { snapshot ->
-                Section("Ce que voit la détection") {
-                    snapshot.thumbnail?.let { bitmap ->
-                        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))) {
-                            Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
-                            Canvas(Modifier.fillMaxSize()) {
-                                for (box in snapshot.boxes) {
-                                    drawRect(
-                                        color = if (box.riding) SurfColors.Alert else SurfColors.Aqua,
-                                        topLeft = Offset(box.left * size.width, box.top * size.height),
-                                        size = Size((box.right - box.left) * size.width, (box.bottom - box.top) * size.height),
-                                        style = Stroke(width = 1.5.dp.toPx()),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Text(
-                        "${snapshot.frames} images · ${snapshot.personsInFrame} personne(s) · confiance max %.2f · ${snapshot.inferenceMs} ms"
-                            .format(snapshot.bestConfidence),
-                        color = SurfColors.Muted,
-                        fontSize = 11.sp,
                     )
                 }
             }

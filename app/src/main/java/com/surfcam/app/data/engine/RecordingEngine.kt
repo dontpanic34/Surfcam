@@ -41,6 +41,8 @@ data class EngineState(
     val analysis: AnalysisSnapshot? = null,
     /** Message sur la détection automatique (modèle en chargement, indisponible…). */
     val analysisStatus: String? = null,
+    /** Images que la caméra a envoyées à l'analyse (0 = le flux d'analyse ne reçoit rien). */
+    val analysisReceived: Int = 0,
     val lastClip: String? = null,
     val thermalStatus: Int = PowerManager.THERMAL_STATUS_NONE,
     val message: String? = null,
@@ -110,7 +112,7 @@ class RecordingEngine(private val context: Context) {
         unregisterThermalListener()
         releaseCamera()
         teardownPipeline()
-        _state.update { it.copy(phase = Phase.IDLE, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, message = null) }
+        _state.update { it.copy(phase = Phase.IDLE, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, message = null) }
     }
 
     /** Ouvre la caméra en aperçu seul, sans rien enregistrer, pour cadrer avant de démarrer la session. */
@@ -222,6 +224,10 @@ class RecordingEngine(private val context: Context) {
 
             override fun onStatus(message: String?) {
                 _state.update { it.copy(analysisStatus = message ?: "Détection prête") }
+            }
+
+            override fun onReceived(count: Int) {
+                _state.update { it.copy(analysisReceived = count) }
             }
         })
         analysis = pipeline
