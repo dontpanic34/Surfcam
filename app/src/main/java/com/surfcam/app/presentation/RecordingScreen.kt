@@ -1,6 +1,13 @@
 package com.surfcam.app.presentation
 
 import android.os.PowerManager
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.graphics.StrokeCap
 import android.os.SystemClock
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -160,7 +167,7 @@ fun RecordingScreen(
         ) {
             Box(Modifier.fillMaxSize()) {
                 Row(
-                    modifier = Modifier.fillMaxSize().padding(12.dp),
+                    modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Viewfinder(engine, state, hasCamera, Modifier.weight(1f).fillMaxHeight())
@@ -237,10 +244,12 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
         val horizon by rememberHorizonAngle()
         if (hasCamera) horizon?.let { angle ->
             HorizonLevel(angle)
-            InfoChip(
+            Text(
                 levelLabel(angle),
-                levelColor(angle),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
+                color = levelColor(angle),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.align(Alignment.Center).offset(y = (-22).dp),
             )
         }
 
@@ -254,12 +263,8 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             val config = state.config
             val device by rememberDeviceStatus()
             device?.let { d ->
-                if (d.batteryPercent >= 0) {
-                    InfoChip(
-                        "Batterie ${d.batteryPercent} %" + if (d.charging) " ⚡" else "",
-                        if (d.batteryPercent <= 15 && !d.charging) SurfColors.Alert else SurfColors.Foam,
-                    )
-                }
+                // La batterie est déjà dans la barre d'état : on ne la répète que si elle devient critique.
+                if (d.batteryPercent in 0..15 && !d.charging) InfoChip("Batterie ${d.batteryPercent} %", SurfColors.Alert)
                 d.temperatureC?.let { t ->
                     // Le degré est celui de la batterie ; l'état du système (normale, forte...) reste donné à côté.
                     val color = if (state.thermalStatus > PowerManager.THERMAL_STATUS_LIGHT) {
@@ -280,9 +285,6 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             }
         }
 
-        state.lensInfo?.let {
-            InfoChip(it, SurfColors.Muted, modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
-        }
         banner(state)?.let { (text, color) ->
             Text(
                 text,
@@ -291,14 +293,14 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 maxLines = 3,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 52.dp, start = 24.dp, end = 24.dp)
+                    .padding(bottom = 96.dp, start = 24.dp, end = 24.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xE60B1620))
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             )
         }
         if (state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) {
-            InfoChip("×%.1f".format(state.zoom), SurfColors.Foam, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp))
+            ZoomSelector(state, engine, Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
         }
     }
 }
@@ -391,8 +393,6 @@ private fun ControlPanel(
             SmallButton("Vidéos", onOpenLibrary)
             SmallButton("Infos", onOpenInfo)
         }
-
-        ZoomChips(state, engine)
 
         if (running) {
             OutlinedButton(onClick = engine::relock, modifier = Modifier.fillMaxWidth().height(40.dp)) {
@@ -489,13 +489,92 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
     Text(line, color = if (warn) SurfColors.Warn else SurfColors.Muted, fontSize = 11.sp, maxLines = 1)
 }
 
+/**
+ * Sélecteur de zoom à la manière de l'appareil photo du Pixel : pastilles 0,5 / 1 / 2 / 5 / 10, et une règle qui apparaît
+ * quelques secondes quand le zoom change (pincement ou pastille) et que l'on peut faire glisser pour un réglage fin.
+ */
 @Composable
-private fun ZoomChips(state: EngineState, engine: RecordingEngine) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        listOf(1f, 2f, 5f).filter { it >= state.minZoom && it <= state.maxZoom }.forEach { ratio ->
-            Toggle("${ratio.toInt()}×", kotlin.math.abs(state.zoom - ratio) < 0.05f) { engine.setZoom(ratio) }
+private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: Modifier = Modifier) {
+    val presets = listOf(0.5f, 1f, 2f, 5f, 10f).filter { it >= state.minZoom - 0.01f && it <= state.maxZoom + 0.01f }
+    var rulerVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(state.zoom) {
+        rulerVisible = true
+        delay(2_000)
+        rulerVisible = false
+    }
+    val currentZoom by rememberUpdatedState(state.zoom)
+    val minZ = state.minZoom
+    val maxZ = state.maxZoom
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (rulerVisible && maxZ > minZ) {
+            Text(
+                "×%.1f".format(state.zoom).replace('.', ','),
+                color = SurfColors.Warn,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+            Canvas(
+                Modifier
+                    .width(240.dp)
+                    .height(26.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(Color(0x66000000))
+                    .pointerInput(minZ, maxZ) {
+                        detectHorizontalDragGestures { _, dx ->
+                            val span = kotlin.math.ln(maxZ / minZ)
+                            engine.setZoom(currentZoom * kotlin.math.exp(-dx / size.width * span))
+                        }
+                    },
+            ) {
+                val span = kotlin.math.ln(maxZ / minZ)
+                fun xOf(z: Float) = size.width * (0.5f + (kotlin.math.ln(z / currentZoom) / span) * 1.6f)
+                var z = minZ
+                // Graduations tous les 10 % (échelle logarithmique), plus longues sur les valeurs de référence.
+                while (z <= maxZ * 1.001f) {
+                    val x = xOf(z)
+                    if (x in 0f..size.width) {
+                        val major = presets.any { kotlin.math.abs(it - z) / it < 0.04f }
+                        drawLine(
+                            Color(if (major) 0xFFFFFFFF else 0x88FFFFFF),
+                            Offset(x, size.height * (if (major) 0.2f else 0.35f)),
+                            Offset(x, size.height * (if (major) 0.8f else 0.65f)),
+                            strokeWidth = 1.2.dp.toPx(),
+                        )
+                    }
+                    z *= 1.1f
+                }
+                drawLine(
+                    SurfColors.Warn, Offset(size.width / 2, 2.dp.toPx()), Offset(size.width / 2, size.height - 2.dp.toPx()),
+                    strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round,
+                )
+            }
         }
-        Text("Zoom ×%.1f".format(state.zoom), color = SurfColors.Foam, fontSize = 13.sp)
+        Row(
+            Modifier.clip(RoundedCornerShape(50)).background(Color(0x99000000)).padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            presets.forEach { ratio ->
+                val selected = kotlin.math.abs(state.zoom - ratio) / ratio < 0.04f
+                val label = if (ratio < 1f) ",5" else "${ratio.toInt()}"
+                Box(
+                    Modifier
+                        .size(if (selected) 40.dp else 34.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) Color(0xFFFFD9C7) else Color.Transparent)
+                        .clickable { engine.setZoom(ratio) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (selected) "$label×" else label,
+                        color = if (selected) Color(0xFF3A1B0E) else Color.White,
+                        fontSize = if (selected) 14.sp else 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -681,6 +760,7 @@ private fun details(state: EngineState): String? {
         append("\nTampon : %.1f s · %d Mo".format(state.bufferedSec, state.bufferedMb))
         if (state.keyFrameIntervalSec > 0f) append("\nImage clé toutes les %.1f s".format(state.keyFrameIntervalSec))
         append("\nZoom ${"%.1f".format(state.zoom)}×")
+        state.lensInfo?.let { append("\nObjectif : $it") }
     }
 }
 

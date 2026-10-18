@@ -106,12 +106,10 @@ fun HorizonLevel(angleDeg: Float, modifier: Modifier = Modifier) {
     }
 }
 
-/** « 0,3° » avec le geste à faire pour redresser. */
+/** « 0,3° » : l'angle seul, comme l'appareil photo du Pixel ; « niveau » quand on est à moins de 0,5°. */
 fun levelLabel(angleDeg: Float): String {
     val off = abs(angleDeg)
-    if (off <= 0.5f) return "Niveau ✓ %.1f°".format(off).replace('.', ',')
-    val action = if (angleDeg > 0) "↻ pivoter à droite" else "↺ pivoter à gauche"
-    return "%.1f° · %s".format(off, action).replace('.', ',')
+    return if (off <= 0.5f) "%.1f° ✓".format(off).replace('.', ',') else "%.1f°".format(off).replace('.', ',')
 }
 
 fun levelColor(angleDeg: Float): Color = when {
