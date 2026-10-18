@@ -10,6 +10,7 @@ import android.os.SystemClock
 import android.view.Surface
 import com.surfcam.app.domain.clip.ClipAction
 import com.surfcam.app.domain.clip.ClipPlanner
+import com.surfcam.app.domain.detection.FrameThrottle
 import com.surfcam.app.domain.detection.Letterbox
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.domain.tracking.SurferTracker
@@ -73,7 +74,7 @@ class AnalysisPipeline(
 
     @Volatile
     private var released = false
-    private var lastProcessedUs = Long.MIN_VALUE
+    private val throttle = FrameThrottle(MIN_INTERVAL_US)
     private var frames = 0
     private var received = 0
     private var thumbnail: Bitmap? = null
@@ -119,8 +120,7 @@ class AnalysisPipeline(
             val model = detector
             if (released || model == null) return
             val timestampUs = image.timestamp / 1_000
-            if (timestampUs - lastProcessedUs < MIN_INTERVAL_US) return
-            lastProcessedUs = timestampUs
+            if (!throttle.accept(timestampUs)) return
 
             val started = SystemClock.elapsedRealtime()
             stage = "conversion de l'image"
