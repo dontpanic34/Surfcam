@@ -480,7 +480,12 @@ private fun SessionCard(
                 TextButton(onClick = onCancelAssemble) { Text("Annuler") }
             }
         } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Les boutons passent à la ligne quand l'écran est étroit : sinon le dernier sortait de l'écran.
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Button(onClick = onPlay, enabled = cover != null) { Text("Lire") }
                 if (film == null && parts.size >= 2) {
                     OutlinedButton(onClick = onAssemble) { Text("Assembler en un film", fontSize = 13.sp) }
