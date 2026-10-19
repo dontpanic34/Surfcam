@@ -338,15 +338,23 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 val advised = DistanceEstimator.recommendedZoom(
                     state.zoom, heightPx, CaptureConfig.ANALYSIS_HEIGHT.toFloat(), state.minZoom, state.maxZoom,
                 )
-                val hint = if (kotlin.math.abs(advised - state.zoom) / state.zoom > 0.2f) {
-                    " · zoom conseillé ×%s".format(("%.1f".format(advised)).replace(".0", "").replace('.', ','))
-                } else " · bonne taille"
+                val change = kotlin.math.abs(advised - state.zoom) / state.zoom > 0.2f
+                val hint = if (change) " · conseil : ×${advised.toInt()} (toucher pour appliquer)" else " · bonne taille"
                 InfoChip(
                     "Surfeur à ≈ ${DistanceEstimator.rounded(distance)} m$hint",
-                    SurfColors.Foam,
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
+                    if (change) SurfColors.Warn else SurfColors.Ok,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 64.dp)
+                        .clickable(enabled = change) { engine.setZoom(advised) },
                 )
             }
+        } else if (state.phase == Phase.PREVIEW && state.focalPx1x > 0f) {
+            InfoChip(
+                "Vise un surfeur pour avoir le zoom conseillé",
+                SurfColors.Muted,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
+            )
         }
 
         val horizon by rememberHorizonAngle()
@@ -383,7 +391,6 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                     InfoChip("%.1f °C · %s".format(t, thermalLabel(state.thermalStatus)).replace('.', ','), color)
                 }
             }
-            if (state.phase == Phase.RUNNING && state.autoZoom) InfoChip("Zoom auto", SurfColors.Aqua)
             }
             if (state.phase == Phase.RUNNING && config != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -588,7 +595,6 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
         Toggle("Détection", options.detection, Modifier.weight(1f)) { onOptionsChange(options.copy(detection = !options.detection)) }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Toggle("Zoom auto", options.autoZoom && options.detection, Modifier.weight(1f)) { onOptionsChange(options.copy(autoZoom = !options.autoZoom)) }
         Toggle("Écran noir", options.sleepScreen, Modifier.weight(1f)) { onOptionsChange(options.copy(sleepScreen = !options.sleepScreen)) }
     }
     val dndAllowed by produceState(DoNotDisturb.isAllowed(context)) {

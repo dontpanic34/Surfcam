@@ -25,8 +25,6 @@ data class SessionOptions(
     val doNotDisturb: Boolean = true,
     /** Fige l'exposition après convergence. Par défaut elle reste automatique pour suivre les nuages. */
     val lockExposure: Boolean = false,
-    /** Zoom automatique : serré (×5) quand les surfeurs sont petits, large (×1) quand ils sont gros ou absents. */
-    val autoZoom: Boolean = true,
 ) {
     val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
 

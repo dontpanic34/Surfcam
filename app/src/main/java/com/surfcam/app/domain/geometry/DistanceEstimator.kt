@@ -24,7 +24,10 @@ object DistanceEstimator {
         return ((distance / step).roundToInt() * step).coerceAtLeast(step)
     }
 
-    /** Zoom pour que le surfeur occupe [TARGET_HEIGHT_FRACTION] de l'image, arrondi au demi-cran et borné. */
+    /**
+     * Zoom conseillé pour que le surfeur occupe [TARGET_HEIGHT_FRACTION] de l'image, ramené à ×1, ×2 ou ×5 : ce sont les
+     * seuls vrais crans optiques (principal, recadrage du capteur, téléobjectif), au-delà l'image devient molle.
+     */
     fun recommendedZoom(
         currentZoom: Float,
         heightPx: Float,
@@ -34,6 +37,11 @@ object DistanceEstimator {
     ): Float {
         if (heightPx < 2f) return currentZoom
         val wanted = currentZoom * TARGET_HEIGHT_FRACTION * frameHeightPx / heightPx
-        return ((wanted * 2f).roundToInt() / 2f).coerceIn(minZoom, maxZoom)
+        val step = when {
+            wanted >= 3.5f -> 5f
+            wanted >= 1.5f -> 2f
+            else -> 1f
+        }
+        return step.coerceIn(minZoom, maxZoom)
     }
 }

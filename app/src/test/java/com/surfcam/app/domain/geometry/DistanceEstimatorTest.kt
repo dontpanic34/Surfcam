@@ -24,10 +24,16 @@ class DistanceEstimatorTest {
     }
 
     @Test
+    fun `zoom conseille intermediaire x2`() {
+        // 40 px sur 720 à ×1 : zoom voulu 2,7 → ×2.
+        assertEquals(2.0, DistanceEstimator.recommendedZoom(1f, 40f, 720f, 1f, 5f).toDouble(), 0.01)
+    }
+
+    @Test
     fun `zoom conseille pour un surfeur lointain`() {
-        // 16 px sur 720 à ×1 : il en faut 108 (15 %), soit un zoom de 6,75 arrondi à 7.
-        assertEquals(7.0, DistanceEstimator.recommendedZoom(1f, 16f, 720f, 1f, 10f).toDouble(), 0.01)
+        // 16 px sur 720 à ×1 : il en faut 108 (15 %), soit un zoom de 6,75 ramené au cran optique ×5.
+        assertEquals(5.0, DistanceEstimator.recommendedZoom(1f, 16f, 720f, 1f, 5f).toDouble(), 0.01)
         // Déjà assez grand : on ne zoome pas davantage que le minimum.
-        assertEquals(1.0, DistanceEstimator.recommendedZoom(1f, 200f, 720f, 1f, 10f).toDouble(), 0.01)
+        assertEquals(1.0, DistanceEstimator.recommendedZoom(1f, 200f, 720f, 1f, 5f).toDouble(), 0.01)
     }
 }

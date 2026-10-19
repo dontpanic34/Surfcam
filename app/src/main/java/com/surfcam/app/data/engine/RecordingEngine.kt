@@ -28,7 +28,6 @@ import com.surfcam.app.data.storage.SavedClip
 import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
 import com.surfcam.app.domain.clip.ClipAction
-import com.surfcam.app.domain.zoom.AutoZoomController
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.domain.model.EncodedSample
 import com.surfcam.app.domain.tracking.RideStats
@@ -51,8 +50,6 @@ data class EngineState(
     val lensInfo: String? = null,
     /** Focale en pixels de l'image d'analyse à zoom ×1 : permet d'estimer la distance d'un surfeur. */
     val focalPx1x: Float = 0f,
-    /** Le zoom automatique est actif pour cette session. */
-    val autoZoom: Boolean = false,
     val focusMode: Camera2Source.FocusMode = Camera2Source.FocusMode.AUTO,
     val maxFpsAtSize: Int = 0,
     val keyFrameIntervalSec: Float = 0f,
@@ -90,10 +87,6 @@ class RecordingEngine(private val context: Context) {
     val state: StateFlow<EngineState> = _state.asStateFlow()
 
     /** Mémoire de l'apprentissage : jugements de l'utilisateur sur les clips automatiques, et réglages qui en découlent. */
-    private var autoZoomController = AutoZoomController()
-
-    @Volatile
-    private var autoZoomOn = false
     val learning = LearningRepository(context)
 
     /** Où les vidéos sont écrites ; l'écran y lit aussi la liste des supports branchés. */
@@ -277,37 +270,13 @@ class RecordingEngine(private val context: Context) {
         camera?.setPreviewSurface(surface)
     }
 
-    /** Zoom demandé par l'utilisateur : le zoom automatique lui laisse la main pendant deux minutes. */
     @Synchronized
     fun setZoom(ratio: Float) {
-        autoZoomController.onManualChange(SystemClock.elapsedRealtime())
-        applyZoom(ratio)
-    }
-
-    @Synchronized
-    private fun applyZoom(ratio: Float) {
         val s = _state.value
         val clamped = ratio.coerceIn(s.minZoom, s.maxZoom)
-        val changed = kotlin.math.abs(clamped - s.zoom) / s.zoom > 0.03f
         desiredZoom = clamped
         _state.update { it.copy(zoom = clamped) }
         camera?.setZoom(clamped)
-        if (changed) analysis?.resetTracking()
-    }
-
-    /** Appelé à chaque image analysée : décide s'il faut zoomer ou dézoomer, hors vague. */
-    private fun considerAutoZoom(snapshot: AnalysisSnapshot) {
-        if (!autoZoomOn) return
-        val s = _state.value
-        val heights = snapshot.boxes.filter { it.bottom < 0.97f }
-            .map { (it.bottom - it.top) * CaptureConfig.ANALYSIS_HEIGHT }.sorted()
-        val busy = snapshot.riding || snapshot.recording || s.clipActive
-        val wanted = autoZoomController.onFrame(
-            SystemClock.elapsedRealtime(), heights.getOrNull(heights.size / 2),
-            CaptureConfig.ANALYSIS_HEIGHT.toFloat(), s.zoom, s.minZoom, s.maxZoom, busy,
-        ) ?: return
-        // Depuis le thread principal : le moteur ne se verrouille pas depuis le thread d'analyse (risque de blocage à l'arrêt).
-        mainExecutor.execute { applyZoom(wanted) }
     }
 
     /** Mise au point sur un point touché de l'image (0 à 1), conservée jusqu'à ce qu'on repasse en automatique. */
@@ -387,7 +356,6 @@ class RecordingEngine(private val context: Context) {
 
             override fun onSnapshot(snapshot: AnalysisSnapshot) {
                 _state.update { it.copy(analysis = snapshot) }
-                considerAutoZoom(snapshot)
             }
 
             override fun onStatus(message: String?) {
@@ -464,9 +432,6 @@ class RecordingEngine(private val context: Context) {
             )
         }
         source.lockExposure = options.lockExposure
-        autoZoomOn = options.autoZoom && options.detection
-        autoZoomController = AutoZoomController()
-        _state.update { it.copy(autoZoom = autoZoomOn) }
         source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }

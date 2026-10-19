@@ -83,8 +83,7 @@ class AnalysisPipeline(
     private val letterbox = Letterbox(WIDTH, HEIGHT, OnnxPersonDetector.MODEL_WIDTH, OnnxPersonDetector.MODEL_HEIGHT)
     private val converter = YuvToTensor()
     private val input = FloatArray(3 * OnnxPersonDetector.MODEL_WIDTH * OnnxPersonDetector.MODEL_HEIGHT)
-    @Volatile
-    private var tracker = SurferTracker(TrackerConfig(frameHeight = HEIGHT))
+    private val tracker = SurferTracker(TrackerConfig(frameHeight = HEIGHT))
     private val waveDetector = WaveDetector(waveConfig)
     private val planner = ClipPlanner(
         preRollUs = CaptureConfig.PRE_ROLL_SEC * 1_000_000L,
@@ -118,11 +117,6 @@ class AnalysisPipeline(
     init {
         inferenceHandler.post { loadModel() }
         reader.setOnImageAvailableListener({ onImage() }, readerHandler)
-    }
-
-    /** Après un changement de zoom : les positions et tailles ne sont plus comparables, on repart de suivis neufs. */
-    fun resetTracking() {
-        inferenceHandler.post { tracker = SurferTracker(TrackerConfig(frameHeight = HEIGHT)) }
     }
 
     fun release() {

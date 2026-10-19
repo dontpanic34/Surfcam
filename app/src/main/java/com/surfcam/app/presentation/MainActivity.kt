@@ -49,8 +49,7 @@ class MainActivity : ComponentActivity() {
             var sleepScreen by rememberSaveable { mutableStateOf(true) }
             var doNotDisturb by rememberSaveable { mutableStateOf(true) }
             var lockExposure by rememberSaveable { mutableStateOf(false) }
-            var autoZoom by rememberSaveable { mutableStateOf(true) }
-            val options = SessionOptions(tele = tele, fullSession = fullSession, hd = hd, fps60 = fps60, storage = storageVolume, detection = detection, sleepScreen = sleepScreen, doNotDisturb = doNotDisturb, lockExposure = lockExposure, autoZoom = autoZoom)
+            val options = SessionOptions(tele = tele, fullSession = fullSession, hd = hd, fps60 = fps60, storage = storageVolume, detection = detection, sleepScreen = sleepScreen, doNotDisturb = doNotDisturb, lockExposure = lockExposure)
             var showLibrary by rememberSaveable { mutableStateOf(false) }
             val library = remember { VideoLibrary(applicationContext) }
             BackHandler(enabled = showLibrary) { showLibrary = false }
@@ -97,7 +96,6 @@ class MainActivity : ComponentActivity() {
                     sleepScreen = it.sleepScreen
                     doNotDisturb = it.doNotDisturb
                     lockExposure = it.lockExposure
-                    autoZoom = it.autoZoom
                 },
                 onStartSession = {
                     val wanted = buildList {
@@ -130,7 +128,6 @@ class MainActivity : ComponentActivity() {
             .putExtra(RecordingService.EXTRA_DETECTION, options.detection)
             .putExtra(RecordingService.EXTRA_DND, options.doNotDisturb)
             .putExtra(RecordingService.EXTRA_LOCK_EXPOSURE, options.lockExposure)
-            .putExtra(RecordingService.EXTRA_AUTO_ZOOM, options.autoZoom)
         ContextCompat.startForegroundService(this, intent)
     }
 }
