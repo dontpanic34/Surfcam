@@ -6,8 +6,8 @@ import com.surfcam.app.data.camera.Lens
 data class SessionOptions(
     /** Téléobjectif optique 5× plutôt que l'objectif principal. */
     val tele: Boolean = false,
-    /** Enregistrer toute la session, en fichiers de 2 minutes, en plus des clips de vagues. */
-    val fullSession: Boolean = true,
+    /** Enregistrer toute la session, en fichiers de 2 minutes, en plus des clips de vagues (désactivé par défaut). */
+    val fullSession: Boolean = false,
     /** 1080p au lieu de la 4K : environ 2,5 fois moins de place et de chauffe. */
     val hd: Boolean = false,
     /**

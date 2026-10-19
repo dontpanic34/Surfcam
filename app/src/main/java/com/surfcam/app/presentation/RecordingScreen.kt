@@ -7,8 +7,12 @@ import androidx.compose.ui.platform.LocalContext
 import com.surfcam.app.service.DoNotDisturb
 import com.surfcam.app.domain.geometry.DistanceEstimator
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.border
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.text.style.TextAlign
 import android.os.PowerManager
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.offset
@@ -579,11 +583,14 @@ private fun Toggle(label: String, selected: Boolean, modifier: Modifier = Modifi
     )
 }
 
-/** Réglages d'avant session, en quatre lignes courtes. Les explications sont dans « Infos ». */
+private enum class OptionIcon { DETECT, MOON, DND, SESSION }
+
+/** Réglages d'avant session : un récapitulatif touchable (qualité, support) et quatre boutons ronds. */
 @Composable
 private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions) -> Unit, engine: RecordingEngine) {
     val context = LocalContext.current
     var storages by remember { mutableStateOf(engine.storage.available()) }
+    var showQuality by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         // Sondé toutes les 3 s : brancher ou retirer une carte SD / une clé USB se voit sans rien faire.
         while (true) {
@@ -591,51 +598,152 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
             delay(3_000)
         }
     }
-
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Toggle("4K", !options.hd, Modifier.weight(1f)) { onOptionsChange(options.copy(hd = false)) }
-        Toggle("1080p", options.hd, Modifier.weight(1f)) { onOptionsChange(options.copy(hd = true)) }
-        Toggle("30 i/s", !options.fps60, Modifier.weight(1f)) { onOptionsChange(options.copy(fps60 = false)) }
-        Toggle("60 i/s", options.fps60, Modifier.weight(1f)) { onOptionsChange(options.copy(fps60 = true)) }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Toggle("Session complète", options.fullSession, Modifier.weight(1f)) { onOptionsChange(options.copy(fullSession = !options.fullSession)) }
-        Toggle("Détection", options.detection, Modifier.weight(1f)) { onOptionsChange(options.copy(detection = !options.detection)) }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Toggle("Écran noir", options.sleepScreen, Modifier.weight(1f)) { onOptionsChange(options.copy(sleepScreen = !options.sleepScreen)) }
-    }
     val dndAllowed by produceState(DoNotDisturb.isAllowed(context)) {
         while (true) {
             value = DoNotDisturb.isAllowed(context)
             delay(2_000)
         }
     }
-    if (options.doNotDisturb && !dndAllowed) {
-        Text("Ne pas déranger : autorisation requise (Infos)", color = SurfColors.Warn, fontSize = 11.sp, maxLines = 1)
-    }
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        storages.forEach { choice ->
-            Toggle(
-                choice.label + (choice.freeBytes?.let { " · ${it / 1_000_000_000L} Go" } ?: ""),
-                options.storage == choice.name,
-            ) { onOptionsChange(options.copy(storage = choice.name)) }
-        }
-    }
-    if (options.fps60) {
-        Text("60 i/s : zoom limité à ×2 (le téléobjectif ne filme qu'à 30 i/s)", color = SurfColors.Warn, fontSize = 11.sp, maxLines = 2)
-    }
+
     val chosen = storages.firstOrNull { it.name == options.storage }
     val freeGb = (chosen ?: storages.firstOrNull())?.freeBytes?.let { it / 1_000_000_000L }
-    val line = when {
-        chosen == null -> "Support absent : la session ira sur le téléphone"
-        freeGb == null -> "Espace libre inconnu"
-        options.fullSession && options.gigabytesPerHour() > 0 ->
-            "$freeGb Go libres · environ ${freeGb / options.gigabytesPerHour()} h de session complète"
-        else -> "$freeGb Go libres"
+    val where = if (chosen == null) "Téléphone" else chosen.label
+    val detail = buildString {
+        append(where)
+        if (freeGb != null) append(" · $freeGb Go libres")
+        if (options.fullSession && freeGb != null && options.gigabytesPerHour() > 0) {
+            append(" · ≈ ${freeGb / options.gigabytesPerHour()} h de session")
+        }
     }
-    val warn = chosen == null || (options.fullSession && freeGb != null && freeGb < 2L * options.gigabytesPerHour())
-    Text(line, color = if (warn) SurfColors.Warn else SurfColors.Muted, fontSize = 11.sp, maxLines = 1)
+    val storageWarn = chosen == null || (options.fullSession && freeGb != null && freeGb < 2L * options.gigabytesPerHour())
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable { showQuality = true }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                (if (options.hd) "1080p" else "4K") + " · ${if (options.fps60) 60 else 30} i/s",
+                color = SurfColors.Foam, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("▾ changer", color = SurfColors.Aqua, fontSize = 12.sp)
+        }
+        Text(detail, color = if (storageWarn) SurfColors.Warn else SurfColors.Muted, fontSize = 12.sp, maxLines = 2)
+        if (options.fps60) {
+            Text("60 i/s : zoom limité à ×2", color = SurfColors.Warn, fontSize = 11.sp)
+        }
+    }
+
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        OptionButton(OptionIcon.DETECT, "Détection", options.detection) { onOptionsChange(options.copy(detection = !options.detection)) }
+        OptionButton(OptionIcon.MOON, "Écran noir", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = !options.sleepScreen)) }
+        OptionButton(
+            OptionIcon.DND,
+            if (options.doNotDisturb && !dndAllowed) "À autoriser" else "Ne pas déranger",
+            options.doNotDisturb,
+            warn = options.doNotDisturb && !dndAllowed,
+        ) {
+            val turnOn = !options.doNotDisturb
+            onOptionsChange(options.copy(doNotDisturb = turnOn))
+            // Première fois : Android demande à l'utilisateur d'autoriser l'app dans ses réglages.
+            if (turnOn && !DoNotDisturb.isAllowed(context)) {
+                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+        OptionButton(OptionIcon.SESSION, "Session complète", options.fullSession) { onOptionsChange(options.copy(fullSession = !options.fullSession)) }
+    }
+    if (!options.detection && !options.fullSession) {
+        Text("Rien ne sera enregistré : active la détection ou la session complète", color = SurfColors.Warn, fontSize = 11.sp, maxLines = 2)
+    }
+
+    if (showQuality) {
+        AlertDialog(
+            onDismissRequest = { showQuality = false },
+            title = { Text("Qualité et stockage") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Toggle("4K", !options.hd) { onOptionsChange(options.copy(hd = false)) }
+                        Toggle("1080p", options.hd) { onOptionsChange(options.copy(hd = true)) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Toggle("30 i/s", !options.fps60) { onOptionsChange(options.copy(fps60 = false)) }
+                        Toggle("60 i/s", options.fps60) { onOptionsChange(options.copy(fps60 = true)) }
+                    }
+                    Text("Le zoom optique ×5 exige 30 i/s ; à 60 i/s le zoom est limité à ×2.", color = SurfColors.Muted, fontSize = 11.sp)
+                    storages.forEach { choice ->
+                        Toggle(
+                            choice.label + (choice.freeBytes?.let { " · ${it / 1_000_000_000L} Go" } ?: ""),
+                            options.storage == choice.name,
+                        ) { onOptionsChange(options.copy(storage = choice.name)) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showQuality = false }) { Text("OK") } },
+        )
+    }
+}
+
+/** Bouton rond d'option avec son nom dessous : plein quand l'option est active. */
+@Composable
+private fun OptionButton(icon: OptionIcon, label: String, on: Boolean, warn: Boolean = false, onClick: () -> Unit) {
+    val tint = if (on) SurfColors.OnAqua else SurfColors.Muted
+    Column(
+        Modifier.width(64.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(if (on) SurfColors.Aqua else Color.Transparent)
+                .border(1.dp, if (on) Color.Transparent else Color(0xFF3B5565), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.size(24.dp)) {
+                val c = center
+                val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                when (icon) {
+                    OptionIcon.DETECT -> {
+                        drawCircle(tint, radius = 3.5.dp.toPx(), center = c, style = stroke)
+                        val a = 7.dp.toPx()
+                        val b = 11.dp.toPx()
+                        drawLine(tint, Offset(c.x - b, c.y), Offset(c.x - a, c.y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                        drawLine(tint, Offset(c.x + a, c.y), Offset(c.x + b, c.y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                        drawLine(tint, Offset(c.x, c.y - b), Offset(c.x, c.y - a), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                        drawLine(tint, Offset(c.x, c.y + a), Offset(c.x, c.y + b), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    }
+                    OptionIcon.MOON -> {
+                        val outer = Path().apply { addOval(Rect(c, 9.dp.toPx())) }
+                        val inner = Path().apply { addOval(Rect(Offset(c.x + 5.dp.toPx(), c.y - 3.dp.toPx()), 8.dp.toPx())) }
+                        drawPath(Path.combine(PathOperation.Difference, outer, inner), tint)
+                    }
+                    OptionIcon.DND -> {
+                        drawCircle(tint, radius = 9.dp.toPx(), center = c, style = stroke)
+                        drawLine(tint, Offset(c.x - 5.dp.toPx(), c.y), Offset(c.x + 5.dp.toPx(), c.y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    }
+                    OptionIcon.SESSION -> {
+                        drawCircle(tint, radius = 9.dp.toPx(), center = c, style = stroke)
+                        drawCircle(tint, radius = 3.5.dp.toPx(), center = c)
+                    }
+                }
+            }
+        }
+        Text(
+            label,
+            color = if (warn) SurfColors.Warn else SurfColors.Muted,
+            fontSize = 10.sp,
+            lineHeight = 11.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+        )
+    }
 }
 
 /**
@@ -764,14 +872,6 @@ private fun InfoDialog(
                         Section("Réglages avancés") {
                             OptionSwitch("Forcer le téléobjectif", "Champ fixe ×5, sans zoom", options.tele) {
                                 if (!running) onOptionsChange(options.copy(tele = it))
-                            }
-                            OptionSwitch("Ne pas déranger", "Silence total pendant la session (autorisation Android à donner une fois)", options.doNotDisturb) {
-                                if (!running) {
-                                    onOptionsChange(options.copy(doNotDisturb = it))
-                                    if (it && !DoNotDisturb.isAllowed(context)) {
-                                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                    }
-                                }
                             }
                             OptionSwitch("Verrouiller l'exposition", "À activer seulement si l'image « pompe » (clair/sombre) quand un surfeur passe", options.lockExposure) {
                                 if (!running) onOptionsChange(options.copy(lockExposure = it))

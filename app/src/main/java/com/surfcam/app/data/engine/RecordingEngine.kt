@@ -468,7 +468,7 @@ class RecordingEngine(private val context: Context) {
         val clips = clipsSaved
         return when {
             parts == 0 && clips == 0 ->
-                "Aucune vidéo enregistrée pendant cette session. Active « Enregistrer toute la session » avant de démarrer."
+                "Aucune vague détectée, donc aucune vidéo. Active « Session complète » avant de démarrer pour tout garder."
             else -> buildString {
                 append("Session terminée : ")
                 if (parts > 0) append("$parts fichier(s) de session")
