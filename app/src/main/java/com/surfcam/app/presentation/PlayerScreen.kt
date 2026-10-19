@@ -145,6 +145,10 @@ fun PlayerScreen(
     learning: LearningRepository,
     onDelete: (LibraryVideo) -> Unit,
     onBack: () -> Unit,
+    /** Passe tout seul au morceau suivant quand celui-ci se termine (morceaux d'une session non assemblée). */
+    autoAdvance: Boolean = false,
+    /** Chapitres du film : instants (ms depuis le début) des vagues, marqués sur la barre de défilement. */
+    chapters: List<Long> = emptyList(),
 ) {
     val context = LocalContext.current
     var currentKey by remember { mutableStateOf(videos[startIndex.coerceIn(0, videos.lastIndex)].key) }
@@ -181,6 +185,7 @@ fun PlayerScreen(
     val pathStore = remember { PathStore(context) }
     var reframeProgress by remember { mutableStateOf<Int?>(null) }
     var reframeMenu by remember { mutableStateOf(false) }
+    val advance = remember { mutableStateOf<() -> Unit>({}) }
     // Zoom et déplacement de l'image à la main (pincement, double toucher, boutons) ; remis à zéro à chaque clip.
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var panX by remember { mutableFloatStateOf(0f) }
@@ -220,6 +225,10 @@ fun PlayerScreen(
                 playing = isPlaying
             }
 
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) advance.value()
+            }
+
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                 if (videoSize.width > 0 && videoSize.height > 0) {
                     videoAspect = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
@@ -252,6 +261,8 @@ fun PlayerScreen(
     fun goTo(newIndex: Int) {
         if (newIndex in videos.indices) currentKey = videos[newIndex].key
     }
+    advance.value = { if (autoAdvance && index + 1 in videos.indices) goTo(index + 1) }
+
     fun step(direction: Int) {
         player.pause()
         val frameMs = 1000.0 / (fps ?: 30f)
@@ -399,6 +410,7 @@ fun PlayerScreen(
     }
 
     val scrubBar: @Composable (Modifier) -> Unit = { modifier ->
+      Box(modifier, contentAlignment = Alignment.CenterStart) {
         Slider(
             value = if (scrubbing) scrubValue else if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
             onValueChange = {
@@ -418,13 +430,24 @@ fun PlayerScreen(
                 scrubber.seek(positionMs, force = true)
                 if (wasPlaying) player.play()
             },
-            modifier = modifier,
+            modifier = Modifier.fillMaxWidth(),
             colors = SliderDefaults.colors(
                 thumbColor = SurfColors.Aqua,
                 activeTrackColor = SurfColors.Aqua,
                 inactiveTrackColor = Color(0x55FFFFFF),
             ),
         )
+        // Chapitres : un trait jaune par vague, à sa place dans le film.
+        if (chapters.isNotEmpty() && durationMs > 0) {
+            Canvas(Modifier.fillMaxWidth().height(28.dp)) {
+                val pad = 10.dp.toPx()
+                chapters.forEach { c ->
+                    val x = pad + (c.toFloat() / durationMs).coerceIn(0f, 1f) * (size.width - 2 * pad)
+                    drawLine(Color(0xFFFFD166), Offset(x, 0f), Offset(x, 8.dp.toPx()), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+                }
+            }
+        }
+      }
     }
 
     val transport: @Composable () -> Unit = {

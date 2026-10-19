@@ -66,4 +66,15 @@ class VideoNamingTest {
         // Le clip cadré se range juste après son original.
         assertTrue("2026-10-19 12h47 - Vague 4" < reframed)
     }
+
+    @Test
+    fun filmNameIsRecognisedAndSortsBeforeItsParts() {
+        val film = VideoNaming.filmName(ms(2026, 10, 19, 16, 11), paris)
+        assertEquals("2026-10-19 16h11 - Session", film)
+        val parsed = VideoNaming.parse("$film.mp4", paris)!!
+        assertTrue(parsed.isFilm && parsed.isSession)
+        assertEquals("Session · film", VideoNaming.shortTitle("$film.mp4", paris))
+        assertTrue(film < "2026-10-19 16h11 - Session - partie 01")
+        assertTrue(!VideoNaming.parse("2026-10-19 16h11 - Session - partie 01", paris)!!.isFilm)
+    }
 }

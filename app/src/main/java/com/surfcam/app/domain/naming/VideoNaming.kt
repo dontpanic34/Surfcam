@@ -14,6 +14,8 @@ data class ParsedVideoName(
     val number: Int,
     /** Version recadrée sur le surfeur d'un clip (« … (cadré) »). */
     val reframed: Boolean = false,
+    /** Film d'une session assemblée (« … - Session »), par opposition à un morceau de 2 minutes. */
+    val isFilm: Boolean = false,
 )
 
 /**
@@ -25,7 +27,7 @@ data class ParsedVideoName(
  */
 object VideoNaming {
 
-    private val pattern = Regex("""^(\d{4})-(\d{2})-(\d{2}) (\d{2})h(\d{2}) - (?:Vague (\d+)|Session - partie (\d+))( \(cadré\))?$""")
+    private val pattern = Regex("""^(\d{4})-(\d{2})-(\d{2}) (\d{2})h(\d{2}) - (?:Vague (\d+)|Session - partie (\d+)|(Session))( \(cadré\))?$""")
 
     fun clipName(startedAtMs: Long, number: Int, zone: ZoneId = ZoneId.systemDefault()): String =
         "${stamp(startedAtMs, zone)} - Vague $number"
@@ -37,10 +39,14 @@ object VideoNaming {
     fun parse(fileName: String, zone: ZoneId = ZoneId.systemDefault()): ParsedVideoName? {
         val m = pattern.matchEntire(fileName.removeSuffix(".mp4")) ?: return null
         val (y, mo, d, h, mi) = m.groupValues.drop(1).take(5).map { it.toInt() }
-        val isSession = m.groupValues[7].isNotEmpty()
-        val number = (if (isSession) m.groupValues[7] else m.groupValues[6]).toInt()
-        return ParsedVideoName(ZonedDateTime.of(y, mo, d, h, mi, 0, 0, zone), isSession, number, m.groupValues[8].isNotEmpty())
+        val isFilm = m.groupValues[8].isNotEmpty()
+        val isSession = isFilm || m.groupValues[7].isNotEmpty()
+        val number = if (isFilm) 0 else (if (isSession) m.groupValues[7] else m.groupValues[6]).toInt()
+        return ParsedVideoName(ZonedDateTime.of(y, mo, d, h, mi, 0, 0, zone), isSession, number, m.groupValues[9].isNotEmpty(), isFilm)
     }
+
+    /** Nom du film assemblé d'une session commencée à [startedAtMs] (sans extension). */
+    fun filmName(startedAtMs: Long, zone: ZoneId = ZoneId.systemDefault()): String = "${stamp(startedAtMs, zone)} - Session"
 
     /** Nom du clip recadré correspondant à [baseName] (sans extension). */
     fun reframedName(baseName: String): String = "${baseName.removeSuffix(".mp4")} (cadré)"
@@ -48,7 +54,7 @@ object VideoNaming {
     /** Titre court : « Vague 4 », « Session 1 », avec « · cadré » pour une version recadrée. Les anciens noms sont gardés. */
     fun shortTitle(fileName: String, zone: ZoneId = ZoneId.systemDefault()): String {
         val parsed = parse(fileName, zone) ?: return fileName.removeSuffix(".mp4")
-        val kind = if (parsed.isSession) "Session ${parsed.number}" else "Vague ${parsed.number}"
+        val kind = if (parsed.isFilm) "Session · film" else if (parsed.isSession) "Session ${parsed.number}" else "Vague ${parsed.number}"
         return if (parsed.reframed) "$kind · cadré" else kind
     }
 
@@ -57,7 +63,7 @@ object VideoNaming {
         val parsed = parse(fileName, zone) ?: return fileName.removeSuffix(".mp4")
         val t = parsed.dateTime
         val month = t.month.getDisplayName(TextStyle.FULL, Locale.FRANCE)
-        val kind = (if (parsed.isSession) "Session · partie ${parsed.number}" else "Vague ${parsed.number}") + if (parsed.reframed) " (cadré)" else ""
+        val kind = (if (parsed.isFilm) "Session (film)" else if (parsed.isSession) "Session · partie ${parsed.number}" else "Vague ${parsed.number}") + if (parsed.reframed) " (cadré)" else ""
         return "$kind · ${t.dayOfMonth} $month ${t.year}, ${t.hour} h ${"%02d".format(t.minute)}"
     }
 
