@@ -54,4 +54,16 @@ class VideoNamingTest {
         assertNull(VideoNaming.parse("SurfCam_20261018_202656.mp4"))
         assertEquals("SurfCam_20261018_202656", VideoNaming.displayTitle("SurfCam_20261018_202656.mp4"))
     }
+
+    @Test
+    fun shortTitlesAndReframedVersions() {
+        assertEquals("Vague 4", VideoNaming.shortTitle("2026-10-19 12h47 - Vague 4.mp4", paris))
+        assertEquals("Session 1", VideoNaming.shortTitle("2026-10-19 12h46 - Session - partie 01.mp4", paris))
+        val reframed = VideoNaming.reframedName("2026-10-19 12h47 - Vague 4.mp4")
+        assertEquals("2026-10-19 12h47 - Vague 4 (cadré)", reframed)
+        assertEquals("Vague 4 · cadré", VideoNaming.shortTitle("$reframed.mp4", paris))
+        assertTrue(VideoNaming.parse(reframed, paris)!!.reframed)
+        // Le clip cadré se range juste après son original.
+        assertTrue("2026-10-19 12h47 - Vague 4" < reframed)
+    }
 }
