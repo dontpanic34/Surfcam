@@ -370,11 +370,9 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             )
         }
 
-        // La couleur suffit à dire l'état ; le texte n'apparaît que pour un problème.
+        // Un point de couleur et, dessous, ce qu'il veut dire en quelques mots.
         val (label, color) = statusPill(state)
-        val waveNormal = state.clipActive || state.analysis?.riding == true
-        val showText = state.phase == Phase.ERROR || color == SurfColors.Warn || (color == SurfColors.Alert && !waveNormal)
-        Pill(if (showText) label else null, color, modifier = Modifier.align(Alignment.TopStart).padding(12.dp))
+        Pill(label, color, modifier = Modifier.align(Alignment.TopStart).padding(12.dp))
 
         Column(
             modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
@@ -446,19 +444,17 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
 }
 
 @Composable
-private fun Pill(text: String?, color: Color, modifier: Modifier = Modifier) {
-    Row(
+private fun Pill(text: String, color: Color, modifier: Modifier = Modifier) {
+    Column(
         modifier = modifier
-            .clip(RoundedCornerShape(50))
+            .clip(RoundedCornerShape(14.dp))
             .background(Color(0xCC0B1620))
-            .padding(horizontal = if (text != null) 14.dp else 10.dp, vertical = if (text != null) 8.dp else 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Box(Modifier.size(if (text != null) 10.dp else 14.dp).clip(CircleShape).background(color))
-        if (text != null) {
-            Spacer(Modifier.width(8.dp))
-            Text(text, color = SurfColors.Foam, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        }
+        Box(Modifier.size(14.dp).clip(CircleShape).background(color))
+        Text(text, color = SurfColors.Foam, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -477,20 +473,20 @@ private fun InfoChip(text: String, color: Color, modifier: Modifier = Modifier) 
 
 private fun statusPill(state: EngineState): Pair<String, Color> = when (state.phase) {
     Phase.IDLE -> "Prêt" to SurfColors.Muted
-    Phase.PREVIEW -> "Aperçu · rien n'est enregistré" to SurfColors.Info
+    Phase.PREVIEW -> "Aperçu" to SurfColors.Info
     Phase.STARTING -> "Démarrage…" to SurfColors.Warn
     Phase.ERROR -> "Erreur" to SurfColors.Alert
     Phase.RUNNING -> when {
-        state.clipActive -> "Vague en cours d'enregistrement" to SurfColors.Alert
+        state.clipActive -> "Enregistrement d'une vague" to SurfColors.Alert
         state.analysis?.riding == true -> "Vague détectée" to SurfColors.Alert
         !state.detectionEnabled ->
-            (if (state.fullSession) "Session complète en cours d'enregistrement" else "Session en cours · détection désactivée") to SurfColors.Ok
-        state.analysisStatus?.startsWith("Détection indisponible") == true -> "Mode manuel · détection indisponible" to SurfColors.Warn
-        state.analysisStatus?.startsWith("Analyse arrêtée") == true -> "Détection arrêtée (voir le détail)" to SurfColors.Alert
-        state.analysisStatus == "Chargement du modèle…" -> "Chargement de la détection…" to SurfColors.Warn
-        state.analysisReceived == 0 -> "Détection : aucune image reçue de la caméra" to SurfColors.Warn
-        state.analysis == null -> "Détection prête · en attente d'analyse" to SurfColors.Warn
-        else -> "En veille · détection active" to SurfColors.Ok
+            (if (state.fullSession) "Session en cours" else "Session · détection coupée") to SurfColors.Ok
+        state.analysisStatus?.startsWith("Détection indisponible") == true -> "Détection indisponible" to SurfColors.Warn
+        state.analysisStatus?.startsWith("Analyse arrêtée") == true -> "Détection arrêtée" to SurfColors.Alert
+        state.analysisStatus == "Chargement du modèle…" -> "Chargement de la détection" to SurfColors.Warn
+        state.analysisReceived == 0 -> "Aucune image reçue" to SurfColors.Warn
+        state.analysis == null -> "Détection prête" to SurfColors.Warn
+        else -> "Aucune vague détectée" to SurfColors.Ok
     }
 }
 
