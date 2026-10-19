@@ -205,11 +205,11 @@ fun RecordingScreen(
         ) {
             Box(Modifier.fillMaxSize()) {
                 Row(
-                    modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Viewfinder(engine, state, hasCamera, Modifier.weight(1f).fillMaxHeight())
-                    ControlPanel(
+                    Viewfinder(engine, state, hasCamera, options.fps60, Modifier.weight(1f).fillMaxHeight())
+                    SideControls(
                         state, running, options, onOptionsChange, engine,
                         onOpenLibrary, { showInfo = true }, startGuarded, onStopSession,
                     )
@@ -228,7 +228,7 @@ fun RecordingScreen(
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: Boolean, modifier: Modifier) {
+private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: Boolean, fps60: Boolean, modifier: Modifier) {
     Box(
         modifier = modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black),
         contentAlignment = Alignment.Center,
@@ -429,6 +429,13 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             )
         }
+        if (fps60 && state.phase == Phase.PREVIEW) {
+            InfoChip(
+                "60 i/s : zoom limité à ×2 pendant la session",
+                SurfColors.Warn,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp),
+            )
+        }
         if (state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) {
             ZoomSelector(state, engine, Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
         }
@@ -501,99 +508,26 @@ private fun banner(state: EngineState): Pair<String, Color>? {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Panneau de commandes : tout tient sans défilement. Le détail technique est dans le panneau « Infos ».
+// Commandes sur le bord droit, dans les bandes noires à côté de l'image, à la manière de l'appareil photo du Pixel.
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun ControlPanel(
+private fun SideControls(
     state: EngineState,
     running: Boolean,
     options: SessionOptions,
     onOptionsChange: (SessionOptions) -> Unit,
     engine: RecordingEngine,
     onOpenLibrary: () -> Unit,
-    onOpenInfo: () -> Unit,
+    onOpenSettings: () -> Unit,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier.width(300.dp).fillMaxHeight(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("SurfCam", color = SurfColors.Aqua, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            SmallButton("Vidéos", onOpenLibrary)
-            SmallButton("Infos", onOpenInfo)
-        }
-
-        // Zone centrale défilante en secours : le bouton Démarrer / Arrêter reste toujours visible en bas.
-        Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-        if (running) {
-            if (options.lockExposure) {
-                OutlinedButton(onClick = engine::relock, modifier = Modifier.fillMaxWidth().height(40.dp)) {
-                    Text(
-                        if (state.locked) "Exposition verrouillée · relancer" else "Exposition en réglage…",
-                        color = if (state.locked) SurfColors.Ok else SurfColors.Warn,
-                        fontSize = 13.sp,
-                    )
-                }
-            } else {
-                Text("Exposition automatique", color = SurfColors.Ok, fontSize = 13.sp)
-            }
-        } else {
-            SetupGrid(options, onOptionsChange, engine)
-        }
-        }
-
-        if (running) {
-            OutlinedButton(
-                onClick = onStopSession,
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                border = BorderStroke(1.5.dp, SurfColors.Alert),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = SurfColors.Alert),
-            ) { Text("Arrêter la session", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-        } else {
-            Button(onClick = onStartSession, modifier = Modifier.fillMaxWidth().height(54.dp)) {
-                Text("Démarrer la session", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SmallButton(text: String, onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = Modifier.height(34.dp),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-    ) { Text(text, fontSize = 13.sp) }
-}
-
-@Composable
-private fun Toggle(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label, fontSize = 12.sp, maxLines = 1) },
-        modifier = modifier,
-        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SurfColors.Aqua, selectedLabelColor = SurfColors.OnAqua),
-    )
-}
-
-private enum class OptionIcon { DETECT, MOON, DND, SESSION }
-
-/** Réglages d'avant session : un récapitulatif touchable (qualité, support) et quatre boutons ronds. */
-@Composable
-private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions) -> Unit, engine: RecordingEngine) {
     val context = LocalContext.current
     var storages by remember { mutableStateOf(engine.storage.available()) }
-    var showQuality by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(running) {
         // Sondé toutes les 3 s : brancher ou retirer une carte SD / une clé USB se voit sans rien faire.
-        while (true) {
+        while (!running) {
             storages = withContext(Dispatchers.IO) { engine.storage.available() }
             delay(3_000)
         }
@@ -605,145 +539,145 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
         }
     }
 
-    val chosen = storages.firstOrNull { it.name == options.storage }
-    val freeGb = (chosen ?: storages.firstOrNull())?.freeBytes?.let { it / 1_000_000_000L }
-    val where = if (chosen == null) "Téléphone" else chosen.label
-    val detail = buildString {
-        append(where)
-        if (freeGb != null) append(" · $freeGb Go libres")
-        if (options.fullSession && freeGb != null && options.gigabytesPerHour() > 0) {
-            append(" · ≈ ${freeGb / options.gigabytesPerHour()} h de session")
-        }
-    }
-    val storageWarn = chosen == null || (options.fullSession && freeGb != null && freeGb < 2L * options.gigabytesPerHour())
-
     Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable { showQuality = true }
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+        modifier = Modifier.width(112.dp).fillMaxHeight(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                (if (options.hd) "1080p" else "4K") + " · ${if (options.fps60) 60 else 30} i/s",
-                color = SurfColors.Foam, fontSize = 20.sp, fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("▾ changer", color = SurfColors.Aqua, fontSize = 12.sp)
-        }
-        Text(detail, color = if (storageWarn) SurfColors.Warn else SurfColors.Muted, fontSize = 12.sp, maxLines = 2)
-        if (options.fps60) {
-            Text("60 i/s : zoom limité à ×2", color = SurfColors.Warn, fontSize = 11.sp)
-        }
-    }
-
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        OptionButton(OptionIcon.DETECT, "Détection", options.detection) { onOptionsChange(options.copy(detection = !options.detection)) }
-        OptionButton(OptionIcon.MOON, "Écran noir", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = !options.sleepScreen)) }
-        OptionButton(
-            OptionIcon.DND,
-            if (options.doNotDisturb && !dndAllowed) "À autoriser" else "Ne pas déranger",
-            options.doNotDisturb,
-            warn = options.doNotDisturb && !dndAllowed,
-        ) {
-            val turnOn = !options.doNotDisturb
-            onOptionsChange(options.copy(doNotDisturb = turnOn))
-            // Première fois : Android demande à l'utilisateur d'autoriser l'app dans ses réglages.
-            if (turnOn && !DoNotDisturb.isAllowed(context)) {
-                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            RoundIcon(36.dp, on = false, onClick = onOpenSettings) { tint ->
+                drawCircle(tint, radius = 3.dp.toPx(), center = center, style = Stroke(2.dp.toPx()))
+                for (k in 0 until 8) {
+                    val a = k * (Math.PI / 4).toFloat()
+                    val inner = 6.dp.toPx()
+                    val outer = 9.dp.toPx()
+                    drawLine(
+                        tint,
+                        Offset(center.x + inner * kotlin.math.cos(a), center.y + inner * kotlin.math.sin(a)),
+                        Offset(center.x + outer * kotlin.math.cos(a), center.y + outer * kotlin.math.sin(a)),
+                        strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round,
+                    )
+                }
+            }
+            if (!running) {
+                val needsAuth = options.doNotDisturb && !dndAllowed
+                RoundIcon(36.dp, on = options.doNotDisturb, warn = needsAuth, onClick = {
+                    val turnOn = !options.doNotDisturb
+                    onOptionsChange(options.copy(doNotDisturb = turnOn))
+                    // Première fois : Android demande à l'utilisateur d'autoriser l'app dans ses réglages.
+                    if (turnOn && !DoNotDisturb.isAllowed(context)) {
+                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                }) { tint ->
+                    drawCircle(tint, radius = 8.dp.toPx(), center = center, style = Stroke(2.dp.toPx()))
+                    drawLine(tint, Offset(center.x - 4.5.dp.toPx(), center.y), Offset(center.x + 4.5.dp.toPx(), center.y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                }
             }
         }
-        OptionButton(OptionIcon.SESSION, "Session complète", options.fullSession) { onOptionsChange(options.copy(fullSession = !options.fullSession)) }
-    }
-    if (!options.detection && !options.fullSession) {
-        Text("Rien ne sera enregistré : active la détection ou la session complète", color = SurfColors.Warn, fontSize = 11.sp, maxLines = 2)
-    }
 
-    if (showQuality) {
-        AlertDialog(
-            onDismissRequest = { showQuality = false },
-            title = { Text("Qualité et stockage") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Toggle("4K", !options.hd) { onOptionsChange(options.copy(hd = false)) }
-                        Toggle("1080p", options.hd) { onOptionsChange(options.copy(hd = true)) }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Toggle("30 i/s", !options.fps60) { onOptionsChange(options.copy(fps60 = false)) }
-                        Toggle("60 i/s", options.fps60) { onOptionsChange(options.copy(fps60 = true)) }
-                    }
-                    Text("Le zoom optique ×5 exige 30 i/s ; à 60 i/s le zoom est limité à ×2.", color = SurfColors.Muted, fontSize = 11.sp)
-                    storages.forEach { choice ->
-                        Toggle(
-                            choice.label + (choice.freeBytes?.let { " · ${it / 1_000_000_000L} Go" } ?: ""),
-                            options.storage == choice.name,
-                        ) { onOptionsChange(options.copy(storage = choice.name)) }
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (!running) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SideChip(if (options.hd) "1080p" else "4K", false) { onOptionsChange(options.copy(hd = !options.hd)) }
+                    SideChip(if (options.fps60) "60" else "30", options.fps60) { onOptionsChange(options.copy(fps60 = !options.fps60)) }
+                }
+                val chosen = storages.firstOrNull { it.name == options.storage }
+                val gb = (chosen ?: storages.firstOrNull())?.freeBytes?.let { it / 1_000_000_000L }
+                val low = options.fullSession && gb != null && gb < 2L * options.gigabytesPerHour()
+                SideChip(
+                    (chosen?.label ?: "Téléphone") + (gb?.let { " · $it Go" } ?: ""),
+                    warn = chosen == null || low,
+                    wide = true,
+                ) {
+                    // Passe au support suivant (téléphone, carte SD, clé USB).
+                    if (storages.size > 1) {
+                        val next = storages[(storages.indexOfFirst { it.name == options.storage } + 1).mod(storages.size)]
+                        onOptionsChange(options.copy(storage = next.name))
                     }
                 }
-            },
-            confirmButton = { TextButton(onClick = { showQuality = false }) { Text("OK") } },
-        )
-    }
-}
+            }
+            // Bouton de prise de vue : rond blanc, point turquoise au repos, carré rouge pendant la session.
+            Box(
+                Modifier
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .border(4.dp, SurfColors.Foam, CircleShape)
+                    .clickable(onClick = if (running) onStopSession else onStartSession),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (running) {
+                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)).background(SurfColors.Alert))
+                } else {
+                    Box(Modifier.size(54.dp).clip(CircleShape).background(SurfColors.Aqua))
+                }
+            }
+        }
 
-/** Bouton rond d'option avec son nom dessous : plein quand l'option est active. */
-@Composable
-private fun OptionButton(icon: OptionIcon, label: String, on: Boolean, warn: Boolean = false, onClick: () -> Unit) {
-    val tint = if (on) SurfColors.OnAqua else SurfColors.Muted
-    Column(
-        Modifier.width(64.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
+        // Vignette des vidéos, en bas à droite comme dans Google Caméra.
         Box(
             Modifier
                 .size(48.dp)
-                .clip(CircleShape)
-                .background(if (on) SurfColors.Aqua else Color.Transparent)
-                .border(1.dp, if (on) Color.Transparent else Color(0xFF3B5565), CircleShape),
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, Color(0xFF3B5565), RoundedCornerShape(10.dp))
+                .clickable(onClick = onOpenLibrary),
             contentAlignment = Alignment.Center,
         ) {
-            Canvas(Modifier.size(24.dp)) {
-                val c = center
-                val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-                when (icon) {
-                    OptionIcon.DETECT -> {
-                        drawCircle(tint, radius = 3.5.dp.toPx(), center = c, style = stroke)
-                        val a = 7.dp.toPx()
-                        val b = 11.dp.toPx()
-                        drawLine(tint, Offset(c.x - b, c.y), Offset(c.x - a, c.y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-                        drawLine(tint, Offset(c.x + a, c.y), Offset(c.x + b, c.y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-                        drawLine(tint, Offset(c.x, c.y - b), Offset(c.x, c.y - a), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-                        drawLine(tint, Offset(c.x, c.y + a), Offset(c.x, c.y + b), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-                    }
-                    OptionIcon.MOON -> {
-                        val outer = Path().apply { addOval(Rect(c, 9.dp.toPx())) }
-                        val inner = Path().apply { addOval(Rect(Offset(c.x + 5.dp.toPx(), c.y - 3.dp.toPx()), 8.dp.toPx())) }
-                        drawPath(Path.combine(PathOperation.Difference, outer, inner), tint)
-                    }
-                    OptionIcon.DND -> {
-                        drawCircle(tint, radius = 9.dp.toPx(), center = c, style = stroke)
-                        drawLine(tint, Offset(c.x - 5.dp.toPx(), c.y), Offset(c.x + 5.dp.toPx(), c.y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-                    }
-                    OptionIcon.SESSION -> {
-                        drawCircle(tint, radius = 9.dp.toPx(), center = c, style = stroke)
-                        drawCircle(tint, radius = 3.5.dp.toPx(), center = c)
-                    }
+            Canvas(Modifier.size(22.dp)) {
+                val tri = Path().apply {
+                    moveTo(size.width * 0.28f, size.height * 0.15f)
+                    lineTo(size.width * 0.28f, size.height * 0.85f)
+                    lineTo(size.width * 0.85f, size.height * 0.5f)
+                    close()
                 }
+                drawPath(tri, SurfColors.Aqua)
             }
         }
-        Text(
-            label,
-            color = if (warn) SurfColors.Warn else SurfColors.Muted,
-            fontSize = 10.sp,
-            lineHeight = 11.sp,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-        )
     }
+}
+
+/** Petit bouton rond dessiné à la main ; plein quand [on], contour orange quand [warn]. */
+@Composable
+private fun RoundIcon(
+    size: androidx.compose.ui.unit.Dp,
+    on: Boolean,
+    warn: Boolean = false,
+    onClick: () -> Unit,
+    draw: androidx.compose.ui.graphics.drawscope.DrawScope.(Color) -> Unit,
+) {
+    val tint = if (on) SurfColors.OnAqua else SurfColors.Foam
+    Box(
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(if (on) SurfColors.Aqua else Color(0x66000000))
+            .border(1.dp, if (warn) SurfColors.Warn else Color(0xFF3B5565), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(size * 0.6f)) { draw(tint) }
+    }
+}
+
+/** Pastille de réglage rapide : un toucher change la valeur. */
+@Composable
+private fun SideChip(text: String, warn: Boolean, wide: Boolean = false, onClick: () -> Unit) {
+    Text(
+        text,
+        color = if (warn) SurfColors.Warn else SurfColors.Foam,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .then(if (wide) Modifier.width(104.dp) else Modifier.width(49.dp))
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0x66000000))
+            .border(1.dp, if (warn) SurfColors.Warn else Color(0xFF3B5565), RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 7.dp, horizontal = 2.dp),
+    )
 }
 
 /**
@@ -857,7 +791,7 @@ private fun InfoDialog(
         ) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Infos et réglages avancés", color = SurfColors.Aqua, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("Réglages et infos", color = SurfColors.Aqua, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     Button(onClick = onDismiss) { Text("Fermer") }
                 }
                 Row(Modifier.weight(1f).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -870,6 +804,15 @@ private fun InfoDialog(
                             Help("Détection", "Repère les vagues et crée un clip : 5 s avant le décollage, 3 s après la fin.")
                         }
                         Section("Réglages avancés") {
+                            OptionSwitch("Détection des vagues", "Crée un clip par vague : 5 s avant le décollage, 3 s après la fin", options.detection) {
+                                if (!running) onOptionsChange(options.copy(detection = it))
+                            }
+                            OptionSwitch("Session complète", "Enregistre aussi toute la session, en fichiers de 2 minutes", options.fullSession) {
+                                if (!running) onOptionsChange(options.copy(fullSession = it))
+                            }
+                            OptionSwitch("Écran noir après 1 minute", "Économise la batterie ; un toucher le réveille", options.sleepScreen) {
+                                onOptionsChange(options.copy(sleepScreen = it))
+                            }
                             OptionSwitch("Forcer le téléobjectif", "Champ fixe ×5, sans zoom", options.tele) {
                                 if (!running) onOptionsChange(options.copy(tele = it))
                             }
