@@ -145,6 +145,7 @@ fun PlayerScreen(
         ExoPlayer.Builder(context).build().also { it.setSeekParameters(SeekParameters.EXACT) }
     }
     val scrubber = remember { Scrubber(player) }
+    val reframer = remember { Reframer(context) }
     DisposableEffect(Unit) {
         onDispose {
             scrubber.release()
@@ -166,7 +167,6 @@ fun PlayerScreen(
     var info by remember { mutableStateOf<VideoInfo?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     val pathStore = remember { PathStore(context) }
-    val reframer = remember { Reframer(context) }
     var reframeProgress by remember { mutableStateOf<Int?>(null) }
     var hasPath by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
