@@ -327,6 +327,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 }
             }
             if (state.phase == Phase.RUNNING && config != null) {
+                if (state.autoZoom) InfoChip("Zoom auto", SurfColors.Aqua)
                 if (state.fullSession) InfoChip("REC session · partie ${state.sessionPart}", SurfColors.Alert)
                 InfoChip(resolutionLabel(config), SurfColors.Foam)
                 if (state.actualFps > 0f) {
@@ -528,15 +529,8 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
         Toggle("Détection", options.detection, Modifier.weight(1f)) { onOptionsChange(options.copy(detection = !options.detection)) }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Toggle("Zoom auto", options.autoZoom && options.detection, Modifier.weight(1f)) { onOptionsChange(options.copy(autoZoom = !options.autoZoom)) }
         Toggle("Écran noir", options.sleepScreen, Modifier.weight(1f)) { onOptionsChange(options.copy(sleepScreen = !options.sleepScreen)) }
-        Toggle("Ne pas déranger", options.doNotDisturb, Modifier.weight(1f)) {
-            val turnOn = !options.doNotDisturb
-            onOptionsChange(options.copy(doNotDisturb = turnOn))
-            // Première fois : Android demande à l'utilisateur d'autoriser l'app dans ses réglages.
-            if (turnOn && !DoNotDisturb.isAllowed(context)) {
-                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }
-        }
     }
     val dndAllowed by produceState(DoNotDisturb.isAllowed(context)) {
         while (true) {
@@ -545,7 +539,7 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
         }
     }
     if (options.doNotDisturb && !dndAllowed) {
-        Text("Ne pas déranger : autorisation requise", color = SurfColors.Warn, fontSize = 11.sp, maxLines = 1)
+        Text("Ne pas déranger : autorisation requise (Infos)", color = SurfColors.Warn, fontSize = 11.sp, maxLines = 1)
     }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         storages.forEach { choice ->
@@ -670,6 +664,7 @@ private fun InfoDialog(
     running: Boolean,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             shape = RoundedCornerShape(24.dp),
@@ -693,6 +688,14 @@ private fun InfoDialog(
                         Section("Réglages avancés") {
                             OptionSwitch("Forcer le téléobjectif", "Champ fixe ×5, sans zoom", options.tele) {
                                 if (!running) onOptionsChange(options.copy(tele = it))
+                            }
+                            OptionSwitch("Ne pas déranger", "Silence total pendant la session (autorisation Android à donner une fois)", options.doNotDisturb) {
+                                if (!running) {
+                                    onOptionsChange(options.copy(doNotDisturb = it))
+                                    if (it && !DoNotDisturb.isAllowed(context)) {
+                                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                    }
+                                }
                             }
                             OptionSwitch("Verrouiller l'exposition", "À activer seulement si l'image « pompe » (clair/sombre) quand un surfeur passe", options.lockExposure) {
                                 if (!running) onOptionsChange(options.copy(lockExposure = it))
