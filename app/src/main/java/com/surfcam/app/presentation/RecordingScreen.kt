@@ -108,6 +108,7 @@ private const val SLEEP_AFTER_MS = 60_000L
 fun RecordingScreen(
     engine: RecordingEngine,
     onOpenLibrary: () -> Unit,
+    onOpenGimbal: () -> Unit,
     options: SessionOptions,
     hasCamera: Boolean,
     crashReport: String?,
@@ -191,7 +192,7 @@ fun RecordingScreen(
             )
         }
         if (crashReport != null) CrashDialog(crashReport, onDismissCrash)
-        if (showInfo) InfoDialog(state, options, onOptionsChange, engine, running) { showInfo = false }
+        if (showInfo) InfoDialog(state, options, onOptionsChange, engine, running, onOpenGimbal = { showInfo = false; onOpenGimbal() }) { showInfo = false }
         Surface(
             modifier = Modifier.fillMaxSize().pointerInput(Unit) {
                 awaitPointerEventScope {
@@ -780,6 +781,7 @@ private fun InfoDialog(
     onOptionsChange: (SessionOptions) -> Unit,
     engine: RecordingEngine,
     running: Boolean,
+    onOpenGimbal: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -820,6 +822,12 @@ private fun InfoDialog(
                                 if (!running) onOptionsChange(options.copy(lockExposure = it))
                             }
                             if (running) Text("Modifiable seulement hors session.", color = SurfColors.Muted, fontSize = 11.sp)
+                        }
+                        if (!running) {
+                            Section("Tête motorisée") {
+                                Text("Gimbal DJI Osmo Mobile 2, 3 ou 4 (essai, protocole non officiel).", color = SurfColors.Muted, fontSize = 12.sp)
+                                OutlinedButton(onClick = onOpenGimbal) { Text("Ouvrir l'écran de test") }
+                            }
                         }
                         LearningSection(engine)
                     }

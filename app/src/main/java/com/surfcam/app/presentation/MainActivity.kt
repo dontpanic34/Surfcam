@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
             val optionsStore = remember { OptionsStore(applicationContext) }
             var options by remember { mutableStateOf(optionsStore.load()) }
             var showLibrary by rememberSaveable { mutableStateOf(false) }
+            var showGimbal by rememberSaveable { mutableStateOf(false) }
             val library = remember { VideoLibrary(applicationContext) }
             BackHandler(enabled = showLibrary) { showLibrary = false }
             var hasCamera by remember {
@@ -61,8 +62,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
             // La bibliothèque et le lecteur suivent l'orientation du téléphone ; l'écran caméra reste en paysage (trépied).
-            LaunchedEffect(showLibrary) {
-                requestedOrientation = if (showLibrary) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            LaunchedEffect(showLibrary, showGimbal) {
+                requestedOrientation = if (showLibrary || showGimbal) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+            if (showGimbal) {
+                GimbalScreen(onBack = { showGimbal = false })
+                return@setContent
             }
             if (showLibrary) {
                 val phase by engine.state.collectAsStateWithLifecycle()
@@ -77,6 +82,7 @@ class MainActivity : ComponentActivity() {
             RecordingScreen(
                 engine = engine,
                 onOpenLibrary = { showLibrary = true },
+                onOpenGimbal = { showGimbal = true },
                 options = options,
                 hasCamera = hasCamera,
                 crashReport = crash,
