@@ -364,12 +364,14 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
         val (label, color) = statusPill(state)
         Pill(label, color, modifier = Modifier.align(Alignment.TopStart).padding(12.dp))
 
-        Row(
+        Column(
             modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             val config = state.config
             val device by rememberDeviceStatus()
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             device?.let { d ->
                 // La batterie est déjà dans la barre d'état : on ne la répète que si elle devient critique.
                 if (d.batteryPercent in 0..15 && !d.charging) InfoChip("Batterie ${d.batteryPercent} %", SurfColors.Alert)
@@ -381,14 +383,16 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                     InfoChip("%.1f °C · %s".format(t, thermalLabel(state.thermalStatus)).replace('.', ','), color)
                 }
             }
+            if (state.phase == Phase.RUNNING && state.autoZoom) InfoChip("Zoom auto", SurfColors.Aqua)
+            }
             if (state.phase == Phase.RUNNING && config != null) {
-                if (state.autoZoom) InfoChip("Zoom auto", SurfColors.Aqua)
-                if (state.fullSession) InfoChip("REC session · partie ${state.sessionPart}", SurfColors.Alert)
-                InfoChip(resolutionLabel(config), SurfColors.Foam)
-                if (state.actualFps > 0f) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (state.fullSession) InfoChip("REC · partie ${state.sessionPart}", SurfColors.Alert)
+                    // La cadence réelle n'est signalée que si elle s'écarte de la cadence demandée.
+                    val slow = state.actualFps > 0f && state.actualFps < config.fps * 0.85f
                     InfoChip(
-                        "%.0f i/s réels".format(state.actualFps),
-                        if (state.actualFps < config.fps * 0.85f) SurfColors.Warn else SurfColors.Foam,
+                        resolutionLabel(config) + if (slow) " · ${"%.0f".format(state.actualFps)} i/s réels" else "",
+                        if (slow) SurfColors.Warn else SurfColors.Foam,
                     )
                 }
             }
@@ -603,6 +607,9 @@ private fun SetupGrid(options: SessionOptions, onOptionsChange: (SessionOptions)
                 options.storage == choice.name,
             ) { onOptionsChange(options.copy(storage = choice.name)) }
         }
+    }
+    if (options.fps60) {
+        Text("60 i/s : zoom limité à ×2 (le téléobjectif ne filme qu'à 30 i/s)", color = SurfColors.Warn, fontSize = 11.sp, maxLines = 2)
     }
     val chosen = storages.firstOrNull { it.name == options.storage }
     val freeGb = (chosen ?: storages.firstOrNull())?.freeBytes?.let { it / 1_000_000_000L }

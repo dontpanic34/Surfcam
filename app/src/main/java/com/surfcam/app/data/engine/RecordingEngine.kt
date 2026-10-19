@@ -448,7 +448,9 @@ class RecordingEngine(private val context: Context) {
         }
         encoder = enc
 
-        val startZoom = desiredZoom.coerceIn(probe.minZoom, probe.maxZoom)
+        // À 60 i/s le téléobjectif n'est pas utilisable : au-delà de ×2 ce ne serait que du zoom numérique, flou et pixelisé.
+        val maxZoomForFps = if (options.fps60 && probe.config.fps >= 60 && !options.tele) minOf(probe.maxZoom, 2f) else probe.maxZoom
+        val startZoom = desiredZoom.coerceIn(probe.minZoom, maxZoomForFps)
         _state.update {
             it.copy(
                 phase = Phase.RUNNING,
@@ -457,7 +459,7 @@ class RecordingEngine(private val context: Context) {
                 maxFpsAtSize = probe.maxFpsAtSize,
                 zoom = startZoom,
                 minZoom = probe.minZoom,
-                maxZoom = probe.maxZoom,
+                maxZoom = maxZoomForFps,
                 focalPx1x = probe.focalPx1x,
             )
         }
