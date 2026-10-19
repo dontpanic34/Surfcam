@@ -53,6 +53,14 @@ class SessionGrouperTest {
     }
 
     @Test
+    fun `un film de vagues n'est pas un chapitre`() {
+        val m = MediaInfo("m", 10 * min, 3 * min, MediaInfo.Kind.MONTAGE)
+        val g = SessionGrouper.group(listOf(part("p1", 0, 1), part("p2", 2, 2), m))
+        assertEquals(listOf("m"), g.looseWaves.map { it.key })
+        assertTrue(g.sessions[0].waves.isEmpty())
+    }
+
+    @Test
     fun `un film dont les morceaux sont supprimes reste une session`() {
         val g = SessionGrouper.group(listOf(film("f", 0, 90), wave("w", 20)))
         assertEquals(1, g.sessions.size)

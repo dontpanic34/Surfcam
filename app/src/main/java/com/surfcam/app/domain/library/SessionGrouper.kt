@@ -10,7 +10,7 @@ data class MediaInfo(
     /** Numéro du morceau pour une session (1, 2, 3…). */
     val partNumber: Int = 0,
 ) {
-    enum class Kind { PART, FILM, WAVE }
+    enum class Kind { PART, FILM, WAVE, MONTAGE }
 
     val endMs: Long get() = startMs + durationMs
 }
@@ -45,6 +45,7 @@ object SessionGrouper {
         val parts = items.filter { it.kind == MediaInfo.Kind.PART }.sortedBy { it.startMs }
         val films = items.filter { it.kind == MediaInfo.Kind.FILM }.sortedBy { it.startMs }.toMutableList()
         val waves = items.filter { it.kind == MediaInfo.Kind.WAVE }
+        val montages = items.filter { it.kind == MediaInfo.Kind.MONTAGE }
 
         val partGroups = mutableListOf<MutableList<MediaInfo>>()
         for (p in parts) {
@@ -65,6 +66,7 @@ object SessionGrouper {
         films.forEach { sessions += SessionGroup(emptyList(), it, emptyList()) }
 
         val loose = mutableListOf<MediaInfo>()
+        loose += montages // un film de vagues n'est le chapitre de personne : il reste à part
         val chapters = sessions.map { mutableListOf<MediaInfo>() }
         for (w in waves) {
             val i = sessions.indexOfFirst { w.startMs >= it.startMs - WAVE_MARGIN_MS && w.startMs <= it.endMs + WAVE_MARGIN_MS }

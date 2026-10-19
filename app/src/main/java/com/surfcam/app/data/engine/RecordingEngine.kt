@@ -191,6 +191,7 @@ class RecordingEngine(private val context: Context) {
                 }
             }
             camera = source
+            beginBatteryLog()
             startSafetyChecks()
         } catch (e: Throwable) {
             source?.release()
@@ -209,7 +210,8 @@ class RecordingEngine(private val context: Context) {
         unregisterThermalListener()
         releaseCamera()
         teardownPipeline()
-        val summary = buildSummary()
+        val batteryLine = endBatteryLog()
+        val summary = buildSummary() + (batteryLine?.let { "\n$it" } ?: "")
         _state.update { it.copy(phase = Phase.IDLE, lastSummary = summary, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, sessionPart = 0, message = null) }
     }
 
@@ -572,6 +574,7 @@ class RecordingEngine(private val context: Context) {
             alert("SurfCam : espace presque plein", message)
         }
         val battery = batteryPercent()
+        if (battery?.second == true) chargedDuringSession = true
         if (battery != null && battery.first <= STOP_BATTERY_PERCENT && !battery.second) {
             safeStop("Batterie presque vide (${battery.first} %)")
             return
@@ -608,6 +611,47 @@ class RecordingEngine(private val context: Context) {
         alert("SurfCam a arrêté la session", "$reason. Tes vidéos sont sauvegardées.")
         stop()
         context.startService(Intent(context, RecordingService::class.java).setAction(RecordingService.ACTION_STOP))
+    }
+
+    // Consommation de la session : charge au départ et à l'arrêt, et si le téléphone a été branché entre-temps.
+    private var batteryStartPercent = -1
+    private var batteryStartUah = -1L
+    private var sessionStartMs = 0L
+
+    @Volatile
+    private var chargedDuringSession = false
+
+    private fun chargeCounterUah(): Long {
+        val manager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val v = manager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+        return if (v > 0) v else -1L
+    }
+
+    private fun beginBatteryLog() {
+        val b = batteryPercent()
+        batteryStartPercent = b?.first ?: -1
+        batteryStartUah = chargeCounterUah()
+        sessionStartMs = System.currentTimeMillis()
+        chargedDuringSession = b?.second == true
+    }
+
+    /** Termine le relevé : enregistre la consommation et la renvoie en une phrase (null si rien n'a été relevé). */
+    private fun endBatteryLog(): String? {
+        if (sessionStartMs == 0L || batteryStartPercent < 0) return null
+        val end = batteryPercent() ?: return null
+        val endUah = chargeCounterUah()
+        val charged = chargedDuringSession || end.second
+        val stats = SessionStats(
+            startMs = sessionStartMs,
+            durationMs = System.currentTimeMillis() - sessionStartMs,
+            percentStart = batteryStartPercent,
+            percentEnd = end.first,
+            milliampHours = if (batteryStartUah > 0 && endUah > 0 && batteryStartUah > endUah) ((batteryStartUah - endUah) / 1000).toInt() else null,
+            charged = charged,
+        )
+        sessionStartMs = 0L
+        SessionStatsStore(context).save(stats)
+        return stats.describe()
     }
 
     private fun batteryPercent(): Pair<Int, Boolean>? {

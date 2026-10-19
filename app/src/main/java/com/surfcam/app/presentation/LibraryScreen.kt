@@ -59,6 +59,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.surfcam.app.data.engine.SessionStats
+import com.surfcam.app.data.engine.SessionStatsStore
 import com.surfcam.app.data.learning.FeedbackRecord
 import com.surfcam.app.data.learning.LearningRepository
 import com.surfcam.app.data.library.LibraryVideo
@@ -92,6 +94,9 @@ private class PlayRequest(
     val chapters: List<Long> = emptyList(),
 )
 
+/** Le montage ouvert : les vagues proposées (dans l'ordre du temps) et son identité pour retenir les choix. */
+private class MontageRequest(val id: String, val title: String, val keys: List<String>)
+
 private fun dateOfMs(ms: Long): LocalDate = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate()
 
 private fun clock(ms: Long): String {
@@ -105,6 +110,7 @@ private fun startOf(video: LibraryVideo): Long =
 private fun infoOf(video: LibraryVideo): MediaInfo {
     val parsed = VideoNaming.parse(video.name)
     val kind = when {
+        parsed?.isMontage == true -> MediaInfo.Kind.MONTAGE
         parsed?.isFilm == true -> MediaInfo.Kind.FILM
         parsed?.isSession == true || video.isSession -> MediaInfo.Kind.PART
         else -> MediaInfo.Kind.WAVE
@@ -142,7 +148,10 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
     var message by remember { mutableStateOf<String?>(null) }
     var feedback by remember { mutableStateOf<Map<String, FeedbackRecord>>(emptyMap()) }
     var request by remember { mutableStateOf<PlayRequest?>(null) }
+    var montage by remember { mutableStateOf<MontageRequest?>(null) }
     val paths = remember { PathStore(context) }
+    val statsStore = remember { SessionStatsStore(context) }
+    var sessionStats by remember { mutableStateOf<List<SessionStats>>(emptyList()) }
     // Jours et sessions dont l'état est l'inverse de l'état par défaut (aujourd'hui ouvert ; chapitres repliés).
     val toggledDays = remember { mutableStateListOf<LocalDate>() }
     val openChapters = remember { mutableStateListOf<Long>() }
@@ -153,6 +162,7 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
         while (true) {
             videos = withContext(Dispatchers.IO) { library.list() }
             feedback = withContext(Dispatchers.IO) { learning.records().associateBy { it.clipName } }
+            sessionStats = withContext(Dispatchers.IO) { statsStore.all() }
             loaded = true
             delay(3_000)
         }
@@ -195,6 +205,20 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
             return
         }
         request = null
+    }
+
+    val activeMontage = montage
+    if (activeMontage != null) {
+        val waves = activeMontage.keys.mapNotNull { byKey[it] }
+        MontageScreen(
+            title = activeMontage.title,
+            montageId = activeMontage.id,
+            waves = waves,
+            onPreview = { list -> request = PlayRequest(list.map { it.key }, list.first().key, autoAdvance = true) },
+            onExported = { message = it; scope.launch { videos = withContext(Dispatchers.IO) { library.list() } } },
+            onBack = { montage = null },
+        )
+        return
     }
 
     // Une entrée par jour : les sessions commencées ce jour-là, puis les vagues seules.
@@ -253,11 +277,15 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
                                     film = filmVideo,
                                     waves = waveVideos,
                                     feedback = feedback,
+                                    battery = statsStore.forSession(group.startMs, sessionStats),
                                     chaptersOpen = group.startMs in openChapters,
                                     pickedKey = picked[group.startMs],
                                     progress = assembling[group.startMs],
                                     onToggleChapters = { if (group.startMs in openChapters) openChapters.remove(group.startMs) else openChapters.add(group.startMs) },
                                     onPick = { key -> if (picked[group.startMs] == key) picked.remove(group.startMs) else picked[group.startMs] = key },
+                                    onMontage = {
+                                        montage = MontageRequest("session-${group.startMs}", "Session ${clock(group.startMs)} → ${clock(group.endMs)}", waveVideos.map { it.key })
+                                    },
                                     onPlayWave = { w -> request = PlayRequest(waveVideos.map { it.key }, w.key) },
                                     onPlay = {
                                         val chapters = group.waves.map { group.offsetOf(it) }
@@ -354,11 +382,13 @@ private fun SessionCard(
     film: LibraryVideo?,
     waves: List<LibraryVideo>,
     feedback: Map<String, FeedbackRecord>,
+    battery: SessionStats?,
     chaptersOpen: Boolean,
     pickedKey: String?,
     progress: Float?,
     onToggleChapters: () -> Unit,
     onPick: (String) -> Unit,
+    onMontage: () -> Unit,
     onPlayWave: (LibraryVideo) -> Unit,
     onPlay: () -> Unit,
     onAssemble: () -> Unit,
@@ -397,6 +427,12 @@ private fun SessionCard(
                     },
                     color = SurfColors.Muted, fontSize = 12.sp,
                 )
+                battery?.let {
+                    Text(
+                        if (it.charged) "Batterie : branché" else "Batterie : −${it.percentUsed} pts" + (it.percentPerHour?.let { p -> " · ${"%.0f".format(p)} %/h" } ?: ""),
+                        color = SurfColors.Info, fontSize = 12.sp,
+                    )
+                }
             }
             Box(Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onDeleteSession), contentAlignment = Alignment.Center) {
                 TrashIcon()
@@ -448,6 +484,9 @@ private fun SessionCard(
                 Button(onClick = onPlay, enabled = cover != null) { Text("Lire") }
                 if (film == null && parts.size >= 2) {
                     OutlinedButton(onClick = onAssemble) { Text("Assembler en un film", fontSize = 13.sp) }
+                }
+                if (waves.size >= 2) {
+                    OutlinedButton(onClick = onMontage) { Text("Film des vagues", fontSize = 13.sp) }
                 }
                 if (film != null && parts.isNotEmpty()) {
                     OutlinedButton(onClick = onDeleteParts) { Text("Supprimer les ${parts.size} morceaux", fontSize = 12.sp, color = SurfColors.Alert) }

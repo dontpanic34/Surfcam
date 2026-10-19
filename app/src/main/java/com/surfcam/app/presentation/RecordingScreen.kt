@@ -413,7 +413,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
         // Le message de fin de session se retire tout seul après quelques secondes, ou d'un toucher.
         LaunchedEffect(notice?.first) {
             if (notice != null) {
-                delay(8_000)
+                delay(15_000)
                 engine.dismissNotice()
             }
         }

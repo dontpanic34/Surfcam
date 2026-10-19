@@ -68,6 +68,15 @@ class VideoNamingTest {
     }
 
     @Test
+    fun montageNameIsRecognised() {
+        val n = VideoNaming.montageName(ms(2026, 10, 19, 16, 11), paris)
+        assertEquals("2026-10-19 16h11 - Film des vagues", n)
+        val parsed = VideoNaming.parse("$n.mp4", paris)!!
+        assertTrue(parsed.isMontage && !parsed.isFilm && !parsed.isSession)
+        assertEquals("Film des vagues", VideoNaming.shortTitle("$n.mp4", paris))
+    }
+
+    @Test
     fun filmNameIsRecognisedAndSortsBeforeItsParts() {
         val film = VideoNaming.filmName(ms(2026, 10, 19, 16, 11), paris)
         assertEquals("2026-10-19 16h11 - Session", film)
