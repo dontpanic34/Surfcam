@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import com.surfcam.app.SurfCamApp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.surfcam.app.data.engine.Phase
+import com.surfcam.app.data.engine.OptionsStore
 import com.surfcam.app.data.engine.SessionOptions
 import com.surfcam.app.data.library.VideoLibrary
 import com.surfcam.app.service.RecordingService
@@ -40,16 +41,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val app = application as SurfCamApp
             var crash by remember { mutableStateOf(app.readLastCrash()) }
-            var tele by rememberSaveable { mutableStateOf(false) }
-            var fullSession by rememberSaveable { mutableStateOf(true) }
-            var hd by rememberSaveable { mutableStateOf(false) }
-            var storageVolume by rememberSaveable { mutableStateOf("external_primary") }
-            var fps60 by rememberSaveable { mutableStateOf(false) }
-            var detection by rememberSaveable { mutableStateOf(true) }
-            var sleepScreen by rememberSaveable { mutableStateOf(true) }
-            var doNotDisturb by rememberSaveable { mutableStateOf(true) }
-            var lockExposure by rememberSaveable { mutableStateOf(false) }
-            val options = SessionOptions(tele = tele, fullSession = fullSession, hd = hd, fps60 = fps60, storage = storageVolume, detection = detection, sleepScreen = sleepScreen, doNotDisturb = doNotDisturb, lockExposure = lockExposure)
+            val optionsStore = remember { OptionsStore(applicationContext) }
+            var options by remember { mutableStateOf(optionsStore.load()) }
             var showLibrary by rememberSaveable { mutableStateOf(false) }
             val library = remember { VideoLibrary(applicationContext) }
             BackHandler(enabled = showLibrary) { showLibrary = false }
@@ -87,15 +80,8 @@ class MainActivity : ComponentActivity() {
                     crash = null
                 },
                 onOptionsChange = {
-                    tele = it.tele
-                    fullSession = it.fullSession
-                    hd = it.hd
-                    fps60 = it.fps60
-                    storageVolume = it.storage
-                    detection = it.detection
-                    sleepScreen = it.sleepScreen
-                    doNotDisturb = it.doNotDisturb
-                    lockExposure = it.lockExposure
+                    options = it
+                    optionsStore.save(it)
                 },
                 onStartSession = {
                     val wanted = buildList {

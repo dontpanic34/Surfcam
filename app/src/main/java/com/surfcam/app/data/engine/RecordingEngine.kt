@@ -292,6 +292,11 @@ class RecordingEngine(private val context: Context) {
         _state.update { it.copy(focusMode = mode) }
     }
 
+    /** Efface le message de fin de session ou d'arrêt automatique une fois lu. */
+    fun dismissNotice() {
+        _state.update { it.copy(endedReason = null, lastSummary = null, message = null) }
+    }
+
     @Synchronized
     fun relock() {
         camera?.relock()

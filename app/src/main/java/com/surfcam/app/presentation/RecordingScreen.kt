@@ -349,12 +349,6 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                         .clickable(enabled = change) { engine.setZoom(advised) },
                 )
             }
-        } else if (state.phase == Phase.PREVIEW && state.focalPx1x > 0f) {
-            InfoChip(
-                "Vise un surfeur pour avoir le zoom conseillé",
-                SurfColors.Muted,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
-            )
         }
 
         val horizon by rememberHorizonAngle()
@@ -369,8 +363,11 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             )
         }
 
+        // La couleur suffit à dire l'état ; le texte n'apparaît que pour un problème.
         val (label, color) = statusPill(state)
-        Pill(label, color, modifier = Modifier.align(Alignment.TopStart).padding(12.dp))
+        val waveNormal = state.clipActive || state.analysis?.riding == true
+        val showText = state.phase == Phase.ERROR || color == SurfColors.Warn || (color == SurfColors.Alert && !waveNormal)
+        Pill(if (showText) label else null, color, modifier = Modifier.align(Alignment.TopStart).padding(12.dp))
 
         Column(
             modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
@@ -405,7 +402,15 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             }
         }
 
-        banner(state)?.let { (text, color) ->
+        val notice = banner(state)
+        // Le message de fin de session se retire tout seul après quelques secondes, ou d'un toucher.
+        LaunchedEffect(notice?.first) {
+            if (notice != null) {
+                delay(8_000)
+                engine.dismissNotice()
+            }
+        }
+        notice?.let { (text, color) ->
             Text(
                 text,
                 color = color,
@@ -415,6 +420,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 96.dp, start = 24.dp, end = 24.dp)
                     .clip(RoundedCornerShape(12.dp))
+                    .clickable { engine.dismissNotice() }
                     .background(Color(0xE60B1620))
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             )
@@ -426,17 +432,19 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
 }
 
 @Composable
-private fun Pill(text: String, color: Color, modifier: Modifier = Modifier) {
+private fun Pill(text: String?, color: Color, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(50))
             .background(Color(0xCC0B1620))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = if (text != null) 14.dp else 10.dp, vertical = if (text != null) 8.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
-        Spacer(Modifier.width(8.dp))
-        Text(text, color = SurfColors.Foam, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Box(Modifier.size(if (text != null) 10.dp else 14.dp).clip(CircleShape).background(color))
+        if (text != null) {
+            Spacer(Modifier.width(8.dp))
+            Text(text, color = SurfColors.Foam, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 
