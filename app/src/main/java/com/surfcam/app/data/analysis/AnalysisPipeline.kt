@@ -39,6 +39,8 @@ data class AnalysisSnapshot(
     val thumbnail: Bitmap? = null,
     /** Écart mesuré entre l'horloge des images d'analyse et celle de la vidéo, en millisecondes (diagnostic). */
     val clockOffsetMs: Long = 0,
+    /** Instant de l'image analysée, dans l'horloge d'analyse (microsecondes). */
+    val timestampUs: Long = 0,
 )
 
 /**
@@ -209,6 +211,7 @@ class AnalysisPipeline(
                     bestConfidence = detections.maxOfOrNull { it.confidence } ?: 0f,
                     thumbnail = thumbnail,
                     clockOffsetMs = clockOffsetUs / 1_000,
+                    timestampUs = timestampUs,
                 ),
             )
         } catch (t: Throwable) {

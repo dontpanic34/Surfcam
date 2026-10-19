@@ -100,6 +100,25 @@ class VideoLibrary(context: Context) {
         null
     }
 
+    /** Range un fichier produit par l'app dans les vidéos du téléphone (Movies/SurfCam) sous le nom [displayName] (avec .mp4). */
+    fun importFile(file: java.io.File, displayName: String): Boolean {
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SurfCam")
+            put(MediaStore.Video.Media.IS_PENDING, 1)
+        }
+        val target = resolver.insert(StorageTarget.videoUri(StorageTarget.PHONE), values) ?: return false
+        return try {
+            file.inputStream().use { input -> resolver.openOutputStream(target)!!.use { output -> input.copyTo(output) } }
+            resolver.update(target, ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }, null, null)
+            true
+        } catch (_: Exception) {
+            resolver.delete(target, null, null)
+            false
+        }
+    }
+
     /**
      * Copie une vidéo d'un support externe vers le téléphone (dossier Movies/SurfCam). L'original reste en place.
      * [onProgress] reçoit une valeur de 0 à 1. Renvoie false si la copie a échoué : le fichier partiel est alors supprimé.

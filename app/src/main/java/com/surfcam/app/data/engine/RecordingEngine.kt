@@ -27,7 +27,10 @@ import com.surfcam.app.data.learning.LearningRepository
 import com.surfcam.app.data.storage.SavedClip
 import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
+import com.surfcam.app.data.reframe.PathStore
 import com.surfcam.app.domain.clip.ClipAction
+import com.surfcam.app.domain.reframe.PathBox
+import com.surfcam.app.domain.reframe.PathFrame
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.domain.model.EncodedSample
 import com.surfcam.app.domain.tracking.RideStats
@@ -87,6 +90,18 @@ class RecordingEngine(private val context: Context) {
     val state: StateFlow<EngineState> = _state.asStateFlow()
 
     /** Mémoire de l'apprentissage : jugements de l'utilisateur sur les clips automatiques, et réglages qui en découlent. */
+    // Chemin des surfeurs vus pendant les dernières secondes (horloge de la vidéo), pour recadrer les clips après coup.
+    private class PathCapture(val encodedUs: Long, val boxes: List<PathBox>)
+
+    private val pathCaptures = ArrayDeque<PathCapture>()
+    private val pathStore = PathStore(context)
+
+    @Volatile
+    private var reframeOn = false
+
+    @Volatile
+    private var clipStartPtsUs = -1L
+
     val learning = LearningRepository(context)
 
     /** Où les vidéos sont écrites ; l'écran y lit aussi la liste des supports branchés. */
@@ -307,6 +322,7 @@ class RecordingEngine(private val context: Context) {
     fun startClip() {
         val started = recorder?.start(CaptureConfig.PRE_ROLL_SEC, ++waveCounter) == true
         if (started) {
+            clipStartPtsUs = recorder?.lastStartPtsUs ?: -1L
             currentClipAuto = false
             _state.update { it.copy(clipActive = true, message = null) }
         } else {
@@ -347,6 +363,7 @@ class RecordingEngine(private val context: Context) {
             override fun onClipAction(action: ClipAction) {
                 when (action) {
                     is ClipAction.Start -> if (clips.startFrom(action.fromUs, ++waveCounter)) {
+                        clipStartPtsUs = clips.lastStartPtsUs
                         currentClipAuto = true
                         synchronized(rideStats) { rideStats.clear() }
                         _state.update { it.copy(clipActive = true, message = null) }
@@ -361,6 +378,7 @@ class RecordingEngine(private val context: Context) {
 
             override fun onSnapshot(snapshot: AnalysisSnapshot) {
                 _state.update { it.copy(analysis = snapshot) }
+                if (reframeOn) capturePath(snapshot)
             }
 
             override fun onStatus(message: String?) {
@@ -437,6 +455,8 @@ class RecordingEngine(private val context: Context) {
             )
         }
         source.lockExposure = options.lockExposure
+        reframeOn = options.reframe
+        synchronized(pathCaptures) { pathCaptures.clear() }
         source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
@@ -479,8 +499,30 @@ class RecordingEngine(private val context: Context) {
         }
     }
 
+    private fun capturePath(snapshot: AnalysisSnapshot) {
+        val encodedUs = snapshot.timestampUs - snapshot.clockOffsetMs * 1_000
+        val boxes = snapshot.boxes.map { PathBox(it.left, it.top, it.right, it.bottom, it.riding) }
+        synchronized(pathCaptures) {
+            pathCaptures.addLast(PathCapture(encodedUs, boxes))
+            while (pathCaptures.isNotEmpty() && pathCaptures.first().encodedUs < encodedUs - PATH_KEEP_US) pathCaptures.removeFirst()
+        }
+    }
+
+    /** Range le chemin du surfeur pendant le clip qui vient d'être enregistré, pour pouvoir le recadrer plus tard. */
+    private fun savePath(clipName: String) {
+        val start = clipStartPtsUs
+        val end = ring?.newestPtsUs() ?: return
+        if (start < 0) return
+        val frames = synchronized(pathCaptures) {
+            pathCaptures.filter { it.encodedUs in (start - 1_000_000)..(end + 1_000_000) }
+                .map { PathFrame((it.encodedUs - start) / 1_000, it.boxes) }
+        }
+        if (frames.any { it.boxes.isNotEmpty() }) pathStore.save(clipName, frames)
+    }
+
     private fun onClipResult(saved: SavedClip?, error: String?) {
         if (saved != null) clipsSaved++
+        if (saved != null && reframeOn) savePath(saved.name)
         // Un clip automatique réussi est mémorisé avec ses caractéristiques : l'utilisateur pourra le juger.
         val stats = synchronized(rideStats) { rideStats.firstOrNull().also { rideStats.clear() } }
         if (saved != null && currentClipAuto && stats != null) learning.record(saved.name, stats)
@@ -633,6 +675,7 @@ class RecordingEngine(private val context: Context) {
 
     private companion object {
         const val STATS_EVERY = 30L
+        const val PATH_KEEP_US = 25_000_000L
         const val SAFETY_PERIOD_MS = 5_000L
 
         // Espace : on coupe à 800 Mo (demandé), on prévient à 1,5 Go, on refuse de démarrer sous 1,5 Go.

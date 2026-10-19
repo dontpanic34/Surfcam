@@ -56,6 +56,7 @@ import com.surfcam.app.data.learning.FeedbackRecord
 import com.surfcam.app.data.learning.LearningRepository
 import com.surfcam.app.data.library.LibraryVideo
 import com.surfcam.app.data.library.VideoLibrary
+import com.surfcam.app.data.reframe.PathStore
 import com.surfcam.app.domain.naming.VideoNaming
 import com.surfcam.app.presentation.theme.SurfCamTheme
 import com.surfcam.app.presentation.theme.SurfColors
@@ -107,6 +108,8 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
     var copyMessage by remember { mutableStateOf<String?>(null) }
     var feedback by remember { mutableStateOf<Map<String, FeedbackRecord>>(emptyMap()) }
     var playingKey by remember { mutableStateOf<String?>(null) }
+    val libraryContext = androidx.compose.ui.platform.LocalContext.current
+    val paths = remember { PathStore(libraryContext) }
     // Jours dont l'état est l'inverse de l'état par défaut (aujourd'hui ouvert, les autres jours repliés).
     val toggledDays = remember { mutableStateListOf<LocalDate>() }
 
@@ -126,12 +129,14 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
         PlayerScreen(
             videos = playable,
             startIndex = playingIndex,
+            library = library,
             learning = learning,
             onDelete = { video ->
                 val at = playable.indexOfFirst { it.key == video.key }
                 val neighbour = playable.getOrNull(at + 1) ?: playable.getOrNull(at - 1)
                 library.delete(video)
                 learning.forget(video.name)
+                paths.delete(video.name)
                 videos = videos.filter { it.key != video.key }
                 playingKey = neighbour?.key
             },
@@ -215,6 +220,7 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
                         TextButton(onClick = {
                             library.delete(video)
                             learning.forget(video.name)
+                            paths.delete(video.name)
                             videos = videos.filter { it.key != video.key }
                             toDelete = null
                         }) { Text("Supprimer", color = SurfColors.Alert) }

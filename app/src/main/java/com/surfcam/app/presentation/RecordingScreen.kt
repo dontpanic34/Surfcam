@@ -209,7 +209,7 @@ fun RecordingScreen(
                     modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Viewfinder(engine, state, hasCamera, options.fps60, Modifier.weight(1f).fillMaxHeight())
+                    Viewfinder(engine, state, hasCamera, options.fps60, options.reframe, Modifier.weight(1f).fillMaxHeight())
                     SideControls(
                         state, running, options, onOptionsChange, engine,
                         onOpenLibrary, { showInfo = true }, startGuarded, onStopSession,
@@ -229,7 +229,7 @@ fun RecordingScreen(
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: Boolean, fps60: Boolean, modifier: Modifier) {
+private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: Boolean, fps60: Boolean, reframe: Boolean, modifier: Modifier) {
     Box(
         modifier = modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black),
         contentAlignment = Alignment.Center,
@@ -336,7 +336,9 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
 
         // Distance estimée du surfeur le plus grand dans l'image, et zoom qui le rendrait bien lisible.
         val target = state.analysis?.boxes?.maxByOrNull { it.bottom - it.top }
-        if (target != null && state.focalPx1x > 0f) {
+        if (reframe) {
+            // Mode recadrage : on filme large, pas de zoom conseillé.
+        } else if (target != null && state.focalPx1x > 0f) {
             val heightPx = (target.bottom - target.top) * CaptureConfig.ANALYSIS_HEIGHT
             val distance = DistanceEstimator.distanceMeters(state.focalPx1x * state.zoom, heightPx)
             if (distance != null) {
@@ -806,6 +808,9 @@ private fun InfoDialog(
                             Help("Détection", "Repère les vagues et crée un clip : 5 s avant le décollage, 3 s après la fin.")
                         }
                         Section("Réglages avancés") {
+                            OptionSwitch("Mode recadrage", "Filme large (×1) : l'app garde le chemin du surfeur et propose « Recadrer » dans le lecteur", options.reframe) {
+                                if (!running) onOptionsChange(options.copy(reframe = it))
+                            }
                             OptionSwitch("Détection des vagues", "Crée un clip par vague : 5 s avant le décollage, 3 s après la fin", options.detection) {
                                 if (!running) onOptionsChange(options.copy(detection = it))
                             }

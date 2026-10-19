@@ -39,6 +39,11 @@ class ClipRecorder(
     var lastPreRollSec = 0f
         private set
 
+    /** Instant (horloge de la vidéo) de la première image du dernier clip démarré. */
+    @Volatile
+    var lastStartPtsUs = -1L
+        private set
+
     // Touché uniquement depuis le thread de l'exécuteur.
     private var writer: ClipWriter? = null
 
@@ -58,6 +63,7 @@ class ClipRecorder(
         val snapshot = ring.snapshotFrom(fromPtsUs)
         if (snapshot.isEmpty()) return false
         lastPreRollSec = (newest - snapshot.first().ptsUs) / 1_000_000f
+        lastStartPtsUs = snapshot.first().ptsUs
         // Heure réelle du début du clip : maintenant, moins ce que le tampon remonte dans le passé.
         val startedAtMs = System.currentTimeMillis() - ((newest - snapshot.first().ptsUs) / 1_000L)
         val baseName = VideoNaming.clipName(startedAtMs, waveNumber)

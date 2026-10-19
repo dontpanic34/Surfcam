@@ -25,6 +25,8 @@ data class SessionOptions(
     val doNotDisturb: Boolean = true,
     /** Fige l'exposition après convergence. Par défaut elle reste automatique pour suivre les nuages. */
     val lockExposure: Boolean = false,
+    /** Mode recadrage : on filme large (×1) ; l'app garde le chemin du surfeur et sait recadrer chaque clip après coup. */
+    val reframe: Boolean = false,
 ) {
     val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
 

@@ -19,6 +19,7 @@ class OptionsStore(context: Context) {
             sleepScreen = prefs.getBoolean("sleepScreen", d.sleepScreen),
             doNotDisturb = prefs.getBoolean("doNotDisturb", d.doNotDisturb),
             lockExposure = prefs.getBoolean("lockExposure", d.lockExposure),
+            reframe = prefs.getBoolean("reframe", d.reframe),
         )
     }
 
@@ -33,6 +34,7 @@ class OptionsStore(context: Context) {
             .putBoolean("sleepScreen", o.sleepScreen)
             .putBoolean("doNotDisturb", o.doNotDisturb)
             .putBoolean("lockExposure", o.lockExposure)
+            .putBoolean("reframe", o.reframe)
             .apply()
     }
 }

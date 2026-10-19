@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,11 +77,15 @@ import androidx.media3.ui.PlayerView
 import com.surfcam.app.data.learning.FeedbackRecord
 import com.surfcam.app.data.learning.LearningRepository
 import com.surfcam.app.data.library.LibraryVideo
+import com.surfcam.app.data.library.VideoLibrary
+import com.surfcam.app.data.reframe.PathStore
+import com.surfcam.app.data.reframe.Reframer
 import com.surfcam.app.domain.naming.VideoNaming
 import com.surfcam.app.presentation.theme.SurfCamTheme
 import com.surfcam.app.presentation.theme.SurfColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -124,6 +129,7 @@ private fun readVideoInfo(context: Context, uri: Uri): VideoInfo? {
 fun PlayerScreen(
     videos: List<LibraryVideo>,
     startIndex: Int,
+    library: VideoLibrary,
     learning: LearningRepository,
     onDelete: (LibraryVideo) -> Unit,
     onBack: () -> Unit,
@@ -143,6 +149,7 @@ fun PlayerScreen(
         onDispose {
             scrubber.release()
             player.release()
+            reframer.cancel()
         }
     }
 
@@ -158,6 +165,11 @@ fun PlayerScreen(
     var report by remember { mutableStateOf<String?>(null) }
     var info by remember { mutableStateOf<VideoInfo?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    val pathStore = remember { PathStore(context) }
+    val reframer = remember { Reframer(context) }
+    var reframeProgress by remember { mutableStateOf<Int?>(null) }
+    var hasPath by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { mutableLongStateOf(0L) }
 
@@ -170,6 +182,14 @@ fun PlayerScreen(
         info = null
         feedback = withContext(Dispatchers.IO) { learning.records().firstOrNull { it.clipName == video.name } }
         info = withContext(Dispatchers.IO) { readVideoInfo(context, video.uri) }
+        hasPath = withContext(Dispatchers.IO) { pathStore.has(video.name) } && VideoNaming.parse(video.name)?.reframed != true
+    }
+    LaunchedEffect(reframeProgress != null) {
+        while (reframeProgress != null) {
+            val p = reframer.progress()
+            if (p >= 0) reframeProgress = p
+            delay(300)
+        }
     }
     LaunchedEffect(speed) { player.setPlaybackSpeed(speed) }
     DisposableEffect(player) {
@@ -213,6 +233,34 @@ fun PlayerScreen(
         scrubber.seek(positionMs)
         touched()
     }
+    fun startReframe() {
+        if (reframeProgress != null) return
+        scope.launch {
+            val frames = withContext(Dispatchers.IO) { pathStore.load(video.name) }
+            if (frames.isNullOrEmpty()) {
+                report = "Pas de chemin du surfeur pour ce clip."
+                return@launch
+            }
+            player.pause()
+            report = null
+            reframeProgress = 0
+            reframer.start(video, frames) { ok, error ->
+                reframeProgress = null
+                if (!ok) {
+                    report = "Recadrage impossible : $error"
+                } else {
+                    scope.launch {
+                        val saved = withContext(Dispatchers.IO) {
+                            library.importFile(reframer.outputFile, VideoNaming.reframedName(video.name) + ".mp4")
+                        }
+                        reframer.outputFile.delete()
+                        report = if (saved) "Clip recadré enregistré : ${VideoNaming.reframedName(video.name)}" else "Le clip recadré n'a pas pu être enregistré."
+                    }
+                }
+            }
+        }
+    }
+
     fun judge(good: Boolean) {
         val record = feedback ?: return
         // Un second toucher sur le même choix le retire.
@@ -352,6 +400,14 @@ fun PlayerScreen(
                             it, color = SurfColors.Aqua, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0x66000000)).padding(horizontal = 6.dp, vertical = 2.dp),
                         )
+                    }
+                }
+            }
+            if (hasPath) {
+                SpeedChip(if (reframeProgress != null) "Recadrage ${reframeProgress}%" else "Recadrer", reframeProgress != null) {
+                    if (reframeProgress == null) startReframe() else {
+                        reframer.cancel()
+                        reframeProgress = null
                     }
                 }
             }
