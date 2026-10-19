@@ -23,7 +23,7 @@ import com.surfcam.app.domain.tracking.WaveEvent
 import com.surfcam.app.domain.tracking.WaveDetector
 
 /** Un surfeur suivi, en coordonnées relatives (0 à 1) de l'image d'analyse, pour dessiner son cadre. */
-data class OverlayBox(val left: Float, val top: Float, val right: Float, val bottom: Float, val id: Int, val riding: Boolean)
+data class OverlayBox(val left: Float, val top: Float, val right: Float, val bottom: Float, val id: Int, val riding: Boolean, val marked: Boolean = false)
 
 data class AnalysisSnapshot(
     val boxes: List<OverlayBox>,
@@ -97,6 +97,10 @@ class AnalysisPipeline(
 
     @Volatile
     private var released = false
+
+    /** Couleur du manchon de l'utilisateur ; null = ne pas chercher. */
+    @Volatile
+    var markerColor: com.surfcam.app.domain.detection.MarkerColor? = null
 
     /** En pause (téléphone trop chaud) : les images sont reçues puis jetées sans être analysées. */
     @Volatile
@@ -178,7 +182,12 @@ class AnalysisPipeline(
             val model = detector ?: return
             val started = SystemClock.elapsedRealtime()
             val detections = try {
-                model.detect(input, letterbox, timestampUs)
+                val found = model.detect(input, letterbox, timestampUs)
+                val marker = markerColor
+                if (marker == null) found else found.map {
+                    val (hits, total) = converter.markerPixels(it.box, marker)
+                    it.copy(wearsMarker = com.surfcam.app.domain.detection.MarkerColor.isWorn(hits, total))
+                }
             } catch (t: Throwable) {
                 fail("modele", t)
                 return
@@ -200,7 +209,7 @@ class AnalysisPipeline(
                     boxes = tracks.filter { it.lastSeenUs == timestampUs }.map {
                         OverlayBox(
                             it.box.left / WIDTH, it.box.top / HEIGHT, it.box.right / WIDTH, it.box.bottom / HEIGHT,
-                            it.id, it.id == ridingId,
+                            it.id, it.id == ridingId, it.isMarked,
                         )
                     },
                     inferenceMs = SystemClock.elapsedRealtime() - started,

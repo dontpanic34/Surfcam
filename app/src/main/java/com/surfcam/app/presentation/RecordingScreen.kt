@@ -317,10 +317,10 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             Canvas(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                 for (box in snapshot.boxes) {
                     drawRect(
-                        color = if (box.riding) SurfColors.Alert else SurfColors.Aqua,
+                        color = if (box.marked) SurfColors.Ok else if (box.riding) SurfColors.Alert else SurfColors.Aqua,
                         topLeft = Offset(box.left * size.width, box.top * size.height),
                         size = Size((box.right - box.left) * size.width, (box.bottom - box.top) * size.height),
-                        style = Stroke(width = if (box.riding) 3.dp.toPx() else 1.5.dp.toPx()),
+                        style = Stroke(width = if (box.riding || box.marked) 3.dp.toPx() else 1.5.dp.toPx()),
                     )
                 }
             }
@@ -816,6 +816,19 @@ private fun InfoDialog(
                             OptionSwitch("Suivi par le gimbal", "Un DJI Osmo Mobile fait pivoter le téléphone pour garder le surfeur au centre. Fais d'abord l'essai et le calibrage dans « Tête motorisée ».", options.followGimbal) {
                                 if (!running) onOptionsChange(options.copy(followGimbal = it))
                             }
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Mon manchon de couleur", color = SurfColors.Foam, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Porte un manchon fluo : l'app te reconnaît parmi les autres surfeurs (cadre à ta couleur) et le gimbal, le recadrage et les clips te suivent toi.",
+                                    color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
+                                )
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    FilterChip(selected = options.markerColor == null, onClick = { onOptionsChange(options.copy(markerColor = null)) }, label = { Text("Aucun") })
+                                    for (c in com.surfcam.app.domain.detection.MarkerColor.entries) {
+                                        FilterChip(selected = options.markerColor == c, onClick = { onOptionsChange(options.copy(markerColor = c)) }, label = { Text(c.label) })
+                                    }
+                                }
+                            }
                             OptionSwitch("Mode recadrage", "Filme large (×1) : l'app garde le chemin du surfeur et propose « Recadrer » dans le lecteur", options.reframe) {
                                 if (!running) onOptionsChange(options.copy(reframe = it))
                             }
@@ -897,7 +910,7 @@ private fun DiagnosticSection(state: EngineState) {
                     Canvas(Modifier.fillMaxSize()) {
                         for (box in snapshot.boxes) {
                             drawRect(
-                                color = if (box.riding) SurfColors.Alert else SurfColors.Aqua,
+                                color = if (box.marked) SurfColors.Ok else if (box.riding) SurfColors.Alert else SurfColors.Aqua,
                                 topLeft = Offset(box.left * size.width, box.top * size.height),
                                 size = Size((box.right - box.left) * size.width, (box.bottom - box.top) * size.height),
                                 style = Stroke(width = 1.5.dp.toPx()),

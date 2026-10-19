@@ -58,4 +58,10 @@ class FollowControllerTest {
         assertEquals(0, FollowController.toProtocolUnits(10f, 0f, false))
         assertEquals(3000, FollowController.toProtocolUnits(500f, 0.02f, false))
     }
+
+    @Test
+    fun `le surfeur au manchon est suivi avant tous les autres, meme plus petit`() {
+        val boxes = listOf(FollowBox(0.3f, 0.30f, riding = true), FollowBox(0.7f, 0.10f, riding = false, marked = true))
+        assertEquals(0.7f, FollowController.chooseTarget(boxes, null)!!.centerX, 0f)
+    }
 }

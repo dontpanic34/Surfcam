@@ -21,6 +21,7 @@ class OptionsStore(context: Context) {
             lockExposure = prefs.getBoolean("lockExposure", d.lockExposure),
             reframe = prefs.getBoolean("reframe", d.reframe),
             followGimbal = prefs.getBoolean("followGimbal", d.followGimbal),
+            markerColor = com.surfcam.app.domain.detection.MarkerColor.fromName(prefs.getString("markerColor", null)),
         )
     }
 
@@ -37,6 +38,7 @@ class OptionsStore(context: Context) {
             .putBoolean("lockExposure", o.lockExposure)
             .putBoolean("reframe", o.reframe)
             .putBoolean("followGimbal", o.followGimbal)
+            .putString("markerColor", o.markerColor?.name)
             .apply()
     }
 }

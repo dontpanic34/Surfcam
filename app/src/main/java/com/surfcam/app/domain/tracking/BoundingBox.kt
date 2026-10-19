@@ -21,4 +21,10 @@ data class BoundingBox(val left: Float, val top: Float, val right: Float, val bo
 }
 
 /** Une personne repérée par le détecteur dans une image, à l'instant [timestampUs]. */
-data class Detection(val box: BoundingBox, val confidence: Float, val timestampUs: Long)
+data class Detection(
+    val box: BoundingBox,
+    val confidence: Float,
+    val timestampUs: Long,
+    /** Vrai si la silhouette porte le manchon de couleur de l'utilisateur sur cette image. */
+    val wearsMarker: Boolean = false,
+)

@@ -249,6 +249,7 @@ class RecordingEngine(private val context: Context) {
                 override fun newestEncodedPtsUs(): Long? = null
                 override fun onRide(stats: RideStats) = Unit
             })
+            previewPipeline.markerColor = OptionsStore(context).load().markerColor
             analysis = previewPipeline
             val zoom = desiredZoom.coerceIn(probe.minZoom, probe.maxZoom)
             _state.value = EngineState(
@@ -322,6 +323,11 @@ class RecordingEngine(private val context: Context) {
     /** Efface le message de fin de session ou d'arrêt automatique une fois lu. */
     fun dismissNotice() {
         _state.update { it.copy(endedReason = null, lastSummary = null, message = null) }
+    }
+
+    /** Change la couleur du manchon recherché, même pendant l'aperçu ou une session. */
+    fun setMarkerColor(color: com.surfcam.app.domain.detection.MarkerColor?) {
+        analysis?.markerColor = color
     }
 
     /** Met le suivi par gimbal en pause ou le reprend pendant la session. */
@@ -401,7 +407,7 @@ class RecordingEngine(private val context: Context) {
                     val focal = _state.value.focalPx1x * _state.value.zoom
                     if (focal > 0f) {
                         f.onFrame(
-                            snapshot.boxes.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding) },
+                            snapshot.boxes.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked) },
                             FollowController.horizontalFovDeg(focal, CaptureConfig.ANALYSIS_WIDTH),
                         )
                     }
@@ -422,6 +428,7 @@ class RecordingEngine(private val context: Context) {
                 synchronized(rideStats) { rideStats += stats }
             }
         }, learning.currentConfig())
+        pipeline?.markerColor = options.markerColor
         analysis = pipeline
         _state.update {
             it.copy(analysisStatus = if (pipeline != null) "Chargement du modèle…" else "Détection désactivée")
@@ -542,7 +549,9 @@ class RecordingEngine(private val context: Context) {
 
     private fun capturePath(snapshot: AnalysisSnapshot) {
         val encodedUs = snapshot.timestampUs - snapshot.clockOffsetMs * 1_000
-        val boxes = snapshot.boxes.map { PathBox(it.left, it.top, it.right, it.bottom, it.riding) }
+        // Si le manchon de l'utilisateur est reconnu, on ne garde que lui : le recadrage suivra sa silhouette.
+        val marked = snapshot.boxes.filter { it.marked }
+        val boxes = (marked.ifEmpty { snapshot.boxes }).map { PathBox(it.left, it.top, it.right, it.bottom, it.riding) }
         synchronized(pathCaptures) {
             pathCaptures.addLast(PathCapture(encodedUs, boxes))
             while (pathCaptures.isNotEmpty() && pathCaptures.first().encodedUs < encodedUs - PATH_KEEP_US) pathCaptures.removeFirst()

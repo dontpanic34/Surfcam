@@ -29,6 +29,8 @@ data class SessionOptions(
     val reframe: Boolean = false,
     /** Le gimbal DJI enregistré fait pivoter le téléphone pour garder le surfeur au centre. */
     val followGimbal: Boolean = false,
+    /** Couleur du manchon que l'utilisateur porte pour être repéré parmi les surfeurs ; null = aucune. */
+    val markerColor: com.surfcam.app.domain.detection.MarkerColor? = null,
 ) {
     val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
 

@@ -45,6 +45,13 @@ class Track(val id: Int, first: Detection, private val historyUs: Long) {
     var confidence: Float = first.confidence
         internal set
 
+    /** Part des dernières images où le manchon de l'utilisateur a été vu sur cette silhouette (0 à 1, lissée). */
+    var markerShare: Float = if (first.wearsMarker) 1f else 0f
+        internal set
+
+    /** Cette silhouette est probablement l'utilisateur. */
+    val isMarked: Boolean get() = markerShare >= 0.4f
+
     /** Vitesse estimée du centre de la boîte, en pixels par seconde. */
     var velocityX: Float = 0f
         internal set
@@ -144,6 +151,7 @@ class SurferTracker(private val config: TrackerConfig = TrackerConfig()) {
             track.lastSeenUs = timestampUs
             track.confidence = 0.5f * det.confidence + 0.5f * track.confidence
             track.hits++
+            track.markerShare = 0.6f * track.markerShare + 0.4f * (if (det.wearsMarker) 1f else 0f)
             track.record(timestampUs, det.box)
         }
         for (det in detections) {

@@ -5,7 +5,7 @@ import kotlin.math.atan
 import kotlin.math.roundToInt
 
 /** Un surfeur vu par la détection : position horizontale (0 à 1) et hauteur dans l'image. */
-data class FollowBox(val centerX: Float, val height: Float, val riding: Boolean)
+data class FollowBox(val centerX: Float, val height: Float, val riding: Boolean, val marked: Boolean = false)
 
 data class FollowConfig(
     /** Écart (en degrés) sous lequel on ne bouge pas : évite de trembler autour du centre. */
@@ -22,9 +22,10 @@ data class FollowConfig(
  */
 object FollowController {
 
-    /** Le surfeur à suivre : celui qui surfe, sinon le plus proche du précédent, sinon le plus grand. */
+    /** Le surfeur à suivre : celui qui porte le manchon, sinon celui qui surfe, sinon le plus proche du précédent, sinon le plus grand. */
     fun chooseTarget(boxes: List<FollowBox>, previousX: Float?): FollowBox? {
         if (boxes.isEmpty()) return null
+        boxes.filter { it.marked }.maxByOrNull { it.height }?.let { return it }
         boxes.filter { it.riding }.maxByOrNull { it.height }?.let { return it }
         if (previousX != null) return boxes.minByOrNull { abs(it.centerX - previousX) }
         return boxes.maxByOrNull { it.height }

@@ -47,6 +47,7 @@ class RecordingService : Service() {
             lockExposure = intent?.getBooleanExtra(EXTRA_LOCK_EXPOSURE, false) == true,
             reframe = intent?.getBooleanExtra(EXTRA_REFRAME, false) == true,
             followGimbal = intent?.getBooleanExtra(EXTRA_FOLLOW_GIMBAL, false) == true,
+            markerColor = com.surfcam.app.domain.detection.MarkerColor.fromName(intent?.getStringExtra(EXTRA_MARKER)),
         )
         if (intent?.getBooleanExtra(EXTRA_DND, false) == true) DoNotDisturb.enable(this)
         engine.start(intent?.getIntExtra(EXTRA_ROTATION_DEGREES, 90) ?: 90, options)
@@ -108,6 +109,7 @@ class RecordingService : Service() {
         const val EXTRA_LOCK_EXPOSURE = "lock_exposure"
         const val EXTRA_REFRAME = "reframe"
         const val EXTRA_FOLLOW_GIMBAL = "follow_gimbal"
+        const val EXTRA_MARKER = "marker_color"
         private const val CHANNEL_ID = "session"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TIMEOUT_MS = 3 * 60 * 60 * 1000L
