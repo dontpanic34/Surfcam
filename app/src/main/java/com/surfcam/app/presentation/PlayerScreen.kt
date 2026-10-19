@@ -5,6 +5,9 @@ import android.content.res.Configuration
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -67,6 +70,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.surfcam.app.data.learning.FeedbackRecord
@@ -134,7 +138,13 @@ fun PlayerScreen(
     val player = remember {
         ExoPlayer.Builder(context).build().also { it.setSeekParameters(SeekParameters.EXACT) }
     }
-    DisposableEffect(Unit) { onDispose { player.release() } }
+    val scrubber = remember { Scrubber(player) }
+    DisposableEffect(Unit) {
+        onDispose {
+            scrubber.release()
+            player.release()
+        }
+    }
 
     var speed by remember { mutableFloatStateOf(1f) }
     var playing by remember { mutableStateOf(true) }
@@ -200,7 +210,7 @@ fun PlayerScreen(
         val base = if (abs(player.currentPosition - stepPosition) > frameMs * 2.5) player.currentPosition.toDouble() else stepPosition
         stepPosition = (base + direction * frameMs).coerceIn(0.0, durationMs.toDouble())
         positionMs = stepPosition.roundToInt().toLong()
-        player.seekTo(positionMs)
+        scrubber.seek(positionMs)
         touched()
     }
     fun judge(good: Boolean) {
@@ -277,11 +287,12 @@ fun PlayerScreen(
                 scrubValue = it
                 positionMs = (it * durationMs).toLong()
                 stepPosition = positionMs.toDouble()
-                player.seekTo(positionMs)
+                scrubber.seek(positionMs)
                 touched()
             },
             onValueChangeFinished = {
                 scrubbing = false
+                scrubber.seek(positionMs, force = true)
                 if (wasPlaying) player.play()
             },
             modifier = modifier,
@@ -422,6 +433,57 @@ fun PlayerScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * Fait suivre l'image au doigt : une seule demande de position à la fois, la dernière gagne. Chaque demande est envoyée
+ * quand l'image de la précédente est affichée, sinon les demandes s'empilent et l'image reste figée puis saute.
+ */
+private class Scrubber(private val player: ExoPlayer) {
+    private val handler = Handler(Looper.getMainLooper())
+    private var pending = -1L
+    private var inFlight = false
+    private var issuedAt = 0L
+
+    @Volatile
+    private var active = false
+
+    private val frameListener = VideoFrameMetadataListener { _, _, _, _ ->
+        if (active) handler.post {
+            inFlight = false
+            drain()
+        }
+    }
+
+    init {
+        player.setVideoFrameMetadataListener(frameListener)
+    }
+
+    fun seek(positionMs: Long, force: Boolean = false) {
+        pending = positionMs
+        if (force) inFlight = false
+        drain()
+    }
+
+    fun release() {
+        handler.removeCallbacksAndMessages(null)
+        player.clearVideoFrameMetadataListener(frameListener)
+    }
+
+    private fun drain() {
+        if (pending < 0) {
+            active = false
+            return
+        }
+        // Garde-fou : si aucune image n'est revenue (même position), on ne reste pas bloqué.
+        if (inFlight && SystemClock.uptimeMillis() - issuedAt < 400) return
+        val target = pending
+        pending = -1
+        inFlight = true
+        active = true
+        issuedAt = SystemClock.uptimeMillis()
+        player.seekTo(target)
     }
 }
 
