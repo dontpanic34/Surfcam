@@ -16,8 +16,7 @@ import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import com.surfcam.app.data.library.LibraryVideo
-import com.surfcam.app.domain.reframe.PathFrame
-import com.surfcam.app.domain.reframe.ReframePlanner
+import com.surfcam.app.domain.reframe.CropPath
 import java.io.File
 
 /**
@@ -43,8 +42,7 @@ class Reframer(private val context: Context) {
         transformer = null
     }
 
-    fun start(video: LibraryVideo, frames: List<PathFrame>, onDone: (Boolean, String?) -> Unit) {
-        val path = ReframePlanner.plan(frames)
+    fun start(video: LibraryVideo, path: CropPath, onDone: (Boolean, String?) -> Unit) {
         outputFile.delete()
         val crop = MatrixTransformation { presentationTimeUs ->
             val c = path.at(presentationTimeUs / 1_000)

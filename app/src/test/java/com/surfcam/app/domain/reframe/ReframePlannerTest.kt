@@ -72,5 +72,20 @@ class ReframePlannerTest {
         assertEquals(0.5, c.cx.toDouble(), 0.0001)
     }
 
+    @Test
+    fun `un zoom impose garde la meme largeur de fenetre en suivant le surfeur`() {
+        val path = ReframePlanner.plan(traverse(), forcedWidth = 0.5f)
+        assertEquals(0.5, path.at(1_000).width.toDouble(), 0.001)
+        assertEquals(0.5, path.at(5_000).width.toDouble(), 0.001)
+        assertTrue(path.at(5_000).cx > path.at(1_000).cx)
+    }
+
+    @Test
+    fun `une vue fixe reste dans l'image`() {
+        val c = ReframePlanner.fixed(0.98f, 0.02f, 0.4f).at(3_000)
+        assertEquals(0.8, c.cx.toDouble(), 0.001)
+        assertEquals(0.2, c.cy.toDouble(), 0.001)
+    }
+
     private fun abs(x: Float) = kotlin.math.abs(x)
 }

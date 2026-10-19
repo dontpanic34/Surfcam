@@ -9,6 +9,18 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
+import com.surfcam.app.domain.reframe.ReframePlanner
+import android.view.TextureView
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -168,12 +180,22 @@ fun PlayerScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     val pathStore = remember { PathStore(context) }
     var reframeProgress by remember { mutableStateOf<Int?>(null) }
+    var reframeMenu by remember { mutableStateOf(false) }
+    // Zoom et déplacement de l'image à la main (pincement, double toucher, boutons) ; remis à zéro à chaque clip.
+    var zoomScale by remember { mutableFloatStateOf(1f) }
+    var panX by remember { mutableFloatStateOf(0f) }
+    var panY by remember { mutableFloatStateOf(0f) }
+    var boxSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    var videoAspect by remember { mutableFloatStateOf(16f / 9f) }
     var hasPath by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(video.key) {
+        zoomScale = 1f
+        panX = 0f
+        panY = 0f
         player.setMediaItem(MediaItem.fromUri(video.uri))
         player.prepare()
         player.setPlaybackSpeed(speed)
@@ -196,6 +218,12 @@ fun PlayerScreen(
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
+            }
+
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    videoAspect = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+                }
             }
         }
         player.addListener(listener)
@@ -233,18 +261,35 @@ fun PlayerScreen(
         scrubber.seek(positionMs)
         touched()
     }
-    fun startReframe() {
+    /** Taille réelle de la vidéo affichée dans son cadre (sans les bandes noires), en pixels. */
+    fun displayedSize(): Pair<Float, Float> {
+        val bw = boxSize.width.toFloat().coerceAtLeast(1f)
+        val bh = boxSize.height.toFloat().coerceAtLeast(1f)
+        return if (bw / bh > videoAspect) (bh * videoAspect) to bh else bw to (bw / videoAspect)
+    }
+
+    /**
+     * @param followZoom null : suivi du surfeur avec zoom automatique ; un nombre : suivi avec ce zoom fixe (×2, ×3, ×4) ;
+     * @param currentView vrai : exporte la vue actuelle (zoom et position faits à la main), sans suivi.
+     */
+    fun startReframe(followZoom: Float?, currentView: Boolean) {
         if (reframeProgress != null) return
         scope.launch {
-            val frames = withContext(Dispatchers.IO) { pathStore.load(video.name) }
-            if (frames.isNullOrEmpty()) {
-                report = "Pas de chemin du surfeur pour ce clip."
-                return@launch
+            val path = if (currentView) {
+                val (dw, dh) = displayedSize()
+                ReframePlanner.fixed(0.5f - panX / (zoomScale * dw), 0.5f - panY / (zoomScale * dh), 1f / zoomScale)
+            } else {
+                val frames = withContext(Dispatchers.IO) { pathStore.load(video.name) }
+                if (frames.isNullOrEmpty()) {
+                    report = "Pas de chemin du surfeur pour ce clip : active le mode recadrage avant la prochaine session."
+                    return@launch
+                }
+                ReframePlanner.plan(frames, followZoom?.let { 1f / it })
             }
             player.pause()
             report = null
             reframeProgress = 0
-            reframer.start(video, frames) { ok, error ->
+            reframer.start(video, path) { ok, error ->
                 reframeProgress = null
                 if (!ok) {
                     report = "Recadrage impossible : $error"
@@ -288,37 +333,67 @@ fun PlayerScreen(
     val videoSurface: @Composable (Modifier) -> Unit = { modifier ->
         Box(
             modifier
+                .clipToBounds()
+                .onSizeChanged { boxSize = it }
                 .pointerInput(index, videos.size) {
-                    // Glissement de droite à gauche : clip suivant ; de gauche à droite : clip précédent.
-                    var total = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { total = 0f },
-                        onDragEnd = {
-                            if (total < -120f) goTo(index + 1) else if (total > 120f) goTo(index - 1)
-                        },
-                    ) { _, dx -> total += dx }
+                    // Pincement : zoom ; un doigt zoomé : déplacement ; un doigt non zoomé : glissement de droite à gauche = clip
+                    // suivant, de gauche à droite = clip précédent.
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        var totalDx = 0f
+                        var multiTouch = false
+                        do {
+                            val event = awaitPointerEvent()
+                            if (event.changes.size > 1) multiTouch = true
+                            val zoomChange = event.calculateZoom()
+                            val pan = event.calculatePan()
+                            if (zoomChange != 1f) zoomScale = (zoomScale * zoomChange).coerceIn(1f, 8f)
+                            if (zoomScale > 1.01f) {
+                                val maxX = (zoomScale - 1f) * size.width / 2f
+                                val maxY = (zoomScale - 1f) * size.height / 2f
+                                panX = (panX + pan.x).coerceIn(-maxX, maxX)
+                                panY = (panY + pan.y).coerceIn(-maxY, maxY)
+                                event.changes.forEach { if (it.positionChanged()) it.consume() }
+                            } else {
+                                panX = 0f
+                                panY = 0f
+                                if (!multiTouch) totalDx += pan.x
+                            }
+                        } while (event.changes.any { it.pressed })
+                        if (!multiTouch && zoomScale <= 1.01f) {
+                            if (totalDx < -120f) goTo(index + 1) else if (totalDx > 120f) goTo(index - 1)
+                        }
+                    }
                 }
                 .pointerInput(Unit) {
-                    detectTapGestures(onTap = {
-                        if (portrait) {
-                            if (player.isPlaying) player.pause() else player.play()
-                        } else {
-                            controlsVisible = !controlsVisible
-                            if (controlsVisible) interaction = System.nanoTime()
-                        }
-                    })
+                    detectTapGestures(
+                        onDoubleTap = {
+                            zoomScale = if (zoomScale > 1.01f) 1f else 2.5f
+                            panX = 0f
+                            panY = 0f
+                        },
+                        onTap = {
+                            if (portrait) {
+                                if (player.isPlaying) player.pause() else player.play()
+                            } else {
+                                controlsVisible = !controlsVisible
+                                if (controlsVisible) interaction = System.nanoTime()
+                            }
+                        },
+                    )
                 },
+            contentAlignment = Alignment.Center,
         ) {
             AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        setShutterBackgroundColor(android.graphics.Color.BLACK)
-                        this.player = player
-                    }
-                },
+                modifier = Modifier
+                    .aspectRatio(videoAspect)
+                    .graphicsLayer {
+                        scaleX = zoomScale
+                        scaleY = zoomScale
+                        translationX = panX
+                        translationY = panY
+                    },
+                factory = { ctx -> TextureView(ctx).also { player.setVideoTextureView(it) } },
             )
         }
     }
@@ -353,6 +428,7 @@ fun PlayerScreen(
     }
 
     val transport: @Composable () -> Unit = {
+      Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             RoundButton(PlayerIcon.FRAME_BACK, 44.dp) { step(-1) }
             RoundButton(if (playing) PlayerIcon.PAUSE else PlayerIcon.PLAY, 56.dp, filled = true) {
@@ -371,6 +447,20 @@ fun PlayerScreen(
                 }
             }
         }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Zoom", color = Color.White, fontSize = 12.sp)
+            listOf(1f, 2f, 3f, 4f).forEach { z ->
+                SpeedChip("×${z.toInt()}", abs(zoomScale - z) < 0.05f) {
+                    zoomScale = z
+                    if (z == 1f) {
+                        panX = 0f
+                        panY = 0f
+                    }
+                    touched()
+                }
+            }
+        }
+      }
     }
 
     val judgement: @Composable (Boolean) -> Unit = { horizontal ->
@@ -403,11 +493,27 @@ fun PlayerScreen(
                     }
                 }
             }
-            if (hasPath) {
-                SpeedChip(if (reframeProgress != null) "Recadrage ${reframeProgress}%" else "Recadrer", reframeProgress != null) {
-                    if (reframeProgress == null) startReframe() else {
+            Box {
+                SpeedChip(if (reframeProgress != null) "Recadrage ${reframeProgress}%" else "Recadrer ▾", reframeProgress != null) {
+                    if (reframeProgress == null) reframeMenu = true else {
                         reframer.cancel()
                         reframeProgress = null
+                    }
+                }
+                DropdownMenu(expanded = reframeMenu, onDismissRequest = { reframeMenu = false }) {
+                    if (hasPath) {
+                        DropdownMenuItem(text = { Text("Suivre le surfeur · zoom auto") }, onClick = { reframeMenu = false; startReframe(null, false) })
+                        listOf(2f, 3f, 4f).forEach { z ->
+                            DropdownMenuItem(text = { Text("Suivre le surfeur · ×${z.toInt()}") }, onClick = { reframeMenu = false; startReframe(z, false) })
+                        }
+                    }
+                    DropdownMenuItem(
+                        text = { Text(if (zoomScale > 1.01f) "Cette vue (×%.1f)".format(zoomScale).replace('.', ',') else "Cette vue : zoome d'abord sur la vidéo") },
+                        enabled = zoomScale > 1.01f,
+                        onClick = { reframeMenu = false; startReframe(null, true) },
+                    )
+                    if (!hasPath) {
+                        DropdownMenuItem(text = { Text("Suivi du surfeur indisponible pour ce clip") }, enabled = false, onClick = {})
                     }
                 }
             }

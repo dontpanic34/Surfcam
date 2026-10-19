@@ -44,11 +44,22 @@ object ReframePlanner {
     private const val TARGET_HEIGHT = 0.30f
     private const val TARGET_WIDTH = 0.45f
     private const val MIN_WIDTH = 0.25f
+    private const val FORCED_MIN_WIDTH = 0.2f
     private const val STEP_MS = 100L
     private const val ALPHA_POSITION = 0.25f
     private const val ALPHA_ZOOM = 0.08f
 
-    fun plan(frames: List<PathFrame>): CropPath {
+    /** Fenêtre fixe : le même cadrage pendant tout le clip (zoom fait à la main). */
+    fun fixed(cx: Float, cy: Float, width: Float): CropPath {
+        val w = width.coerceIn(FORCED_MIN_WIDTH, 1f)
+        return CropPath(listOf(CropSample(0, cx.coerceIn(w / 2f, 1f - w / 2f), cy.coerceIn(w / 2f, 1f - w / 2f), w)))
+    }
+
+    /**
+     * @param forcedWidth si non nul, largeur de fenêtre imposée (par exemple 0,5 pour un zoom ×2) : la caméra suit le
+     * surfeur mais ne change plus de zoom.
+     */
+    fun plan(frames: List<PathFrame>, forcedWidth: Float? = null): CropPath {
         val usable = frames.filter { it.boxes.isNotEmpty() }.sortedBy { it.tMs }
         if (usable.isEmpty()) return CropPath(emptyList())
         val chosen = chooseTargets(usable)
@@ -60,7 +71,9 @@ object ReframePlanner {
         val times = usable.map { it.tMs }
         val cxRaw = chosen.map { it.centerX }
         val cyRaw = chosen.map { it.centerY }
-        val wRaw = chosen.map { b -> min(1f, max(MIN_WIDTH, max(b.height / TARGET_HEIGHT, b.width / TARGET_WIDTH))) }
+        val wRaw = chosen.map { b ->
+            forcedWidth?.coerceIn(FORCED_MIN_WIDTH, 1f) ?: min(1f, max(MIN_WIDTH, max(b.height / TARGET_HEIGHT, b.width / TARGET_WIDTH)))
+        }
         val cx = FloatArray(steps) { interpolate(times, cxRaw, start + it * STEP_MS) }
         val cy = FloatArray(steps) { interpolate(times, cyRaw, start + it * STEP_MS) }
         val w = FloatArray(steps) { interpolate(times, wRaw, start + it * STEP_MS) }
@@ -70,7 +83,7 @@ object ReframePlanner {
 
         return CropPath(
             List(steps) { i ->
-                val width = w[i].coerceIn(MIN_WIDTH, 1f)
+                val width = w[i].coerceIn(FORCED_MIN_WIDTH, 1f)
                 CropSample(
                     start + i * STEP_MS,
                     cx[i].coerceIn(width / 2f, 1f - width / 2f),
