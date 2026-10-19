@@ -2,6 +2,7 @@ package com.surfcam.app.presentation
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -58,6 +59,10 @@ class MainActivity : ComponentActivity() {
                     hasCamera = true
                     startSession(options)
                 }
+            }
+            // La bibliothèque et le lecteur suivent l'orientation du téléphone ; l'écran caméra reste en paysage (trépied).
+            LaunchedEffect(showLibrary) {
+                requestedOrientation = if (showLibrary) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             }
             if (showLibrary) {
                 val phase by engine.state.collectAsStateWithLifecycle()

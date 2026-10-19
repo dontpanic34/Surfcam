@@ -1,9 +1,14 @@
 package com.surfcam.app.presentation
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,6 +76,8 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
     var copyMessage by remember { mutableStateOf<String?>(null) }
     var feedback by remember { mutableStateOf<Map<String, FeedbackRecord>>(emptyMap()) }
     var learningReport by remember { mutableStateOf(learning.lastReport()) }
+    var playingKey by remember { mutableStateOf<String?>(null) }
+    val portrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
 
     // Rafraîchi toutes les 3 s : une vidéo « en traitement » devient lisible sans rien faire.
     LaunchedEffect(Unit) {
@@ -82,9 +89,16 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
         }
     }
 
+    val playable = videos.filter { !it.pending }
+    val playingIndex = playable.indexOfFirst { it.key == playingKey }
+    if (playingKey != null && playingIndex >= 0) {
+        PlayerScreen(playable, playingIndex, learning) { playingKey = null }
+        return
+    }
+
     SurfCamTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = onBack) { Text("‹ Retour") }
                     Text("Mes vidéos", color = SurfColors.Aqua, fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -118,6 +132,8 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
                         VideoRow(
                             library = library,
                             video = video,
+                            portrait = portrait,
+                            onPlay = { playingKey = video.key },
                             copyProgress = copying[video.key],
                             feedback = feedback[video.name],
                             onJudge = { good ->
@@ -185,27 +201,20 @@ private fun Banner(text: String) {
 private fun VideoRow(
     library: VideoLibrary,
     video: LibraryVideo,
+    portrait: Boolean,
+    onPlay: () -> Unit,
     copyProgress: Float?,
     feedback: FeedbackRecord?,
     onJudge: (Boolean) -> Unit,
     onDelete: () -> Unit,
     onCopy: () -> Unit,
 ) {
-    val context = LocalContext.current
     val thumbnail by produceState<Bitmap?>(null, video.id, video.pending) {
         value = if (video.pending) null else withContext(Dispatchers.IO) { library.thumbnail(video, 320, 180) }
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Box(Modifier.width(160.dp).height(90.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black)) {
+    val thumb: @Composable (Modifier) -> Unit = { modifier ->
+        Box(modifier.clip(RoundedCornerShape(10.dp)).background(Color.Black).clickable(enabled = !video.pending, onClick = onPlay)) {
             thumbnail?.let {
                 Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
@@ -213,7 +222,9 @@ private fun VideoRow(
                 Text("En traitement…", color = SurfColors.Warn, fontSize = 12.sp, modifier = Modifier.align(Alignment.Center))
             }
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    }
+    val info: @Composable (Modifier) -> Unit = { modifier ->
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
                 VideoNaming.displayTitle(video.name),
                 color = SurfColors.Foam,
@@ -235,7 +246,7 @@ private fun VideoRow(
             }
             if (feedback != null && !video.pending) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (feedback.good == null) Text("Cette détection est-elle juste ?", color = SurfColors.Muted, fontSize = 12.sp)
+                    if (feedback.good == null && !portrait) Text("Cette détection est-elle juste ?", color = SurfColors.Muted, fontSize = 12.sp)
                     if (feedback.good != false) OutlinedButton(onClick = { onJudge(true) }) {
                         Text(if (feedback.good == true) "✓ Bonne vague" else "Bonne vague", fontSize = 12.sp)
                     }
@@ -248,23 +259,32 @@ private fun VideoRow(
                 Text("En cours de traitement : pas encore lisible", color = SurfColors.Warn, fontSize = 12.sp)
             }
         }
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Button(
-                enabled = !video.pending,
-                onClick = {
-                    val intent = Intent(Intent.ACTION_VIEW)
-                        .setDataAndType(video.uri, "video/mp4")
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    try {
-                        context.startActivity(intent)
-                    } catch (_: ActivityNotFoundException) {
-                    }
-                },
-            ) { Text("Lire") }
-            if (video.isExternal) {
-                OutlinedButton(enabled = !video.pending && copyProgress == null, onClick = onCopy) { Text("Copier sur le téléphone", fontSize = 11.sp) }
-            }
-            TextButton(enabled = !video.pending, onClick = onDelete) { Text("Supprimer", color = SurfColors.Alert) }
+    }
+    val actions: @Composable () -> Unit = {
+        Button(enabled = !video.pending, onClick = onPlay) { Text("Lire") }
+        if (video.isExternal) {
+            OutlinedButton(enabled = !video.pending && copyProgress == null, onClick = onCopy) { Text("Copier sur le téléphone", fontSize = 11.sp) }
+        }
+        TextButton(enabled = !video.pending, onClick = onDelete) { Text("Supprimer", color = SurfColors.Alert) }
+    }
+
+    val cardModifier = Modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(16.dp))
+        .background(MaterialTheme.colorScheme.surfaceVariant)
+        .padding(10.dp)
+    if (portrait) {
+        // Portrait : grande vignette en haut, informations dessous, actions en ligne.
+        Column(cardModifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            thumb(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+            info(Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) { actions() }
+        }
+    } else {
+        Row(cardModifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            thumb(Modifier.width(160.dp).height(90.dp))
+            info(Modifier.weight(1f))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { actions() }
         }
     }
 }
