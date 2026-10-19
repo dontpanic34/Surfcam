@@ -17,14 +17,61 @@ object DjiPackets {
 
     private fun le16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
 
-    /**
-     * Pivotement en mode vitesse (lacet). [yawSpeed] est signé (le sens se règle par le signe), 0 arrête ; [duration] est
-     * la durée de validité de l'ordre, en unités encore à mesurer sur un vrai appareil. Le message fait 21 octets.
-     */
-    fun rotate(yawSpeed: Int, duration: Int): ByteArray {
-        val body = byteArrayOf(0x02, 0x04, 0x01, 0x00, 0x00, 0x04, 0x0c)
-        val payload = le16(yawSpeed) + le16(0) + le16(0) + byteArrayOf(0x80.toByte(), duration.toByte())
+    private const val MODE_RELATIVE = 0x04
+    private const val MODE_SPEED = 0x80
+
+    private fun rotation(yaw: Int, mode: Int, duration: Int): ByteArray {
+        val body = byteArrayOf(0x02, 0x04, 0x01, 0x00, 0x00, 0x04, if (mode == MODE_SPEED) 0x0c else 0x14)
+        val payload = le16(yaw) + le16(0) + le16(0) + byteArrayOf(mode.toByte(), duration.toByte())
         val crc = crc16(body + payload, 0xdf0c)
         return byteArrayOf(0x55, 0x15, 0x04, 0xa9.toByte()) + body + payload + le16(crc)
+    }
+
+    /**
+     * Pivotement en mode vitesse (lacet). [yawSpeed] est signé (le sens se règle par le signe), 0 arrête ; [duration] est
+     * la durée de validité de l'ordre en dixièmes de seconde (d'après l'exemple du dépôt de référence). Le message fait 21 octets.
+     */
+    fun rotate(yawSpeed: Int, duration: Int): ByteArray = rotation(yawSpeed, MODE_SPEED, duration)
+
+    /** Pivotement d'un angle donné (lacet, dixièmes de degré, signé) à effectuer en [duration] dixièmes de seconde. */
+    fun rotateBy(yawTenthsDeg: Int, duration: Int): ByteArray = rotation(yawTenthsDeg, MODE_RELATIVE, duration)
+}
+
+/** Message DUML reçu du gimbal (en-tête 0x55, longueur sur 10 bits, ensemble de commandes et commande). */
+class DumlMessage(val cmdSet: Int, val cmd: Int, val payload: ByteArray)
+
+/** Reconstitue les messages DUML à partir des morceaux de notification Bluetooth (un message peut arriver en plusieurs). */
+class DumlParser {
+    private var buffer = ByteArray(0)
+
+    fun feed(data: ByteArray): List<DumlMessage> {
+        buffer += data
+        val out = mutableListOf<DumlMessage>()
+        while (buffer.isNotEmpty()) {
+            if (buffer[0] != 0x55.toByte()) {
+                val i = buffer.indexOf(0x55.toByte())
+                buffer = if (i < 0) ByteArray(0) else buffer.copyOfRange(i, buffer.size)
+                continue
+            }
+            if (buffer.size < 4) break
+            val length = ((buffer[1].toInt() and 0xFF) or ((buffer[2].toInt() and 0xFF) shl 8)) and 0x3FF
+            if (length < 13) {
+                buffer = buffer.copyOfRange(1, buffer.size)
+                continue
+            }
+            if (buffer.size < length) break
+            val packet = buffer.copyOfRange(0, length)
+            buffer = buffer.copyOfRange(length, buffer.size)
+            out += DumlMessage(packet[9].toInt() and 0xFF, packet[10].toInt() and 0xFF, packet.copyOfRange(11, length - 2))
+        }
+        return out
+    }
+
+    companion object {
+        /** Niveau de batterie (%) et charge en cours, si le message est un état de batterie (ensemble 0x05, commande 0x06). */
+        fun battery(m: DumlMessage): Pair<Int, Boolean>? =
+            if (m.cmdSet == 0x05 && m.cmd == 0x06 && m.payload.isNotEmpty()) {
+                (m.payload[0].toInt() and 0xFF) to (m.payload.last().toInt() == 1)
+            } else null
     }
 }

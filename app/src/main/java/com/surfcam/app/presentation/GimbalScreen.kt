@@ -230,10 +230,22 @@ fun GimbalScreen(onBack: () -> Unit) {
                         invert = !invert
                         prefs.edit().putBoolean("invert", invert).apply()
                     }) { Text(if (invert) "Sens inversé : oui (toucher pour changer)" else "Sens inversé : non (toucher pour changer)", fontSize = 12.sp) }
+                    Text("Mouvement d'angle (sans calibrage) : le gimbal doit tourner de l'angle indiqué en 1,5 s.", color = SurfColors.Muted, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { link.rotateBy(-30f * if (invert) -1 else 1, 1.5f) }) { Text("◀ 30°") }
+                        OutlinedButton(onClick = { link.rotateBy(30f * if (invert) -1 else 1, 1.5f) }) { Text("30° ▶") }
+                        OutlinedButton(onClick = { link.rotateBy(-90f * if (invert) -1 else 1, 3f) }) { Text("◀ 90°") }
+                        OutlinedButton(onClick = { link.rotateBy(90f * if (invert) -1 else 1, 3f) }) { Text("90° ▶") }
+                    }
+                    state.battery?.let { Text("Batterie du gimbal : $it %" + if (state.charging) " (en charge)" else "", color = SurfColors.Foam, fontSize = 12.sp) }
                     Text("Messages reçus du gimbal : ${state.received}", color = SurfColors.Muted, fontSize = 11.sp)
                     prefs.getFloat("deg_per_sec_per_unit", 0f).takeIf { it > 0f }?.let {
                         Text("Dernier calibrage enregistré : %.4f °/s par unité".format(it), color = SurfColors.Muted, fontSize = 11.sp)
                     }
+                }
+                if (state.journal.isNotEmpty()) {
+                    Text("Journal (à me montrer si ça ne marche pas) :", color = SurfColors.Muted, fontSize = 11.sp)
+                    Text(state.journal.joinToString("\n"), color = SurfColors.Muted, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                 }
                 report?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
             }

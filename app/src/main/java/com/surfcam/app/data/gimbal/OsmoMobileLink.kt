@@ -28,6 +28,10 @@ data class GimbalState(
     val connecting: Boolean = false,
     val status: String = "Non connecté",
     val received: Int = 0,
+    val battery: Int? = null,
+    val charging: Boolean = false,
+    /** Derniers échanges, du plus récent au plus ancien : sert à diagnostiquer au premier essai sur le vrai gimbal. */
+    val journal: List<String> = emptyList(),
 )
 
 /**
@@ -44,6 +48,8 @@ class OsmoMobileLink(private val context: Context) {
     private var writeChar: BluetoothGattCharacteristic? = null
     private var mtu = 23
     private var lastWriteAt = 0L
+    private var lastNoteAt = 0L
+    private val parser = DumlParser()
 
     private val _state = MutableStateFlow(GimbalState())
     val state: StateFlow<GimbalState> = _state
@@ -104,6 +110,18 @@ class OsmoMobileLink(private val context: Context) {
         send(packet)
     }
 
+    /** Pivote d'un angle donné (degrés, signé) en [seconds] secondes, sans passer par le calibrage de vitesse. */
+    fun rotateBy(degrees: Float, seconds: Float) {
+        val packet = DjiPackets.rotateBy((degrees * 10).toInt().coerceIn(-1800, 1800), (seconds * 10).toInt().coerceIn(1, 255))
+        send(packet, force = true)
+    }
+
+    private fun note(line: String) {
+        _state.update { it.copy(journal = (listOf(line) + it.journal).take(14)) }
+    }
+
+    private fun hex(b: ByteArray) = b.joinToString(" ") { "%02x".format(it.toInt() and 0xFF) }
+
     fun stop() {
         repeat(2) { send(DjiPackets.rotate(0, 5), force = true) }
     }
@@ -115,6 +133,10 @@ class OsmoMobileLink(private val context: Context) {
         val now = SystemClock.uptimeMillis()
         if (!force && now - lastWriteAt < MIN_INTERVAL_MS) return
         lastWriteAt = now
+        if (force || now - lastNoteAt > 1000) {
+            lastNoteAt = now
+            note("→ " + hex(packet))
+        }
         val chunk = maxOf(20, mtu - 3)
         var offset = 0
         while (offset < packet.size) {
@@ -159,6 +181,7 @@ class OsmoMobileLink(private val context: Context) {
                 return
             }
             writeChar = write
+            note("Services trouvés, écriture ${write.uuid.toString().substring(4, 8)} · notif ${notify.uuid.toString().substring(4, 8)}")
             g.setCharacteristicNotification(notify, true)
             notify.getDescriptor(CCCD)?.let { d ->
                 @Suppress("DEPRECATION")
@@ -172,7 +195,13 @@ class OsmoMobileLink(private val context: Context) {
 
         @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            val data = characteristic.value ?: return
             _state.update { it.copy(received = it.received + 1) }
+            for (m in parser.feed(data)) {
+                val b = DumlParser.battery(m)
+                if (b != null) _state.update { it.copy(battery = b.first, charging = b.second) }
+                else if (m.cmdSet != 0x05) note("← ensemble ${m.cmdSet} cmd ${m.cmd} : " + hex(m.payload))
+            }
         }
     }
 
