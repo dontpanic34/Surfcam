@@ -27,7 +27,10 @@ import com.surfcam.app.data.learning.LearningRepository
 import com.surfcam.app.data.storage.SavedClip
 import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
+import com.surfcam.app.data.gimbal.GimbalFollower
 import com.surfcam.app.data.reframe.PathStore
+import com.surfcam.app.domain.gimbal.FollowBox
+import com.surfcam.app.domain.gimbal.FollowController
 import com.surfcam.app.domain.clip.ClipAction
 import com.surfcam.app.domain.reframe.PathBox
 import com.surfcam.app.domain.reframe.PathFrame
@@ -54,6 +57,9 @@ data class EngineState(
     /** Focale en pixels de l'image d'analyse à zoom ×1 : permet d'estimer la distance d'un surfeur. */
     val focalPx1x: Float = 0f,
     val focusMode: Camera2Source.FocusMode = Camera2Source.FocusMode.AUTO,
+    /** État du suivi par gimbal (null si non utilisé pour cette session). */
+    val gimbalStatus: String? = null,
+    val followEnabled: Boolean = false,
     val maxFpsAtSize: Int = 0,
     val keyFrameIntervalSec: Float = 0f,
     /** Cadence réellement obtenue de la caméra (images par seconde), mesurée sur la vidéo encodée. */
@@ -98,6 +104,8 @@ class RecordingEngine(private val context: Context) {
 
     @Volatile
     private var reframeOn = false
+
+    private var follower: GimbalFollower? = null
 
     @Volatile
     private var clipStartPtsUs = -1L
@@ -210,6 +218,8 @@ class RecordingEngine(private val context: Context) {
         unregisterThermalListener()
         releaseCamera()
         teardownPipeline()
+        follower?.stop()
+        follower = null
         val batteryLine = endBatteryLog()
         val summary = buildSummary() + (batteryLine?.let { "\n$it" } ?: "")
         _state.update { it.copy(phase = Phase.IDLE, lastSummary = summary, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, sessionPart = 0, message = null) }
@@ -314,6 +324,12 @@ class RecordingEngine(private val context: Context) {
         _state.update { it.copy(endedReason = null, lastSummary = null, message = null) }
     }
 
+    /** Met le suivi par gimbal en pause ou le reprend pendant la session. */
+    fun setFollowEnabled(enabled: Boolean) {
+        follower?.enabled = enabled
+        _state.update { it.copy(followEnabled = enabled && follower != null) }
+    }
+
     @Synchronized
     fun relock() {
         camera?.relock()
@@ -381,6 +397,15 @@ class RecordingEngine(private val context: Context) {
             override fun onSnapshot(snapshot: AnalysisSnapshot) {
                 _state.update { it.copy(analysis = snapshot) }
                 if (reframeOn) capturePath(snapshot)
+                follower?.let { f ->
+                    val focal = _state.value.focalPx1x * _state.value.zoom
+                    if (focal > 0f) {
+                        f.onFrame(
+                            snapshot.boxes.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding) },
+                            FollowController.horizontalFovDeg(focal, CaptureConfig.ANALYSIS_WIDTH),
+                        )
+                    }
+                }
             }
 
             override fun onStatus(message: String?) {
@@ -459,6 +484,20 @@ class RecordingEngine(private val context: Context) {
         source.lockExposure = options.lockExposure
         reframeOn = options.reframe
         synchronized(pathCaptures) { pathCaptures.clear() }
+        follower?.stop()
+        follower = null
+        if (options.followGimbal && options.detection) {
+            val f = GimbalFollower(context)
+            val problem = f.start()
+            if (problem == null) {
+                follower = f
+                _state.update { it.copy(gimbalStatus = f.status(), followEnabled = true) }
+            } else {
+                _state.update { it.copy(gimbalStatus = problem, followEnabled = false) }
+            }
+        } else {
+            _state.update { it.copy(gimbalStatus = null, followEnabled = false) }
+        }
         source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
@@ -575,6 +614,7 @@ class RecordingEngine(private val context: Context) {
         }
         val battery = batteryPercent()
         if (battery?.second == true) chargedDuringSession = true
+        follower?.let { f -> _state.update { it.copy(gimbalStatus = f.status()) } }
         if (battery != null && battery.first <= STOP_BATTERY_PERCENT && !battery.second) {
             safeStop("Batterie presque vide (${battery.first} %)")
             return

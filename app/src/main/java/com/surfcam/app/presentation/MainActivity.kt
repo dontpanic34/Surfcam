@@ -126,6 +126,7 @@ class MainActivity : ComponentActivity() {
             .putExtra(RecordingService.EXTRA_DND, options.doNotDisturb)
             .putExtra(RecordingService.EXTRA_LOCK_EXPOSURE, options.lockExposure)
             .putExtra(RecordingService.EXTRA_REFRAME, options.reframe)
+            .putExtra(RecordingService.EXTRA_FOLLOW_GIMBAL, options.followGimbal)
         ContextCompat.startForegroundService(this, intent)
     }
 }

@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -78,8 +79,10 @@ fun GimbalScreen(onBack: () -> Unit) {
     var measured by remember { mutableFloatStateOf(0f) }
     var report by remember { mutableStateOf<String?>(null) }
     var calibrating by remember { mutableStateOf(false) }
+    var invert by remember { mutableStateOf(false) }
     var permissionRefused by remember { mutableStateOf(false) }
     val prefs = remember { context.getSharedPreferences("gimbal", Context.MODE_PRIVATE) }
+    LaunchedEffect(Unit) { invert = prefs.getBoolean("invert", false) }
 
     // Vitesse de rotation réelle du téléphone (le gimbal le fait tourner) : norme du gyroscope, lissée.
     DisposableEffect(Unit) {
@@ -186,7 +189,10 @@ fun GimbalScreen(onBack: () -> Unit) {
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .clickable { link.connect(d.address) }
+                                    .clickable {
+                                        prefs.edit().putString("address", d.address).apply()
+                                        link.connect(d.address)
+                                    }
                                     .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -216,6 +222,14 @@ fun GimbalScreen(onBack: () -> Unit) {
                         OutlinedButton(onClick = { calibrate() }, enabled = !calibrating) { Text(if (calibrating) "Calibrage…" else "Calibrer (mesure auto)") }
                         OutlinedButton(onClick = { link.disconnect() }) { Text("Déconnecter") }
                     }
+                    Text(
+                        "Vérifie que « Droite » fait bien tourner vers la droite. Sinon, inverse le sens : le suivi automatique s'en servira.",
+                        color = SurfColors.Muted, fontSize = 12.sp,
+                    )
+                    OutlinedButton(onClick = {
+                        invert = !invert
+                        prefs.edit().putBoolean("invert", invert).apply()
+                    }) { Text(if (invert) "Sens inversé : oui (toucher pour changer)" else "Sens inversé : non (toucher pour changer)", fontSize = 12.sp) }
                     Text("Messages reçus du gimbal : ${state.received}", color = SurfColors.Muted, fontSize = 11.sp)
                     prefs.getFloat("deg_per_sec_per_unit", 0f).takeIf { it > 0f }?.let {
                         Text("Dernier calibrage enregistré : %.4f °/s par unité".format(it), color = SurfColors.Muted, fontSize = 11.sp)

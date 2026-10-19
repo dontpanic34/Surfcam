@@ -270,7 +270,7 @@ fun PlayerScreen(
         val base = if (abs(player.currentPosition - stepPosition) > frameMs * 2.5) player.currentPosition.toDouble() else stepPosition
         stepPosition = (base + direction * frameMs).coerceIn(0.0, durationMs.toDouble())
         positionMs = stepPosition.roundToInt().toLong()
-        scrubber.seek(positionMs)
+        scrubber.seek(positionMs, exact = true)
         touched()
     }
     /** Taille réelle de la vidéo affichée dans son cadre (sans les bandes noires), en pixels. */
@@ -423,12 +423,12 @@ fun PlayerScreen(
                 scrubValue = it
                 positionMs = (it * durationMs).toLong()
                 stepPosition = positionMs.toDouble()
-                scrubber.seek(positionMs)
+                scrubber.seek(positionMs, exact = false)
                 touched()
             },
             onValueChangeFinished = {
                 scrubbing = false
-                scrubber.seek(positionMs, force = true)
+                scrubber.seek(positionMs, force = true, exact = true)
                 if (wasPlaying) player.play()
             },
             modifier = Modifier.fillMaxWidth(),
@@ -631,6 +631,7 @@ private class Scrubber(private val player: ExoPlayer) {
     private var pending = -1L
     private var inFlight = false
     private var issuedAt = 0L
+    private var exact = true
 
     @Volatile
     private var active = false
@@ -646,8 +647,9 @@ private class Scrubber(private val player: ExoPlayer) {
         player.setVideoFrameMetadataListener(frameListener)
     }
 
-    fun seek(positionMs: Long, force: Boolean = false) {
+    fun seek(positionMs: Long, force: Boolean = false, exact: Boolean = true) {
         pending = positionMs
+        this.exact = exact
         if (force) inFlight = false
         drain()
     }
@@ -669,6 +671,8 @@ private class Scrubber(private val player: ExoPlayer) {
         inFlight = true
         active = true
         issuedAt = SystemClock.uptimeMillis()
+        // Pendant le glissement on saute à l'image clé la plus proche (instantané) ; au lâcher, position exacte.
+        player.setSeekParameters(if (exact) SeekParameters.EXACT else SeekParameters.CLOSEST_SYNC)
         player.seekTo(target)
     }
 }

@@ -558,6 +558,15 @@ private fun SideControls(
                     )
                 }
             }
+            if (running && state.gimbalStatus != null) {
+                RoundIcon(36.dp, on = state.followEnabled, warn = state.gimbalStatus?.startsWith("Gimbal connecté") != true, onClick = { engine.setFollowEnabled(!state.followEnabled) }) { tint ->
+                    drawLine(tint, Offset(center.x - 9.dp.toPx(), center.y), Offset(center.x + 9.dp.toPx(), center.y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    drawLine(tint, Offset(center.x - 9.dp.toPx(), center.y), Offset(center.x - 5.dp.toPx(), center.y - 4.dp.toPx()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    drawLine(tint, Offset(center.x - 9.dp.toPx(), center.y), Offset(center.x - 5.dp.toPx(), center.y + 4.dp.toPx()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    drawLine(tint, Offset(center.x + 9.dp.toPx(), center.y), Offset(center.x + 5.dp.toPx(), center.y - 4.dp.toPx()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    drawLine(tint, Offset(center.x + 9.dp.toPx(), center.y), Offset(center.x + 5.dp.toPx(), center.y + 4.dp.toPx()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                }
+            }
             if (!running) {
                 val needsAuth = options.doNotDisturb && !dndAllowed
                 RoundIcon(36.dp, on = options.doNotDisturb, warn = needsAuth, onClick = {
@@ -804,6 +813,9 @@ private fun InfoDialog(
                             Help("Détection", "Repère les vagues et crée un clip : 5 s avant le décollage, 3 s après la fin.")
                         }
                         Section("Réglages avancés") {
+                            OptionSwitch("Suivi par le gimbal", "Un DJI Osmo Mobile fait pivoter le téléphone pour garder le surfeur au centre. Fais d'abord l'essai et le calibrage dans « Tête motorisée ».", options.followGimbal) {
+                                if (!running) onOptionsChange(options.copy(followGimbal = it))
+                            }
                             OptionSwitch("Mode recadrage", "Filme large (×1) : l'app garde le chemin du surfeur et propose « Recadrer » dans le lecteur", options.reframe) {
                                 if (!running) onOptionsChange(options.copy(reframe = it))
                             }

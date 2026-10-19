@@ -27,6 +27,8 @@ data class SessionOptions(
     val lockExposure: Boolean = false,
     /** Mode recadrage : on filme large (×1) ; l'app garde le chemin du surfeur et sait recadrer chaque clip après coup. */
     val reframe: Boolean = false,
+    /** Le gimbal DJI enregistré fait pivoter le téléphone pour garder le surfeur au centre. */
+    val followGimbal: Boolean = false,
 ) {
     val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
 

@@ -7,7 +7,8 @@ data class CaptureConfig(
     val fps: Int,
     val bitrate: Int,
     val bufferWindowSec: Int = BUFFER_WINDOW_SEC,
-    val keyFrameIntervalSec: Int = 1,
+    /** Image clé toutes les 0,5 s : clips plus précis au démarrage et défilement plus fluide dans le lecteur. */
+    val keyFrameIntervalSec: Float = 0.5f,
 ) {
     companion object {
         // 10 s : le décollage est détecté 1 à 2 s après coup, et le clip doit encore pouvoir remonter 5 s avant lui.
