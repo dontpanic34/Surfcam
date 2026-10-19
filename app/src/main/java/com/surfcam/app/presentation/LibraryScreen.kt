@@ -92,7 +92,17 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
     val playable = videos.filter { !it.pending }
     val playingIndex = playable.indexOfFirst { it.key == playingKey }
     if (playingKey != null && playingIndex >= 0) {
-        PlayerScreen(playable, playingIndex, learning) { playingKey = null }
+        PlayerScreen(
+            videos = playable,
+            startIndex = playingIndex,
+            learning = learning,
+            onDelete = { video ->
+                library.delete(video)
+                learning.forget(video.name)
+                videos = videos.filter { it.key != video.key }
+            },
+            onBack = { playingKey = null },
+        )
         return
     }
 
