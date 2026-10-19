@@ -602,7 +602,7 @@ private fun VideoRow(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(VideoNaming.shortTitle(video.name), color = SurfColors.Foam, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
             Text(
-                timeLabel(video) + " · " + formatSize(video.sizeBytes) + if (video.isExternal) " · ${video.volumeLabel}" else "",
+                clock(startOf(video)) + " · " + formatSize(video.sizeBytes) + if (video.isExternal) " · ${video.volumeLabel}" else "",
                 color = SurfColors.Muted,
                 fontSize = 12.sp,
                 maxLines = 1,
