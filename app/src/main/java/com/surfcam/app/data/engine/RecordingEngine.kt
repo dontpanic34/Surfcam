@@ -53,6 +53,7 @@ data class EngineState(
     val focalPx1x: Float = 0f,
     /** Le zoom automatique est actif pour cette session. */
     val autoZoom: Boolean = false,
+    val focusMode: Camera2Source.FocusMode = Camera2Source.FocusMode.AUTO,
     val maxFpsAtSize: Int = 0,
     val keyFrameIntervalSec: Float = 0f,
     /** Cadence réellement obtenue de la caméra (images par seconde), mesurée sur la vidéo encodée. */
@@ -309,6 +310,19 @@ class RecordingEngine(private val context: Context) {
         mainExecutor.execute { applyZoom(wanted) }
     }
 
+    /** Mise au point sur un point touché de l'image (0 à 1), conservée jusqu'à ce qu'on repasse en automatique. */
+    @Synchronized
+    fun focusAt(nx: Float, ny: Float, rotationDegrees: Int) {
+        camera?.focusAt(nx, ny, rotationDegrees)
+        _state.update { it.copy(focusMode = Camera2Source.FocusMode.POINT) }
+    }
+
+    @Synchronized
+    fun setFocusMode(mode: Camera2Source.FocusMode) {
+        camera?.setFocusMode(mode)
+        _state.update { it.copy(focusMode = mode) }
+    }
+
     @Synchronized
     fun relock() {
         camera?.relock()
@@ -438,6 +452,7 @@ class RecordingEngine(private val context: Context) {
         _state.update {
             it.copy(
                 phase = Phase.RUNNING,
+                focusMode = Camera2Source.FocusMode.AUTO,
                 config = config,
                 maxFpsAtSize = probe.maxFpsAtSize,
                 zoom = startZoom,

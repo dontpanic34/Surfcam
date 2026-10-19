@@ -91,6 +91,46 @@ class Camera2Source(context: Context) {
     private var zoom = 1f
     private var locked = false
 
+    /** Mise au point : continue (défaut), sur un point touché, ou fixée à l'infini. */
+    enum class FocusMode { AUTO, POINT, INFINITY }
+
+    @Volatile
+    var focusMode = FocusMode.AUTO
+        private set
+    private var focusRegion: android.hardware.camera2.params.MeteringRectangle? = null
+    private var displayRotationDegrees = 90
+
+    /** Met au point sur le point touché (coordonnées relatives 0 à 1 dans l'image affichée) et garde cette mise au point. */
+    fun focusAt(nx: Float, ny: Float, rotationDegrees: Int) {
+        handler.post {
+            val chars = characteristics ?: return@post
+            val active = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return@post
+            val sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+            // Image affichée tournée de 180° par rapport au capteur selon le sens du téléphone.
+            val flip = (sensorOrientation - rotationDegrees + 360) % 360 == 180
+            val x = if (flip) 1f - nx else nx
+            val y = if (flip) 1f - ny else ny
+            val visibleW = active.width() / maxOf(1f, zoom)
+            val visibleH = visibleW * 9f / 16f
+            val px = active.centerX() - visibleW / 2f + x * visibleW
+            val py = active.centerY() - visibleH / 2f + y * visibleH
+            val half = (visibleW * 0.06f).toInt().coerceAtLeast(16)
+            val left = (px.toInt() - half).coerceIn(active.left, active.right - 2 * half)
+            val top = (py.toInt() - half).coerceIn(active.top, active.bottom - 2 * half)
+            focusRegion = android.hardware.camera2.params.MeteringRectangle(left, top, 2 * half, 2 * half, 1000)
+            focusMode = FocusMode.POINT
+            applyRequest(triggerAf = true)
+        }
+    }
+
+    fun setFocusMode(mode: FocusMode) {
+        handler.post {
+            focusMode = mode
+            if (mode != FocusMode.POINT) focusRegion = null
+            applyRequest(triggerAf = false)
+        }
+    }
+
     /** Faux (défaut) : exposition et balance des blancs restent automatiques toute la session, comme l'appli vidéo du Pixel. */
     @Volatile
     var lockExposure = false
@@ -147,10 +187,10 @@ class Camera2Source(context: Context) {
 
         val fps = range.upper
         val bitrate = when {
-            size.width >= 3840 && fps >= 60 -> 60_000_000
-            size.width >= 3840 -> 40_000_000
-            fps >= 60 -> 25_000_000
-            else -> 15_000_000
+            size.width >= 3840 && fps >= 60 -> 70_000_000
+            size.width >= 3840 -> 50_000_000
+            fps >= 60 -> 35_000_000
+            else -> 24_000_000
         }
         val zoomRange = if (lens == Lens.TELE) null else chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
         val useCases = chars.get(CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES)
@@ -361,7 +401,7 @@ class Camera2Source(context: Context) {
         }
     }
 
-    private fun applyRequest() {
+    private fun applyRequest(triggerAf: Boolean = false) {
         val camera = device ?: return
         val current = session ?: return
         val chars = characteristics ?: return
@@ -375,9 +415,27 @@ class Camera2Source(context: Context) {
             analysisSurface?.let { builder.addTarget(it) }
             fpsRange?.let { builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
 
-            // Mise au point à l'infini : le surfeur est à plus de 50 m.
-            builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
-            builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0f)
+            val afModes = chars.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
+            val region = focusRegion
+            when {
+                focusMode == FocusMode.INFINITY || afModes.isEmpty() -> {
+                    builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                    builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0f)
+                }
+                focusMode == FocusMode.POINT && region != null && afModes.contains(CaptureRequest.CONTROL_AF_MODE_AUTO) -> {
+                    builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO)
+                    builder.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(region))
+                    builder.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(region))
+                }
+                afModes.contains(CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO) ->
+                    builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                else -> builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            }
+            if (triggerAf && focusMode == FocusMode.POINT) {
+                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START)
+                current.capture(builder.build(), captureCallback, handler)
+                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE)
+            }
 
             // Caméra sur trépied : aucune stabilisation, elle déformerait le cadrage.
             if (supports(chars.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES), CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)) {
@@ -476,7 +534,8 @@ class Camera2Source(context: Context) {
         const val CONVERGENCE_FRAMES = 90
 
         // Zoom maximal proposé (au-delà, l'image n'est plus que du recadrage numérique) et seuil du téléobjectif.
-        const val MAX_ZOOM = 10f
+        // ×5 = le téléobjectif optique : au-delà, ce ne serait que du zoom numérique (image molle et pixelisée).
+        const val MAX_ZOOM = 5f
         const val TELEPHOTO_SWITCH = 5f
         const val TELEPHOTO_RELEASE = 4.6f
         const val MIN_SWITCH_GAP_MS = 1_500L

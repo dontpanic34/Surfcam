@@ -6,6 +6,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
 import com.surfcam.app.service.DoNotDisturb
 import com.surfcam.app.domain.geometry.DistanceEstimator
+import androidx.compose.foundation.gestures.detectTapGestures
 import android.os.PowerManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -244,13 +245,67 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
 
         // Pincement à deux doigts : zoom continu, comme dans l'appareil photo.
         val currentZoom by rememberUpdatedState(state.zoom)
+        // Toucher l'image : mise au point sur ce point (anneau affiché 1,5 s).
+        var ring by remember { mutableStateOf<Offset?>(null) }
+        val rotationDegrees = when (LocalView.current.display?.rotation) {
+            android.view.Surface.ROTATION_90 -> 90
+            android.view.Surface.ROTATION_180 -> 180
+            android.view.Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+        LaunchedEffect(ring) {
+            if (ring != null) {
+                delay(1_500)
+                ring = null
+            }
+        }
         Box(
-            Modifier.fillMaxSize().pointerInput(Unit) {
-                detectTransformGestures { _, _, zoomChange, _ ->
-                    if (zoomChange != 1f) engine.setZoom(currentZoom * zoomChange)
+            Modifier
+                .fillMaxSize()
+                .pointerInput(rotationDegrees) {
+                    detectTapGestures { p ->
+                        val areaH = size.width * 9f / 16f
+                        val offsetY = (size.height - areaH) / 2f
+                        val nx = p.x / size.width
+                        val ny = (p.y - offsetY) / areaH
+                        if (nx in 0f..1f && ny in 0f..1f) {
+                            engine.focusAt(nx, ny, rotationDegrees)
+                            ring = p
+                        }
+                    }
                 }
-            },
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, _, zoomChange, _ ->
+                        if (zoomChange != 1f) engine.setZoom(currentZoom * zoomChange)
+                    }
+                },
         )
+        ring?.let { p ->
+            Canvas(Modifier.fillMaxSize()) {
+                drawCircle(SurfColors.Warn, radius = 34.dp.toPx(), center = p, style = Stroke(width = 2.dp.toPx()))
+            }
+        }
+        if (state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) {
+            val label = when (state.focusMode) {
+                com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO -> "Focus : auto"
+                com.surfcam.app.data.camera.Camera2Source.FocusMode.POINT -> "Focus : point (toucher = auto)"
+                com.surfcam.app.data.camera.Camera2Source.FocusMode.INFINITY -> "Focus : infini"
+            }
+            InfoChip(
+                label,
+                SurfColors.Foam,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp)
+                    .clickable {
+                        engine.setFocusMode(
+                            if (state.focusMode == com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO)
+                                com.surfcam.app.data.camera.Camera2Source.FocusMode.INFINITY
+                            else com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO,
+                        )
+                    },
+            )
+        }
 
         // Cadres des surfeurs suivis par la détection, posés sur la même zone que l'image.
         state.analysis?.let { snapshot ->
