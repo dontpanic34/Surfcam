@@ -40,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -69,6 +70,7 @@ import com.surfcam.app.data.learning.FeedbackRecord
 import com.surfcam.app.data.learning.LearningRepository
 import com.surfcam.app.data.library.LibraryVideo
 import com.surfcam.app.data.library.SessionAssembler
+import com.surfcam.app.service.OfflineAnalysis
 import com.surfcam.app.data.library.VideoLibrary
 import com.surfcam.app.data.reframe.PathStore
 import com.surfcam.app.domain.library.MediaInfo
@@ -168,6 +170,17 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
     var selecting by remember { mutableStateOf(false) }
     val chosen = remember { mutableStateListOf<String>() }
     val openChapters = remember { mutableStateListOf<Long>() }
+    // Analyse d'une session déjà filmée (service d'arrière-plan) et confirmation avant de la lancer.
+    val analysis by OfflineAnalysis.job.collectAsState()
+    var confirmFind by remember { mutableStateOf<SessionGroup?>(null) }
+    LaunchedEffect(analysis?.done) {
+        val job = analysis
+        if (job?.done == true) {
+            message = job.result
+            videos = withContext(Dispatchers.IO) { library.list() }
+            OfflineAnalysis.dismiss()
+        }
+    }
     val picked = remember { mutableStateMapOf<Long, String>() }
 
     // Rafraîchi toutes les 3 s : une vidéo « en traitement » devient lisible sans rien faire.
@@ -319,6 +332,8 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
                 }
             },
             onCancelAssemble = { assemblers[group.startMs]?.cancelled = true },
+            canFindWaves = !OfflineAnalysis.running && !sessionRunning,
+            onFindWaves = { confirmFind = group },
             onDeleteParts = {
                 deleteText = "Supprimer les ${partVideos.size} morceaux de 2 minutes ? Le film assemblé est conservé."
                 toDelete = partVideos
@@ -379,6 +394,22 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
                     }
 
                     message?.let { Banner(it) }
+                    analysis?.takeIf { !it.done }?.let { job ->
+                        Column(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text("${job.phase} de la session ${job.title} : ${(job.progress * 100).toInt()} % · ${job.found} vague(s)", color = SurfColors.Foam, fontSize = 13.sp)
+                            LinearProgressIndicator(progress = { job.progress }, modifier = Modifier.fillMaxWidth(), color = SurfColors.Aqua)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    job.etaMinutes()?.let { "Encore environ $it min · tu peux verrouiller l'écran" } ?: "Estimation du temps en cours…",
+                                    color = SurfColors.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { OfflineAnalysis.cancel() }) { Text("Annuler") }
+                            }
+                        }
+                    }
                     val pendingCount = videos.count { it.pending }
                     if (pendingCount > 0) {
                         Banner(
@@ -501,6 +532,31 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
                         }
                     }
                 }
+            }
+
+            confirmFind?.let { group ->
+                val partVideos = group.parts.mapNotNull { byKey[it.key] }
+                val sources = if (partVideos.isNotEmpty()) partVideos else listOfNotNull(group.film?.let { byKey[it.key] })
+                val minutes = (sources.sumOf { it.durationMs } / 60_000L).toInt().coerceAtLeast(1)
+                AlertDialog(
+                    onDismissRequest = { confirmFind = null },
+                    title = { Text("Retrouver les vagues ?") },
+                    text = {
+                        Text(
+                            "SurfCam regarde toute la session (${minutes} min) et crée un clip par vague trouvée, comme pendant l'enregistrement. " +
+                                "Compte environ $minutes min d'analyse : branche le téléphone, tu peux verrouiller l'écran. " +
+                                "Les vagues déjà enregistrées ne sont pas refaites.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val existing = group.waves.map { it.startMs to it.endMs }
+                            OfflineAnalysis.start(context, sources, group.startMs, "${clock(group.startMs)} → ${clock(group.endMs)}", existing)
+                            confirmFind = null
+                        }) { Text("Lancer l'analyse") }
+                    },
+                    dismissButton = { TextButton(onClick = { confirmFind = null }) { Text("Annuler") } },
+                )
             }
 
             toDelete?.let { list ->
@@ -666,6 +722,8 @@ private fun SessionCard(
     onPlay: () -> Unit,
     onAssemble: () -> Unit,
     onCancelAssemble: () -> Unit,
+    canFindWaves: Boolean,
+    onFindWaves: () -> Unit,
     onDeleteParts: () -> Unit,
     onDeleteSession: () -> Unit,
 ) {
@@ -762,6 +820,9 @@ private fun SessionCard(
                 Button(onClick = onPlay, enabled = cover != null) { Text("Lire") }
                 if (film == null && parts.size >= 2) {
                     OutlinedButton(onClick = onAssemble) { Text("Assembler en un film", fontSize = 13.sp) }
+                }
+                if (cover != null) {
+                    OutlinedButton(onClick = onFindWaves, enabled = canFindWaves) { Text("Retrouver les vagues", fontSize = 13.sp) }
                 }
                 if (waves.size >= 2) {
                     OutlinedButton(onClick = onMontage) { Text("Film des vagues", fontSize = 13.sp) }
