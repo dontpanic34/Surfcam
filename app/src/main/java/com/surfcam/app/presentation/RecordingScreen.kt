@@ -281,7 +281,8 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 }
                 .pointerInput(Unit) {
                     detectTransformGestures { _, _, zoomChange, _ ->
-                        if (zoomChange != 1f) engine.setZoom(currentZoom * zoomChange)
+                        // Pendant la session le zoom ne change plus par un geste involontaire : seules les pastilles agissent.
+                        if (zoomChange != 1f && engine.state.value.phase != Phase.RUNNING) engine.setZoom(currentZoom * zoomChange)
                     }
                 },
         )
@@ -705,6 +706,15 @@ private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: 
     val minZ = state.minZoom
     val maxZ = state.maxZoom
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (!state.opticalZoom && state.zoom > 1.05f) {
+            Text(
+                "Zoom numérique : image moins nette",
+                color = SurfColors.Warn,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
         if (rulerVisible && maxZ > minZ) {
             Text(
                 "×%.1f".format(state.zoom).replace('.', ','),
@@ -721,6 +731,7 @@ private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: 
                     .background(Color(0x66000000))
                     .pointerInput(minZ, maxZ) {
                         detectHorizontalDragGestures { _, dx ->
+                            if (engine.state.value.phase == Phase.RUNNING) return@detectHorizontalDragGestures
                             val span = kotlin.math.ln(maxZ / minZ)
                             engine.setZoom(currentZoom * kotlin.math.exp(-dx / size.width * span))
                         }

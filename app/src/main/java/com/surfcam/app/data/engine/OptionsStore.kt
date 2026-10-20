@@ -9,6 +9,10 @@ class OptionsStore(context: Context) {
 
     fun load(): SessionOptions {
         val d = SessionOptions()
+        // Une mise à jour avait laissé la détection décochée chez certains : on la remet en marche une fois pour toutes.
+        if (!prefs.getBoolean("detectionResetV2", false)) {
+            prefs.edit().putBoolean("detection", true).putBoolean("detectionResetV2", true).apply()
+        }
         return SessionOptions(
             tele = prefs.getBoolean("tele", d.tele),
             fullSession = prefs.getBoolean("fullSession", d.fullSession),

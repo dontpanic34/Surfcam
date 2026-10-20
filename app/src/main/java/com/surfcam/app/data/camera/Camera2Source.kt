@@ -59,6 +59,9 @@ class Camera2Source(context: Context) {
 
         /** Le flux d'analyse a été refusé par la caméra : la session continue sans lui. */
         fun onAnalysisUnavailable() = Unit
+
+        /** Vrai tant que l'image vient entièrement d'un objectif (aucun recadrage numérique) ; sert à avertir à l'écran. */
+        fun onZoomKind(optical: Boolean) = Unit
     }
 
     private val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -89,6 +92,7 @@ class Camera2Source(context: Context) {
     private var lastLensInfo = ""
 
     private var zoom = 1f
+    private var lastOptical: Boolean? = null
     private var locked = false
 
     /** Mise au point : continue (défaut), sur un point touché, ou fixée à l'infini. */
@@ -232,6 +236,7 @@ class Camera2Source(context: Context) {
         this.useStreamUseCases = probe.videoStreamUseCases
         this.retriedWithoutUseCases = false
         this.lastLensInfo = ""
+        this.lastOptical = null
         this.listener = listener
         this.zoom = zoom
         if (teleSwitchAllowed && zoom >= TELEPHOTO_SWITCH) {
@@ -292,6 +297,11 @@ class Camera2Source(context: Context) {
                 unlock()
                 createSession()
             } else {
+                // Changement d'objectif refusé (trop rapproché du précédent) : sans nouvel essai, on resterait en zoom
+                // numérique sur l'objectif principal alors qu'on a demandé ×5. On réessaie dès que le délai est écoulé.
+                if (wantTele != teleActive && !closed) {
+                    handler.postDelayed({ if (!closed && zoom == ratio) setZoom(ratio) }, MIN_SWITCH_GAP_MS - (now - lastLensSwitchMs) + 50)
+                }
                 applyRequest()
             }
         }
@@ -437,16 +447,23 @@ class Camera2Source(context: Context) {
                 builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE)
             }
 
-            // Caméra sur trépied : aucune stabilisation, elle déformerait le cadrage.
+            // Stabilisation électronique coupée (elle recadre l'image et déformerait le cadrage), mais stabilisation optique
+            // activée : elle ne recadre pas et amortit les secousses du vent, surtout au téléobjectif.
             if (supports(chars.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES), CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)) {
                 builder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
             }
-            if (supports(chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION), CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF)) {
-                builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF)
+            val ois = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
+            if (supports(ois, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)) {
+                builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
             }
 
             // Sur le téléobjectif (déjà ×5 par rapport à l'objectif principal), seul l'excédent est du zoom numérique.
             builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, if (teleActive) maxOf(1f, zoom / TELEPHOTO_SWITCH) else zoom)
+            val optical = if (teleActive) zoom <= TELEPHOTO_SWITCH + 0.01f else zoom <= 1.01f
+            if (optical != lastOptical) {
+                lastOptical = optical
+                listener?.onZoomKind(optical)
+            }
 
             if (locked) {
                 if (chars.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) == true) {

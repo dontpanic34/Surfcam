@@ -54,6 +54,8 @@ data class EngineState(
     val locked: Boolean = false,
     val lens: Lens = Lens.MAIN,
     val lensInfo: String? = null,
+    /** Faux quand l'image est recadrée numériquement (zoom au-delà de l'objectif actif). */
+    val opticalZoom: Boolean = true,
     /** Focale en pixels de l'image d'analyse à zoom ×1 : permet d'estimer la distance d'un surfeur. */
     val focalPx1x: Float = 0f,
     val focusMode: Camera2Source.FocusMode = Camera2Source.FocusMode.AUTO,
@@ -265,6 +267,10 @@ class RecordingEngine(private val context: Context) {
             source.open(probe, null, previewSurface, previewPipeline.surface, zoom, object : Camera2Source.Listener {
                 override fun onLockChanged(locked: Boolean) = Unit
 
+                override fun onZoomKind(optical: Boolean) {
+                    _state.update { it.copy(opticalZoom = optical) }
+                }
+
                 override fun onLensInfo(text: String) {
                     _state.update { it.copy(lensInfo = text) }
                 }
@@ -301,7 +307,9 @@ class RecordingEngine(private val context: Context) {
     @Synchronized
     fun setZoom(ratio: Float) {
         val s = _state.value
-        val clamped = ratio.coerceIn(s.minZoom, s.maxZoom)
+        var clamped = ratio.coerceIn(s.minZoom, s.maxZoom)
+        // Entre ×4,2 et ×5 on colle sur le téléobjectif : un zoom hésitant juste en dessous serait numérique, donc flou.
+        if (s.maxZoom >= 4.95f && clamped >= 4.2f) clamped = 5f
         desiredZoom = clamped
         _state.update { it.copy(zoom = clamped) }
         camera?.setZoom(clamped)
@@ -508,6 +516,10 @@ class RecordingEngine(private val context: Context) {
         source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
+            }
+
+            override fun onZoomKind(optical: Boolean) {
+                _state.update { it.copy(opticalZoom = optical) }
             }
 
             override fun onLensInfo(text: String) {
