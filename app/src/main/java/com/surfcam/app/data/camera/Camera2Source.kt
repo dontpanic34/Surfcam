@@ -20,6 +20,7 @@ import android.util.Range
 import android.util.Size
 import android.view.Surface
 import com.surfcam.app.data.encoder.HevcEncoder
+import com.surfcam.app.data.engine.Trail
 import com.surfcam.app.domain.model.CaptureConfig
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
@@ -276,6 +277,7 @@ class Camera2Source(context: Context) {
             physicalId = telePhysicalId
         }
         closed = false
+        Trail.mark("ouverture de la caméra ${probe.cameraId} physique=${physicalId ?: "-"}")
         manager.openCamera(
             probe.cameraId,
             object : CameraDevice.StateCallback() {
@@ -393,6 +395,7 @@ class Camera2Source(context: Context) {
 
     private fun createSession() {
         val camera = device ?: return
+        Trail.mark("création de la session (HDR=$tenBit, aperçu=${previewSurface != null}, analyse=${analysisSurface != null})")
         session?.close()
         session = null
         val outputs = mutableListOf<OutputConfiguration>()
@@ -413,12 +416,14 @@ class Camera2Source(context: Context) {
                                 return
                             }
                             session = configured
+                            Trail.mark("session configurée")
                             unlock()
                             applyRequest()
                         }
 
                         override fun onConfigureFailed(failed: CameraCaptureSession) {
                             if (closed) return
+                            Trail.mark("configuration refusée (HDR=$tenBit)")
                             if (tenBit) {
                                 // Le téléphone refuse le HDR avec ces flux : on le coupe pour les prochaines sessions.
                                 hdrPrefs.edit().putBoolean(HDR_BROKEN_KEY, true).apply()

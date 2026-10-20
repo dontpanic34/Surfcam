@@ -15,6 +15,7 @@ class SurfCamApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        hardCrash = com.surfcam.app.data.engine.Trail.init(this)
         engine = RecordingEngine(this)
 
         // Garde la trace du dernier plantage : elle est affichée au lancement suivant.
@@ -28,9 +29,12 @@ class SurfCamApp : Application() {
         }
     }
 
-    fun readLastCrash(): String? = crashFile.takeIf { it.exists() }?.readText()
+    private var hardCrash: String? = null
+
+    fun readLastCrash(): String? = crashFile.takeIf { it.exists() }?.readText() ?: hardCrash
 
     fun clearLastCrash() {
         crashFile.delete()
+        hardCrash = null
     }
 }

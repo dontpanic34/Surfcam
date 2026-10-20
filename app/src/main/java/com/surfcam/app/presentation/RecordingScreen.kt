@@ -847,7 +847,7 @@ private fun InfoDialog(
                                     }
                                 }
                             }
-                            OptionSwitch("Vidéo HDR 10 bits", "Couleurs et lumières plus riches, comme Google Caméra (30 i/s). Si les couleurs paraissent ternes dans un lecteur, désactive-le.", options.hdr) {
+                            OptionSwitch("Vidéo HDR 10 bits (expérimental)", "Couleurs et lumières plus riches, comme Google Caméra (30 i/s). Peut faire planter le démarrage sur certains réglages : un rapport des dernières étapes s'affiche alors au lancement suivant.", options.hdr) {
                                 if (!running) onOptionsChange(options.copy(hdr = it))
                             }
                             OptionSwitch("Mode recadrage", "Filme large (×1) : l'app garde le chemin du surfeur et propose « Recadrer » dans le lecteur", options.reframe) {

@@ -9,6 +9,10 @@ class OptionsStore(context: Context) {
 
     fun load(): SessionOptions {
         val d = SessionOptions()
+        // Le HDR est devenu expérimental (il faisait planter le démarrage) : désactivé une fois pour tous.
+        if (!prefs.getBoolean("hdrOffV2", false)) {
+            prefs.edit().putBoolean("hdr", false).putBoolean("hdrOffV2", true).apply()
+        }
         return SessionOptions(
             tele = prefs.getBoolean("tele", d.tele),
             fullSession = prefs.getBoolean("fullSession", d.fullSession),

@@ -159,6 +159,7 @@ class AnalysisPipeline(
         } ?: return
         try {
             received++
+            if (received == 1) com.surfcam.app.data.engine.Trail.mark("première image d'analyse reçue")
             if (received == 1 || received % HEARTBEAT_EVERY == 0) listener.onReceived(received)
             if (released || paused || detector == null || busy.get()) return
             val timestampUs = image.timestamp / 1_000
@@ -169,6 +170,7 @@ class AnalysisPipeline(
                 clockOffsetUs = clock.offsetUs
             }
             converter.convert(image, input, letterbox)
+            if (received == 1) com.surfcam.app.data.engine.Trail.mark("première conversion faite")
             busy.set(true)
             inferenceHandler.post { analyse(timestampUs) }
         } catch (t: Throwable) {
@@ -195,6 +197,7 @@ class AnalysisPipeline(
                 return
             }
             frames++
+            if (frames == 1) com.surfcam.app.data.engine.Trail.mark("première détection terminée")
             if (frames % THUMBNAIL_EVERY == 1) thumbnail = makeThumbnail()
             val tracks = tracker.update(detections, timestampUs)
             val event = waveDetector.onFrame(tracks, timestampUs)

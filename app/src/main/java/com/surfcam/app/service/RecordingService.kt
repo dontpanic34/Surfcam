@@ -46,7 +46,7 @@ class RecordingService : Service() {
             lockExposure = intent?.getBooleanExtra(EXTRA_LOCK_EXPOSURE, false) == true,
             reframe = intent?.getBooleanExtra(EXTRA_REFRAME, false) == true,
             followGimbal = intent?.getBooleanExtra(EXTRA_FOLLOW_GIMBAL, false) == true,
-            hdr = intent?.getBooleanExtra(EXTRA_HDR, true) != false,
+            hdr = intent?.getBooleanExtra(EXTRA_HDR, false) == true,
             markerColor = com.surfcam.app.domain.detection.MarkerColor.fromName(intent?.getStringExtra(EXTRA_MARKER)),
         )
         if (intent?.getBooleanExtra(EXTRA_DND, false) == true) DoNotDisturb.enable(this)

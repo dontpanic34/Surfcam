@@ -170,6 +170,7 @@ class RecordingEngine(private val context: Context) {
         if (_state.value.phase == Phase.STARTING || _state.value.phase == Phase.RUNNING) return
         lastRotation = displayRotationDegrees
         lastOptions = options
+        Trail.mark("DEMARRAGE hdr=${options.hdr} tele=${options.tele} fps60=${options.fps60} 4K=${!options.hd}")
         clipsSaved = 0
         waveCounter = 0
         // Le support choisi doit être branché ; sinon on enregistre sur le téléphone, en le disant.
@@ -232,6 +233,7 @@ class RecordingEngine(private val context: Context) {
         follower = null
         val batteryLine = endBatteryLog()
         val summary = buildSummary() + (batteryLine?.let { "\n$it" } ?: "")
+        Trail.mark("FIN")
         _state.update { it.copy(phase = Phase.IDLE, lastSummary = summary, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, sessionPart = 0, message = null) }
     }
 
@@ -388,6 +390,7 @@ class RecordingEngine(private val context: Context) {
         val probe: CameraProbe = source.probe(maxFps, options.lens, options.hd, options.hdr)
         val config = probe.config
         _state.update { it.copy(hdrText = probe.hdrText) }
+        Trail.mark("sonde ok ${config.width}x${config.height} ${config.fps}i/s 10bits=${config.tenBit} · HDR ${probe.hdrText}")
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.
         val hint = (probe.sensorOrientation - rotationDegrees + 360) % 360
@@ -454,6 +457,7 @@ class RecordingEngine(private val context: Context) {
             }
         }, learning.currentConfig(), config.tenBit)
         pipeline?.markerColor = options.markerColor
+        Trail.mark("analyse créée")
         analysis = pipeline
         _state.update {
             it.copy(analysisStatus = if (pipeline != null) "Chargement du modèle…" else "Détection désactivée")
@@ -467,6 +471,7 @@ class RecordingEngine(private val context: Context) {
 
             override fun onSample(sample: EncodedSample) {
                 buffer.add(sample)
+                if (sampleCount == 0L) Trail.mark("premier échantillon encodé")
                 clips.onLiveSample(sample)
                 sessionRecorder?.onSample(sample)
                 if (sample.isKeyFrame) {
@@ -497,6 +502,7 @@ class RecordingEngine(private val context: Context) {
             return false
         }
         encoder = enc
+        Trail.mark("encodeur démarré")
 
         // À 60 i/s le téléobjectif n'est pas utilisable : au-delà de ×2 ce ne serait que du zoom numérique, flou et pixelisé.
         val maxZoomForFps = if (options.fps60 && probe.config.fps >= 60 && !options.tele) minOf(probe.maxZoom, 2f) else probe.maxZoom
