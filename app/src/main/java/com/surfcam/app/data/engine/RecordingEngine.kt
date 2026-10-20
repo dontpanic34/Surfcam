@@ -56,6 +56,8 @@ data class EngineState(
     val lensInfo: String? = null,
     /** Faux quand l'image est recadrée numériquement (zoom au-delà de l'objectif actif). */
     val opticalZoom: Boolean = true,
+    /** Faux si la stabilisation optique n'est pas appliquée. */
+    val stabilized: Boolean = true,
     /** Focale en pixels de l'image d'analyse à zoom ×1 : permet d'estimer la distance d'un surfeur. */
     val focalPx1x: Float = 0f,
     val focusMode: Camera2Source.FocusMode = Camera2Source.FocusMode.AUTO,
@@ -267,6 +269,10 @@ class RecordingEngine(private val context: Context) {
 
                 override fun onZoomKind(optical: Boolean) {
                     _state.update { it.copy(opticalZoom = optical) }
+                }
+
+                override fun onStabilization(active: Boolean) {
+                    _state.update { it.copy(stabilized = active) }
                 }
 
                 override fun onLensInfo(text: String) {
@@ -518,6 +524,10 @@ class RecordingEngine(private val context: Context) {
 
             override fun onZoomKind(optical: Boolean) {
                 _state.update { it.copy(opticalZoom = optical) }
+            }
+
+            override fun onStabilization(active: Boolean) {
+                _state.update { it.copy(stabilized = active) }
             }
 
             override fun onLensInfo(text: String) {

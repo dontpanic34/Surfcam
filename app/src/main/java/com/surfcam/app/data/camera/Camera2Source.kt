@@ -62,6 +62,9 @@ class Camera2Source(context: Context) {
 
         /** Vrai tant que l'image vient entièrement d'un objectif (aucun recadrage numérique) ; sert à avertir à l'écran. */
         fun onZoomKind(optical: Boolean) = Unit
+
+        /** Vrai tant que la stabilisation optique fonctionne ; faux si le téléphone ne l'applique pas. */
+        fun onStabilization(active: Boolean) = Unit
     }
 
     private val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -93,6 +96,9 @@ class Camera2Source(context: Context) {
 
     private var zoom = 1f
     private var lastOptical: Boolean? = null
+    private var zoomOptical = true
+    private var lensOk = true
+    private var lastStabilized: Boolean? = null
     private var locked = false
 
     /** Mise au point : continue (défaut), sur un point touché, ou fixée à l'infini. */
@@ -237,6 +243,8 @@ class Camera2Source(context: Context) {
         this.retriedWithoutUseCases = false
         this.lastLensInfo = ""
         this.lastOptical = null
+        this.lastStabilized = null
+        this.lensOk = true
         this.listener = listener
         this.zoom = zoom
         if (teleSwitchAllowed && zoom >= TELEPHOTO_SWITCH) {
@@ -459,11 +467,8 @@ class Camera2Source(context: Context) {
 
             // Sur le téléobjectif (déjà ×5 par rapport à l'objectif principal), seul l'excédent est du zoom numérique.
             builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, if (teleActive) maxOf(1f, zoom / TELEPHOTO_SWITCH) else zoom)
-            val optical = if (teleActive) zoom <= TELEPHOTO_SWITCH + 0.01f else zoom <= 1.01f
-            if (optical != lastOptical) {
-                lastOptical = optical
-                listener?.onZoomKind(optical)
-            }
+            zoomOptical = if (teleActive) zoom <= TELEPHOTO_SWITCH + 0.01f else zoom <= 1.01f
+            emitOptical()
 
             if (locked) {
                 if (chars.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) == true) {
@@ -478,6 +483,8 @@ class Camera2Source(context: Context) {
             if (!closed) listener?.onError("Requête caméra impossible : ${e.message}")
         }
     }
+
+    private fun chars(): CameraCharacteristics? = characteristics
 
     private fun supports(available: IntArray?, mode: Int): Boolean = available?.contains(mode) == true
 
@@ -514,9 +521,33 @@ class Camera2Source(context: Context) {
             if (useStreamUseCases) it.setStreamUseCase(streamUseCase.toLong())
         }
 
+    /** Avertit l'écran dès que l'image n'est plus entièrement optique : zoom au-delà de l'objectif, ou mauvais objectif actif. */
+    private fun emitOptical() {
+        val optical = zoomOptical && lensOk
+        if (optical != lastOptical) {
+            lastOptical = optical
+            listener?.onZoomKind(optical)
+        }
+    }
+
     /** Remonte l'objectif réellement utilisé, pour vérifier à l'écran que le zoom est bien optique. */
     private fun reportLens(result: TotalCaptureResult) {
         val active = result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID)
+        // Téléobjectif demandé mais autre objectif actif : on est en train de recadrer l'objectif principal.
+        val tele = telePhysicalId
+        val ok = !(teleActive && active != null && tele != null && active != tele)
+        if (ok != lensOk) {
+            lensOk = ok
+            emitOptical()
+        }
+        val ois = chars()?.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
+        val supported = supports(ois, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
+        val mode = result.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE)
+        val stabilized = supported && (mode == null || mode == CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
+        if (stabilized != lastStabilized) {
+            lastStabilized = stabilized
+            listener?.onStabilization(stabilized)
+        }
         val focal = result.get(CaptureResult.LENS_FOCAL_LENGTH)
         val text = buildString {
             append("objectif ").append(active ?: physicalId ?: "unique")

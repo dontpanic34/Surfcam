@@ -704,6 +704,15 @@ private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: 
     val minZ = state.minZoom
     val maxZ = state.maxZoom
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (!state.stabilized) {
+            Text(
+                "Stabilisation inactive",
+                color = SurfColors.Warn,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
         if (!state.opticalZoom && state.zoom > 1.05f) {
             Text(
                 "Zoom numérique : image moins nette",
