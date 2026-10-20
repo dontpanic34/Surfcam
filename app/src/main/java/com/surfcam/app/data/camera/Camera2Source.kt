@@ -45,6 +45,8 @@ data class CameraProbe(
     val maxZoom: Float,
     /** Focale de l'objectif exprimée en pixels de l'image d'analyse, à zoom ×1 (sert à estimer la distance des surfeurs). */
     val focalPx1x: Float = 0f,
+    /** État du HDR 10 bits en clair, pour l'écran d'infos. */
+    val hdrText: String = "",
 )
 
 /**
@@ -67,6 +69,9 @@ class Camera2Source(context: Context) {
 
         /** Vrai tant que la stabilisation optique fonctionne ; faux si le téléphone ne l'applique pas. */
         fun onStabilization(active: Boolean) = Unit
+
+        /** Réglages que le téléphone applique réellement (pose, sensibilité, mise au point), pour le diagnostic. */
+        fun onCaptureInfo(text: String) = Unit
     }
 
     private val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -99,6 +104,8 @@ class Camera2Source(context: Context) {
     private var zoom = 1f
     private var lastOptical: Boolean? = null
     private var tenBit = false
+    private var hdrNote: String? = null
+    private var lastInfoMs = 0L
     private val hdrPrefs = context.getSharedPreferences("camera", Context.MODE_PRIVATE)
     private var zoomOptical = true
     private var lensOk = true
@@ -211,7 +218,13 @@ class Camera2Source(context: Context) {
         val useCases = chars.get(CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES)
         val videoUseCase = useCases?.contains(CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD.toLong()) == true
         characteristics = chars
-        tenBit = hdr && fps <= 30 && hdrUsable(chars, if (lens == Lens.MAIN) teleCandidate?.second else null)
+        hdrNote = when {
+            !hdr -> "désactivé dans les réglages"
+            fps > 30 -> "indisponible à 60 i/s"
+            else -> hdrUsable(chars)
+        }
+        tenBit = hdr && fps <= 30 && hdrNote == null
+        val hdrText = if (tenBit) "actif (10 bits HLG)" else "inactif : ${hdrNote ?: "?"}"
         return CameraProbe(
             cameraId = cameraId,
             physicalId = physical,
@@ -223,6 +236,7 @@ class Camera2Source(context: Context) {
             sensorOrientation = sizeChars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
             minZoom = maxOf(1f, zoomRange?.lower ?: 1f),
             maxZoom = minOf(zoomRange?.upper ?: 1f, MAX_ZOOM),
+            hdrText = hdrText,
             focalPx1x = equivFocal(chars) / 36f * CaptureConfig.ANALYSIS_WIDTH,
         )
     }
@@ -475,6 +489,12 @@ class Camera2Source(context: Context) {
                 builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
             }
 
+            // Un cran sous l'exposition automatique : pose plus courte (moins de flou de bougé) et ciel qui ne brûle pas.
+            chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)?.let { range ->
+                val step = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)?.toFloat() ?: 0f
+                if (step > 0f) builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, Math.round(-1f / step).coerceIn(range.lower, range.upper))
+            }
+
             // Traitement d'image au meilleur niveau : moins de bruit, plus de netteté, ombrages et franges de couleur corrigés.
             // À 60 i/s le téléphone n'a pas le temps de tout faire : on garde alors ses réglages rapides.
             if ((fpsRange?.upper ?: 30) <= 30) {
@@ -509,20 +529,16 @@ class Camera2Source(context: Context) {
 
     private fun chars(): CameraCharacteristics? = characteristics
 
-    /**
-     * HDR 10 bits possible : l'objectif (et le téléobjectif, si on peut y basculer) annonce le profil HLG10, il se combine avec
-     * les flux ordinaires (aperçu, analyse), l'encodeur sait faire du Main 10, et une tentative précédente n'a pas échoué.
-     */
-    private fun hdrUsable(chars: CameraCharacteristics, tele: CameraCharacteristics?): Boolean {
-        if (android.os.Build.VERSION.SDK_INT < 33) return false
-        if (hdrPrefs.getBoolean(HDR_BROKEN_KEY, false) || !HevcEncoder.supportsMain10()) return false
-        fun ok(c: CameraCharacteristics): Boolean {
-            val profiles = c.get(CameraCharacteristics.REQUEST_AVAILABLE_DYNAMIC_RANGE_PROFILES) ?: return false
-            if (!profiles.supportedProfiles.contains(DynamicRangeProfiles.HLG10)) return false
-            val mixable = profiles.getProfileCaptureRequestConstraints(DynamicRangeProfiles.HLG10)
-            return mixable.isEmpty() || mixable.contains(DynamicRangeProfiles.STANDARD)
-        }
-        return ok(chars) && (tele == null || ok(tele))
+    /** Renvoie null si le HDR 10 bits est possible, sinon la raison en français. */
+    private fun hdrUsable(chars: CameraCharacteristics): String? {
+        if (android.os.Build.VERSION.SDK_INT < 33) return "Android trop ancien"
+        if (hdrPrefs.getBoolean(HDR_BROKEN_KEY, false)) return "refusé par le téléphone lors d'un essai précédent"
+        if (!HevcEncoder.supportsMain10()) return "encodeur H.265 sans 10 bits"
+        val profiles = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_DYNAMIC_RANGE_PROFILES) ?: return "la caméra n'annonce aucun profil HDR"
+        if (!profiles.supportedProfiles.contains(DynamicRangeProfiles.HLG10)) return "profil HLG10 absent"
+        val mixable = profiles.getProfileCaptureRequestConstraints(DynamicRangeProfiles.HLG10)
+        if (mixable.isNotEmpty() && !mixable.contains(DynamicRangeProfiles.STANDARD)) return "HLG10 ne se combine pas avec l'aperçu"
+        return null
     }
 
     private fun supports(available: IntArray?, mode: Int): Boolean = available?.contains(mode) == true
@@ -573,6 +589,26 @@ class Camera2Source(context: Context) {
 
     /** Remonte l'objectif réellement utilisé, pour vérifier à l'écran que le zoom est bien optique. */
     private fun reportLens(result: TotalCaptureResult) {
+        val nowMs = android.os.SystemClock.elapsedRealtime()
+        if (nowMs - lastInfoMs >= 1_000) {
+            lastInfoMs = nowMs
+            val exposureNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+            val iso = result.get(CaptureResult.SENSOR_SENSITIVITY)
+            val focus = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
+            val af = when (result.get(CaptureResult.CONTROL_AF_STATE)) {
+                CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED, CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED -> "net"
+                CaptureResult.CONTROL_AF_STATE_PASSIVE_SCAN, CaptureResult.CONTROL_AF_STATE_ACTIVE_SCAN -> "en recherche"
+                CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED -> "pas net"
+                else -> "?"
+            }
+            val text = buildString {
+                if (exposureNs != null && exposureNs > 0) append("pose 1/").append((1_000_000_000L / exposureNs).coerceAtLeast(1)).append(" s")
+                if (iso != null) append(" · ISO ").append(iso)
+                if (focus != null) append(" · mise au point ").append(if (focus < 0.01f) "infini" else "%.1f m".format(1f / focus))
+                append(" · ").append(af)
+            }
+            listener?.onCaptureInfo(text)
+        }
         val active = result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID)
         // Téléobjectif demandé mais autre objectif actif : on est en train de recadrer l'objectif principal.
         val tele = telePhysicalId

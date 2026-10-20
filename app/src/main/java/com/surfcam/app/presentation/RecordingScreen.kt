@@ -1017,6 +1017,8 @@ private fun details(state: EngineState): String? {
         if (state.keyFrameIntervalSec > 0f) append("\nImage clé toutes les %.1f s".format(state.keyFrameIntervalSec))
         append("\nZoom ${"%.1f".format(state.zoom)}×")
         state.lensInfo?.let { append("\nObjectif : $it") }
+        state.captureInfo?.let { append("\nCapture : $it") }
+        state.hdrText?.let { append("\nHDR : $it") }
     }
 }
 

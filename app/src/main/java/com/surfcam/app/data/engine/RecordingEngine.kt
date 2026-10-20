@@ -58,6 +58,10 @@ data class EngineState(
     val opticalZoom: Boolean = true,
     /** Faux si la stabilisation optique n'est pas appliquée. */
     val stabilized: Boolean = true,
+    /** Pose, sensibilité et mise au point réellement appliquées (diagnostic). */
+    val captureInfo: String? = null,
+    /** État du HDR 10 bits, en clair. */
+    val hdrText: String? = null,
     /** Focale en pixels de l'image d'analyse à zoom ×1 : permet d'estimer la distance d'un surfeur. */
     val focalPx1x: Float = 0f,
     val focusMode: Camera2Source.FocusMode = Camera2Source.FocusMode.AUTO,
@@ -275,6 +279,10 @@ class RecordingEngine(private val context: Context) {
                     _state.update { it.copy(stabilized = active) }
                 }
 
+                override fun onCaptureInfo(text: String) {
+                    _state.update { it.copy(captureInfo = text) }
+                }
+
                 override fun onLensInfo(text: String) {
                     _state.update { it.copy(lensInfo = text) }
                 }
@@ -375,6 +383,7 @@ class RecordingEngine(private val context: Context) {
     private fun tryStart(source: Camera2Source, maxFps: Int, rotationDegrees: Int, options: SessionOptions): Boolean {
         val probe: CameraProbe = source.probe(maxFps, options.lens, options.hd, options.hdr)
         val config = probe.config
+        _state.update { it.copy(hdrText = probe.hdrText) }
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.
         val hint = (probe.sensorOrientation - rotationDegrees + 360) % 360
@@ -528,6 +537,10 @@ class RecordingEngine(private val context: Context) {
 
             override fun onStabilization(active: Boolean) {
                 _state.update { it.copy(stabilized = active) }
+            }
+
+            override fun onCaptureInfo(text: String) {
+                _state.update { it.copy(captureInfo = text) }
             }
 
             override fun onLensInfo(text: String) {
