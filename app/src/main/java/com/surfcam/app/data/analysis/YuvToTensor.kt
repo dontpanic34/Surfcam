@@ -12,6 +12,12 @@ import kotlin.math.min
  */
 class YuvToTensor {
 
+    /**
+     * Image au format P010 (HDR 10 bits, BT.2020, plage limitée) au lieu de YUV 8 bits : chaque échantillon fait deux octets
+     * et son octet de poids fort est une valeur 8 bits correcte, qu'on lit seule.
+     */
+    var tenBit = false
+
     private var yBytes = ByteArray(0)
     private var uBytes = ByteArray(0)
     private var vBytes = ByteArray(0)
@@ -39,13 +45,24 @@ class YuvToTensor {
             val yBase = y * yRowStride
             val uvBase = (y shr 1) * uvRowStride
             for (x in x0 until x1) {
-                val yy = (yBytes[yBase + x * yPixelStride].toInt() and 0xFF).toFloat()
-                val uvIndex = uvBase + (x shr 1) * uvPixelStride
+                val off = if (tenBit) 1 else 0
+                val yy = (yBytes[yBase + x * yPixelStride + off].toInt() and 0xFF).toFloat()
+                val uvIndex = uvBase + (x shr 1) * uvPixelStride + off
                 val u = (uBytes[uvIndex].toInt() and 0xFF) - 128f
                 val v = (vBytes[uvIndex].toInt() and 0xFF) - 128f
-                val r = clamp(yy + 1.402f * v).toInt()
-                val g = clamp(yy - 0.344136f * u - 0.714136f * v).toInt()
-                val b = clamp(yy + 1.772f * u).toInt()
+                val r: Int
+                val g: Int
+                val b: Int
+                if (tenBit) {
+                    val yn = (yy - 16f) * 1.16438f
+                    r = clamp(yn + 1.67867f * v).toInt()
+                    g = clamp(yn - 0.18733f * u - 0.65042f * v).toInt()
+                    b = clamp(yn + 2.14177f * u).toInt()
+                } else {
+                    r = clamp(yy + 1.402f * v).toInt()
+                    g = clamp(yy - 0.344136f * u - 0.714136f * v).toInt()
+                    b = clamp(yy + 1.772f * u).toInt()
+                }
                 if (color.matches(r, g, b)) matching++
             }
         }
@@ -82,14 +99,23 @@ class YuvToTensor {
             val dstBase = (row + lb.offsetY) * width + lb.offsetX
             for (col in 0 until lb.scaledWidth) {
                 val sx = columns[col]
-                val y = (yBytes[yBase + sx * yPixel].toInt() and 0xFF).toFloat()
-                val uvIndex = uvBase + (sx shr 1) * uvPixel
+                val off = if (tenBit) 1 else 0
+                val y = (yBytes[yBase + sx * yPixel + off].toInt() and 0xFF).toFloat()
+                val uvIndex = uvBase + (sx shr 1) * uvPixel + off
                 val u = (uBytes[uvIndex].toInt() and 0xFF) - 128f
                 val v = (vBytes[uvIndex].toInt() and 0xFF) - 128f
                 val dst = dstBase + col
-                out[dst] = clamp(y + 1.402f * v) * INV_255
-                out[area + dst] = clamp(y - 0.344136f * u - 0.714136f * v) * INV_255
-                out[2 * area + dst] = clamp(y + 1.772f * u) * INV_255
+                if (tenBit) {
+                    // BT.2020, plage limitée (16 à 235) : on étend avant de convertir en RVB.
+                    val yn = (y - 16f) * 1.16438f
+                    out[dst] = clamp(yn + 1.67867f * v) * INV_255
+                    out[area + dst] = clamp(yn - 0.18733f * u - 0.65042f * v) * INV_255
+                    out[2 * area + dst] = clamp(yn + 2.14177f * u) * INV_255
+                } else {
+                    out[dst] = clamp(y + 1.402f * v) * INV_255
+                    out[area + dst] = clamp(y - 0.344136f * u - 0.714136f * v) * INV_255
+                    out[2 * area + dst] = clamp(y + 1.772f * u) * INV_255
+                }
             }
         }
     }

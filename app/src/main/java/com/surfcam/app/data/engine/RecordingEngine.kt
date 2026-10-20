@@ -135,6 +135,8 @@ class RecordingEngine(private val context: Context) {
     private var ring: EncodedRingBuffer? = null
     private var recorder: ClipRecorder? = null
     private var analysis: AnalysisPipeline? = null
+    private var lastRotation = 90
+    private var lastOptions: SessionOptions? = null
     private var session: SessionRecorder? = null
     private var previewSurface: Surface? = null
     private var sampleCount = 0L
@@ -166,6 +168,8 @@ class RecordingEngine(private val context: Context) {
     @Synchronized
     fun start(displayRotationDegrees: Int, options: SessionOptions) {
         if (_state.value.phase == Phase.STARTING || _state.value.phase == Phase.RUNNING) return
+        lastRotation = displayRotationDegrees
+        lastOptions = options
         clipsSaved = 0
         waveCounter = 0
         // Le support choisi doit être branché ; sinon on enregistre sur le téléphone, en le disant.
@@ -448,7 +452,7 @@ class RecordingEngine(private val context: Context) {
             override fun onRide(stats: RideStats) {
                 synchronized(rideStats) { rideStats += stats }
             }
-        }, learning.currentConfig())
+        }, learning.currentConfig(), config.tenBit)
         pipeline?.markerColor = options.markerColor
         analysis = pipeline
         _state.update {
@@ -541,6 +545,20 @@ class RecordingEngine(private val context: Context) {
 
             override fun onCaptureInfo(text: String) {
                 _state.update { it.copy(captureInfo = text) }
+            }
+
+            override fun onHdrRefused() {
+                // Relance aussitôt la session en 8 bits : le HDR est désormais coupé par la caméra elle-même.
+                val rotation = lastRotation
+                val opts = lastOptions ?: return
+                Thread({
+                    synchronized(this@RecordingEngine) {
+                        releaseCamera()
+                        teardownPipeline()
+                        _state.update { it.copy(phase = Phase.IDLE) }
+                        start(rotation, opts.copy(hdr = false))
+                    }
+                }, "hdr-restart").start()
             }
 
             override fun onLensInfo(text: String) {

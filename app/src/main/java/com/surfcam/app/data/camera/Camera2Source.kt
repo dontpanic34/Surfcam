@@ -72,6 +72,9 @@ class Camera2Source(context: Context) {
 
         /** Réglages que le téléphone applique réellement (pose, sensibilité, mise au point), pour le diagnostic. */
         fun onCaptureInfo(text: String) = Unit
+
+        /** Le téléphone refuse la session en HDR : à relancer en 8 bits (le HDR est désactivé pour la suite). */
+        fun onHdrRefused() = Unit
     }
 
     private val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -419,7 +422,7 @@ class Camera2Source(context: Context) {
                             if (tenBit) {
                                 // Le téléphone refuse le HDR avec ces flux : on le coupe pour les prochaines sessions.
                                 hdrPrefs.edit().putBoolean(HDR_BROKEN_KEY, true).apply()
-                                listener?.onError("Le HDR 10 bits n'est pas possible sur ce téléphone avec ces réglages : il est désactivé, relance la session.")
+                                listener?.onHdrRefused()
                             } else if (useStreamUseCases && !retriedWithoutUseCases) {
                                 // Certaines combinaisons refusent les cas d'usage de flux : on réessaie sans.
                                 retriedWithoutUseCases = true
@@ -536,8 +539,12 @@ class Camera2Source(context: Context) {
         if (!HevcEncoder.supportsMain10()) return "encodeur H.265 sans 10 bits"
         val profiles = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_DYNAMIC_RANGE_PROFILES) ?: return "la caméra n'annonce aucun profil HDR"
         if (!profiles.supportedProfiles.contains(DynamicRangeProfiles.HLG10)) return "profil HLG10 absent"
-        val mixable = profiles.getProfileCaptureRequestConstraints(DynamicRangeProfiles.HLG10)
-        if (mixable.isNotEmpty() && !mixable.contains(DynamicRangeProfiles.STANDARD)) return "HLG10 ne se combine pas avec l'aperçu"
+        // En HDR tous les flux sont en HLG10 : l'analyse doit alors pouvoir sortir en P010 (YUV 10 bits), à la taille voulue.
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return "flux de la caméra inconnus"
+        val p010 = map.getOutputSizes(android.graphics.ImageFormat.YCBCR_P010)
+        if (p010 == null || p010.none { it.width == CaptureConfig.ANALYSIS_WIDTH && it.height == CaptureConfig.ANALYSIS_HEIGHT }) {
+            return "l'analyse ne peut pas sortir en 10 bits (P010)"
+        }
         return null
     }
 
@@ -574,8 +581,8 @@ class Camera2Source(context: Context) {
         OutputConfiguration(surface).also {
             physicalId?.let { id -> it.setPhysicalCameraId(id) }
             if (useStreamUseCases) it.setStreamUseCase(streamUseCase.toLong())
-            // Seul le flux de l'encodeur est en HDR ; l'aperçu et l'analyse restent en 8 bits.
-            if (tenBit && surface === encoderSurface) it.setDynamicRangeProfile(DynamicRangeProfiles.HLG10)
+            // Le téléphone ne mélange pas HDR et SDR dans une même session : tous les flux passent en HLG10.
+            if (tenBit) it.setDynamicRangeProfile(DynamicRangeProfiles.HLG10)
         }
 
     /** Avertit l'écran dès que l'image n'est plus entièrement optique : zoom au-delà de l'objectif, ou mauvais objectif actif. */
@@ -599,6 +606,8 @@ class Camera2Source(context: Context) {
                 CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED, CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED -> "net"
                 CaptureResult.CONTROL_AF_STATE_PASSIVE_SCAN, CaptureResult.CONTROL_AF_STATE_ACTIVE_SCAN -> "en recherche"
                 CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED -> "pas net"
+                CaptureResult.CONTROL_AF_STATE_PASSIVE_UNFOCUSED -> "flou"
+                CaptureResult.CONTROL_AF_STATE_INACTIVE -> "AF inactif"
                 else -> "?"
             }
             val text = buildString {

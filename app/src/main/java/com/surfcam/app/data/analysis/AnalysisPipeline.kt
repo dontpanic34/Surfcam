@@ -53,6 +53,8 @@ class AnalysisPipeline(
     private val context: Context,
     private val listener: Listener,
     waveConfig: WaveConfig = WaveConfig(),
+    /** HDR 10 bits : l'image d'analyse arrive alors au format P010 (le seul compatible avec un flux HDR). */
+    private val tenBit: Boolean = false,
 ) {
     interface Listener {
         fun onClipAction(action: ClipAction)
@@ -77,13 +79,13 @@ class AnalysisPipeline(
     private val readerHandler = Handler(readerThread.looper)
     private val inferenceThread = HandlerThread("analysis-inference").apply { start() }
     private val inferenceHandler = Handler(inferenceThread.looper)
-    private val reader = ImageReader.newInstance(WIDTH, HEIGHT, ImageFormat.YUV_420_888, 4)
+    private val reader = ImageReader.newInstance(WIDTH, HEIGHT, if (tenBit) ImageFormat.YCBCR_P010 else ImageFormat.YUV_420_888, 4)
 
     /** Vrai tant que le modèle lit le tenseur d'entrée : on ne le réécrit pas avant la fin de l'analyse. */
     private val busy = AtomicBoolean(false)
 
     private val letterbox = Letterbox(WIDTH, HEIGHT, OnnxPersonDetector.MODEL_WIDTH, OnnxPersonDetector.MODEL_HEIGHT)
-    private val converter = YuvToTensor()
+    private val converter = YuvToTensor().also { it.tenBit = tenBit }
     private val input = FloatArray(3 * OnnxPersonDetector.MODEL_WIDTH * OnnxPersonDetector.MODEL_HEIGHT)
     private val tracker = SurferTracker(TrackerConfig(frameHeight = HEIGHT))
     private val waveDetector = WaveDetector(waveConfig)
