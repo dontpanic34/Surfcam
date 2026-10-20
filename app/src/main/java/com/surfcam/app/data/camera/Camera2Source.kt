@@ -112,6 +112,9 @@ class Camera2Source(context: Context) {
     @Volatile
     private var highQualityProcessing = true
 
+    /** Vrai quand la sensibilité monte (peu de lumière) : on adoucit la netteté, qui sinon accentue le grain. */
+    private var lowLight = false
+
     /** Traitement d'image au maximum (réduction de bruit, netteté) ou réglages rapides du téléphone, qui chauffent moins. */
     fun setHighQualityProcessing(on: Boolean) {
         handler.post {
@@ -517,7 +520,11 @@ class Camera2Source(context: Context) {
                     if (supports(chars.get(available), mode)) builder.set(key, mode)
                 }
                 best(CaptureRequest.NOISE_REDUCTION_MODE, CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
-                best(CaptureRequest.EDGE_MODE, CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
+                // Netteté maximale en bonne lumière ; à forte sensibilité elle accentue le grain, on la réduit.
+                best(
+                    CaptureRequest.EDGE_MODE, CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES,
+                    if (lowLight) CaptureRequest.EDGE_MODE_FAST else CaptureRequest.EDGE_MODE_HIGH_QUALITY,
+                )
                 best(CaptureRequest.SHADING_MODE, CameraCharacteristics.SHADING_AVAILABLE_MODES, CaptureRequest.SHADING_MODE_HIGH_QUALITY)
                 best(CaptureRequest.HOT_PIXEL_MODE, CameraCharacteristics.HOT_PIXEL_AVAILABLE_HOT_PIXEL_MODES, CaptureRequest.HOT_PIXEL_MODE_HIGH_QUALITY)
                 best(CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE, CameraCharacteristics.COLOR_CORRECTION_AVAILABLE_ABERRATION_MODES, CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY)
@@ -622,9 +629,17 @@ class Camera2Source(context: Context) {
                 CaptureResult.CONTROL_AF_STATE_INACTIVE -> "AF inactif"
                 else -> "?"
             }
+            // Bascule en mode faible lumière avec une marge (entrée à ISO 500, sortie sous 300) pour ne pas osciller.
+            if (iso != null) {
+                val next = if (lowLight) iso > 300 else iso >= 500
+                if (next != lowLight) {
+                    lowLight = next
+                    applyRequest()
+                }
+            }
             val text = buildString {
                 if (exposureNs != null && exposureNs > 0) append("pose 1/").append((1_000_000_000L / exposureNs).coerceAtLeast(1)).append(" s")
-                if (iso != null) append(" · ISO ").append(iso)
+                if (iso != null) append(" · ISO ").append(iso).append(if (lowLight) " (faible lumière)" else "")
                 if (focus != null) append(" · mise au point ").append(if (focus < 0.01f) "infini" else "%.1f m".format(1f / focus))
                 append(" · ").append(af)
             }
