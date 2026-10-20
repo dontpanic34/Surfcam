@@ -18,10 +18,11 @@ data class CaptureConfig(
         const val PRE_ROLL_SEC = 5
         const val POST_ROLL_SEC = 3
 
-        // Image réduite envoyée à l'analyse, et cadence maximale de celle-ci (5 images par seconde).
+        // Image réduite envoyée à l'analyse, et cadence maximale de celle-ci (2 images par seconde : l'analyse tournait en
+        // continu sur quatre cœurs, ce qui faisait chauffer le téléphone même par temps froid).
         const val ANALYSIS_WIDTH = 1280
         const val ANALYSIS_HEIGHT = 720
-        const val ANALYSIS_INTERVAL_MS = 200L
+        const val ANALYSIS_INTERVAL_MS = 500L
 
         // Taille fixe de l'aperçu à l'écran : l'aperçu n'a pas besoin de la 4K.
         const val PREVIEW_WIDTH = 1920

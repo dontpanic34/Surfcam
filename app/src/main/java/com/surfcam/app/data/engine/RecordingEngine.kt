@@ -90,6 +90,8 @@ data class EngineState(
     val lastSummary: String? = null,
     val lastClip: String? = null,
     val thermalStatus: Int = PowerManager.THERMAL_STATUS_NONE,
+    /** Niveau d'allègement appliqué à cause de la chaleur : 0 aucun, 1 léger, 2 fort. */
+    val thermalLevel: Int = 0,
     val message: String? = null,
 )
 
@@ -729,6 +731,7 @@ class RecordingEngine(private val context: Context) {
 
     private fun applyThermalLevel(level: Int) {
         thermalLevel = level
+        _state.update { it.copy(thermalLevel = level) }
         val base = _state.value.config?.bitrate ?: 0
         // Niveau 0 : plein régime. 1 : traitement d'image rapide, analyse deux fois plus lente, débit réduit d'un tiers.
         // 2 : en plus, analyse quatre fois plus lente et débit réduit de moitié.

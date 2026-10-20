@@ -1083,6 +1083,8 @@ private fun details(state: EngineState): String? {
         state.lensInfo?.let { append("\nObjectif : $it") }
         state.captureInfo?.let { append("\nCapture : $it") }
         state.hdrText?.let { append("\nHDR : $it") }
+        append("\nChaleur : ").append(thermalLabel(state.thermalStatus)).append(" · allègement ").append(state.thermalLevel)
+        append(" · analyse toutes les ").append(CaptureConfig.ANALYSIS_INTERVAL_MS * when (state.thermalLevel) { 0 -> 1; 1 -> 2; else -> 4 }).append(" ms")
     }
 }
 
