@@ -24,7 +24,7 @@ data class CaptureConfig(
         const val ANALYSIS_INTERVAL_MS = 200L
 
         // Taille fixe de l'aperçu à l'écran : l'aperçu n'a pas besoin de la 4K.
-        const val PREVIEW_WIDTH = 1280
-        const val PREVIEW_HEIGHT = 720
+        const val PREVIEW_WIDTH = 1920
+        const val PREVIEW_HEIGHT = 1080
     }
 }

@@ -492,12 +492,6 @@ class Camera2Source(context: Context) {
                 builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
             }
 
-            // Un cran sous l'exposition automatique : pose plus courte (moins de flou de bougé) et ciel qui ne brûle pas.
-            chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)?.let { range ->
-                val step = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)?.toFloat() ?: 0f
-                if (step > 0f) builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, Math.round(-1f / step).coerceIn(range.lower, range.upper))
-            }
-
             // Traitement d'image au meilleur niveau : moins de bruit, plus de netteté, ombrages et franges de couleur corrigés.
             // À 60 i/s le téléphone n'a pas le temps de tout faire : on garde alors ses réglages rapides.
             if ((fpsRange?.upper ?: 30) <= 30) {
