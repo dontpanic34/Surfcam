@@ -35,8 +35,8 @@ data class SessionOptions(
     /** Place approximative prise par une heure de session complète, en Go (débit vidéo × 3600 s). */
     fun gigabytesPerHour(): Int {
         val mbps = when {
-            hd -> if (tele || !fps60) 24 else 35
-            else -> if (tele || !fps60) 50 else 70
+            hd -> if (tele || !fps60) 32 else 50
+            else -> if (tele || !fps60) 80 else 100
         }
         return Math.round(mbps * 3600f / 8f / 1000f)
     }

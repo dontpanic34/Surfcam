@@ -196,11 +196,12 @@ class Camera2Source(context: Context) {
         } ?: ranges.maxByOrNull { it.upper } ?: Range(30, 30)
 
         val fps = range.upper
+        // Débits généreux : la mousse et l'eau en mouvement sont très détaillées, un débit juste donne une image molle et blocs.
         val bitrate = when {
-            size.width >= 3840 && fps >= 60 -> 70_000_000
-            size.width >= 3840 -> 50_000_000
-            fps >= 60 -> 35_000_000
-            else -> 24_000_000
+            size.width >= 3840 && fps >= 60 -> 100_000_000
+            size.width >= 3840 -> 80_000_000
+            fps >= 60 -> 50_000_000
+            else -> 32_000_000
         }
         val zoomRange = if (lens == Lens.TELE) null else chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
         val useCases = chars.get(CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES)
@@ -463,6 +464,19 @@ class Camera2Source(context: Context) {
             val ois = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
             if (supports(ois, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)) {
                 builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
+            }
+
+            // Traitement d'image au meilleur niveau : moins de bruit, plus de netteté, ombrages et franges de couleur corrigés.
+            // À 60 i/s le téléphone n'a pas le temps de tout faire : on garde alors ses réglages rapides.
+            if ((fpsRange?.upper ?: 30) <= 30) {
+                fun best(key: CaptureRequest.Key<Int>, available: CameraCharacteristics.Key<IntArray>, mode: Int) {
+                    if (supports(chars.get(available), mode)) builder.set(key, mode)
+                }
+                best(CaptureRequest.NOISE_REDUCTION_MODE, CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
+                best(CaptureRequest.EDGE_MODE, CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
+                best(CaptureRequest.SHADING_MODE, CameraCharacteristics.SHADING_AVAILABLE_MODES, CaptureRequest.SHADING_MODE_HIGH_QUALITY)
+                best(CaptureRequest.HOT_PIXEL_MODE, CameraCharacteristics.HOT_PIXEL_AVAILABLE_HOT_PIXEL_MODES, CaptureRequest.HOT_PIXEL_MODE_HIGH_QUALITY)
+                best(CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE, CameraCharacteristics.COLOR_CORRECTION_AVAILABLE_ABERRATION_MODES, CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY)
             }
 
             // Sur le téléobjectif (déjà ×5 par rapport à l'objectif principal), seul l'excédent est du zoom numérique.
