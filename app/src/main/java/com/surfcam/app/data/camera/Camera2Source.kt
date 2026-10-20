@@ -514,6 +514,7 @@ class Camera2Source(context: Context) {
      * les flux ordinaires (aperçu, analyse), l'encodeur sait faire du Main 10, et une tentative précédente n'a pas échoué.
      */
     private fun hdrUsable(chars: CameraCharacteristics, tele: CameraCharacteristics?): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 33) return false
         if (hdrPrefs.getBoolean(HDR_BROKEN_KEY, false) || !HevcEncoder.supportsMain10()) return false
         fun ok(c: CameraCharacteristics): Boolean {
             val profiles = c.get(CameraCharacteristics.REQUEST_AVAILABLE_DYNAMIC_RANGE_PROFILES) ?: return false
