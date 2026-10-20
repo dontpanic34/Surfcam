@@ -43,8 +43,6 @@ class RecordingService : Service() {
             hd = intent?.getBooleanExtra(EXTRA_HD, false) == true,
             storage = intent?.getStringExtra(EXTRA_STORAGE) ?: "external_primary",
             fps60 = intent?.getBooleanExtra(EXTRA_FPS60, false) == true,
-            // Sans détection ni session complète, rien ne serait enregistré : la détection reste alors active.
-            detection = intent?.getBooleanExtra(EXTRA_DETECTION, true) != false || intent?.getBooleanExtra(EXTRA_FULL_SESSION, false) != true,
             lockExposure = intent?.getBooleanExtra(EXTRA_LOCK_EXPOSURE, false) == true,
             reframe = intent?.getBooleanExtra(EXTRA_REFRAME, false) == true,
             followGimbal = intent?.getBooleanExtra(EXTRA_FOLLOW_GIMBAL, false) == true,
@@ -105,7 +103,6 @@ class RecordingService : Service() {
         const val EXTRA_HD = "hd"
         const val EXTRA_STORAGE = "storage"
         const val EXTRA_FPS60 = "fps60"
-        const val EXTRA_DETECTION = "detection"
         const val EXTRA_DND = "dnd"
         const val EXTRA_LOCK_EXPOSURE = "lock_exposure"
         const val EXTRA_REFRAME = "reframe"

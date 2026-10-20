@@ -480,8 +480,6 @@ private fun statusPill(state: EngineState): Pair<String, Color> = when (state.ph
     Phase.RUNNING -> when {
         state.clipActive -> "Enregistrement d'une vague" to SurfColors.Alert
         state.analysis?.riding == true -> "Vague détectée" to SurfColors.Alert
-        !state.detectionEnabled ->
-            (if (state.fullSession) "Session en cours" else "Session · détection coupée") to SurfColors.Ok
         state.analysisStatus?.startsWith("Détection indisponible") == true -> "Détection indisponible" to SurfColors.Warn
         state.analysisStatus?.startsWith("Analyse arrêtée") == true -> "Détection arrêtée" to SurfColors.Alert
         state.analysisStatus == "Chargement du modèle…" -> "Chargement de la détection" to SurfColors.Warn
@@ -843,9 +841,6 @@ private fun InfoDialog(
                             OptionSwitch("Mode recadrage", "Filme large (×1) : l'app garde le chemin du surfeur et propose « Recadrer » dans le lecteur", options.reframe) {
                                 if (!running) onOptionsChange(options.copy(reframe = it))
                             }
-                            OptionSwitch("Détection des vagues", "Crée un clip par vague : 5 s avant le décollage, 3 s après la fin", options.detection) {
-                                if (!running) onOptionsChange(options.copy(detection = it))
-                            }
                             OptionSwitch("Session complète", "Enregistre aussi toute la session, en fichiers de 2 minutes", options.fullSession) {
                                 if (!running) onOptionsChange(options.copy(fullSession = it))
                             }
@@ -869,7 +864,7 @@ private fun InfoDialog(
                         LearningSection(engine)
                     }
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (state.detectionEnabled && state.phase == Phase.RUNNING) DiagnosticSection(state)
+                        if (state.phase == Phase.RUNNING) DiagnosticSection(state)
                         if (state.phase == Phase.RUNNING) {
                             Section("Test manuel") {
                                 if (state.clipActive) {

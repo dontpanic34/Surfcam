@@ -9,17 +9,12 @@ class OptionsStore(context: Context) {
 
     fun load(): SessionOptions {
         val d = SessionOptions()
-        // Une mise à jour avait laissé la détection décochée chez certains : on la remet en marche une fois pour toutes.
-        if (!prefs.getBoolean("detectionResetV2", false)) {
-            prefs.edit().putBoolean("detection", true).putBoolean("detectionResetV2", true).apply()
-        }
         return SessionOptions(
             tele = prefs.getBoolean("tele", d.tele),
             fullSession = prefs.getBoolean("fullSession", d.fullSession),
             hd = prefs.getBoolean("hd", d.hd),
             fps60 = prefs.getBoolean("fps60", d.fps60),
             storage = prefs.getString("storage", d.storage) ?: d.storage,
-            detection = prefs.getBoolean("detection", d.detection),
             sleepScreen = prefs.getBoolean("sleepScreen", d.sleepScreen),
             doNotDisturb = prefs.getBoolean("doNotDisturb", d.doNotDisturb),
             lockExposure = prefs.getBoolean("lockExposure", d.lockExposure),
@@ -36,7 +31,6 @@ class OptionsStore(context: Context) {
             .putBoolean("hd", o.hd)
             .putBoolean("fps60", o.fps60)
             .putString("storage", o.storage)
-            .putBoolean("detection", o.detection)
             .putBoolean("sleepScreen", o.sleepScreen)
             .putBoolean("doNotDisturb", o.doNotDisturb)
             .putBoolean("lockExposure", o.lockExposure)

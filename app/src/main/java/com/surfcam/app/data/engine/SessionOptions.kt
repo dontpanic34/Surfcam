@@ -17,8 +17,6 @@ data class SessionOptions(
     val fps60: Boolean = false,
     /** Volume MediaStore où enregistrer : "external_primary" (téléphone) ou le nom d'une carte SD / clé USB branchée. */
     val storage: String = "external_primary",
-    /** Détection automatique des vagues (clips créés tout seuls). */
-    val detection: Boolean = true,
     /** Écran noir après 1 minute sans toucher pendant une session (économie d'énergie) ; un toucher le réveille. */
     val sleepScreen: Boolean = true,
     /** Silence total (« Ne pas déranger ») pendant la session : pas d'appel ni de notification. */

@@ -75,7 +75,6 @@ data class EngineState(
     val analysisStatus: String? = null,
     /** Images que la caméra a envoyées à l'analyse (0 = le flux d'analyse ne reçoit rien). */
     val analysisReceived: Int = 0,
-    val detectionEnabled: Boolean = true,
     val fullSession: Boolean = false,
     /** Numéro du fichier de la session complète en cours d'écriture (0 = aucun). */
     val sessionPart: Int = 0,
@@ -175,7 +174,6 @@ class RecordingEngine(private val context: Context) {
             phase = Phase.STARTING,
             lens = options.lens,
             zoom = desiredZoom,
-            detectionEnabled = options.detection,
             fullSession = options.fullSession,
             message = storageMessage,
         )
@@ -390,7 +388,7 @@ class RecordingEngine(private val context: Context) {
         }
         session = sessionRecorder
 
-        val pipeline = if (!options.detection) null else AnalysisPipeline(context, object : AnalysisPipeline.Listener {
+        val pipeline = AnalysisPipeline(context, object : AnalysisPipeline.Listener {
             // Appelé depuis le thread d'analyse : pas de verrou du moteur ici, pour éviter tout blocage à l'arrêt.
             override fun onClipAction(action: ClipAction) {
                 when (action) {
@@ -501,7 +499,7 @@ class RecordingEngine(private val context: Context) {
         synchronized(pathCaptures) { pathCaptures.clear() }
         follower?.stop()
         follower = null
-        if (options.followGimbal && options.detection) {
+        if (options.followGimbal) {
             val f = GimbalFollower(context)
             val problem = f.start()
             if (problem == null) {
