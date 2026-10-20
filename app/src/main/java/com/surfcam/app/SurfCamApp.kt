@@ -16,6 +16,12 @@ class SurfCamApp : Application() {
     override fun onCreate() {
         super.onCreate()
         hardCrash = com.surfcam.app.data.engine.Trail.init(this)
+        // Arrêt brutal pendant un démarrage en HDR : on coupe le HDR pour ne jamais replanter, et on le dit.
+        if (hardCrash?.contains("hdr=true") == true) {
+            getSharedPreferences("camera", MODE_PRIVATE).edit().putBoolean("hdr_broken", true).apply()
+            getSharedPreferences("options", MODE_PRIVATE).edit().putBoolean("hdr", false).apply()
+            hardCrash += "\n\nLe HDR a été désactivé automatiquement. Tu peux le réessayer avec « Qualité maximale »."
+        }
         engine = RecordingEngine(this)
 
         // Garde la trace du dernier plantage : elle est affichée au lancement suivant.
