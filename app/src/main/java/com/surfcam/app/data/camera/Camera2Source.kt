@@ -108,6 +108,19 @@ class Camera2Source(context: Context) {
     private var zoom = 1f
     private var lastOptical: Boolean? = null
     private var tenBit = false
+
+    @Volatile
+    private var highQualityProcessing = true
+
+    /** Traitement d'image au maximum (réduction de bruit, netteté) ou réglages rapides du téléphone, qui chauffent moins. */
+    fun setHighQualityProcessing(on: Boolean) {
+        handler.post {
+            if (highQualityProcessing != on) {
+                highQualityProcessing = on
+                applyRequest()
+            }
+        }
+    }
     private var hdrNote: String? = null
     private var lastInfoMs = 0L
     private val hdrPrefs = context.getSharedPreferences("camera", Context.MODE_PRIVATE)
@@ -499,7 +512,7 @@ class Camera2Source(context: Context) {
 
             // Traitement d'image au meilleur niveau : moins de bruit, plus de netteté, ombrages et franges de couleur corrigés.
             // À 60 i/s le téléphone n'a pas le temps de tout faire : on garde alors ses réglages rapides.
-            if ((fpsRange?.upper ?: 30) <= 30) {
+            if ((fpsRange?.upper ?: 30) <= 30 && highQualityProcessing) {
                 fun best(key: CaptureRequest.Key<Int>, available: CameraCharacteristics.Key<IntArray>, mode: Int) {
                     if (supports(chars.get(available), mode)) builder.set(key, mode)
                 }

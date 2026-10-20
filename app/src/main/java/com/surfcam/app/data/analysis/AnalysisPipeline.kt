@@ -108,6 +108,11 @@ class AnalysisPipeline(
     @Volatile
     var paused = false
     private val throttle = FrameThrottle(MIN_INTERVAL_US)
+
+    /** Ralentit l'analyse quand le téléphone chauffe : 1 = cadence normale, 2 = deux fois moins d'images, etc. */
+    fun setSlowdown(factor: Int) {
+        throttle.minIntervalUs = MIN_INTERVAL_US * factor.coerceIn(1, 8)
+    }
     private var frames = 0
     private var received = 0
 

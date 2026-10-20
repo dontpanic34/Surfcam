@@ -63,6 +63,14 @@ class HevcEncoder(
         }
     }
 
+    /** Change le débit en cours de route (pour soulager le téléphone quand il chauffe). */
+    fun setBitrate(bitsPerSecond: Int) {
+        try {
+            codec?.setParameters(android.os.Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitsPerSecond) })
+        } catch (_: Exception) {
+        }
+    }
+
     fun stop() {
         running = false
         drainThread?.join(1_000)

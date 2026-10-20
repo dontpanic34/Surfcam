@@ -4,7 +4,7 @@ package com.surfcam.app.domain.detection
  * Limite la cadence d'analyse : accepte une image seulement si au moins [minIntervalUs] se sont écoulées depuis la
  * dernière acceptée. La toute première image est toujours acceptée.
  */
-class FrameThrottle(private val minIntervalUs: Long) {
+class FrameThrottle(@Volatile var minIntervalUs: Long) {
 
     private var lastAcceptedUs: Long? = null
 

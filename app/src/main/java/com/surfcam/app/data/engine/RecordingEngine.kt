@@ -655,6 +655,8 @@ class RecordingEngine(private val context: Context) {
     private fun startSafetyChecks() {
         safetyRunning = true
         severeSinceMs = 0L
+        thermalLevel = 0
+        coolSinceMs = 0L
         lowSpaceWarned = false
         safetyHandler.removeCallbacks(safetyTick)
         safetyHandler.postDelayed(safetyTick, SAFETY_PERIOD_MS)
@@ -688,27 +690,58 @@ class RecordingEngine(private val context: Context) {
         checkThermal(_state.value.thermalStatus)
     }
 
+    /** Allègement progressif quand le téléphone chauffe : on garde la session et la détection, on baisse la charge. */
+    private var thermalLevel = 0
+    private var coolSinceMs = 0L
+
     private fun checkThermal(status: Int) {
         if (_state.value.phase != Phase.RUNNING) return
         if (status >= PowerManager.THERMAL_STATUS_CRITICAL) {
             safeStop("Surchauffe critique du téléphone")
             return
         }
-        if (status >= PowerManager.THERMAL_STATUS_SEVERE) {
-            val now = System.currentTimeMillis()
-            if (severeSinceMs == 0L) {
-                // Premier palier : on coupe l'analyse (la partie qui chauffe le plus après l'encodage 4K) et on prévient.
-                severeSinceMs = now
-                analysis?.paused = true
-                val message = "Le téléphone chauffe fort : la détection est coupée pour le refroidir"
-                _state.update { it.copy(analysisStatus = "Détection en pause : chaleur", message = message) }
-                alert("SurfCam : le téléphone chauffe", message)
-            } else if (now - severeSinceMs > SEVERE_LIMIT_MS) {
-                safeStop("Le téléphone est resté trop chaud pendant 2 minutes")
+        val now = System.currentTimeMillis()
+        val wanted = when {
+            status >= PowerManager.THERMAL_STATUS_SEVERE -> 2
+            status >= PowerManager.THERMAL_STATUS_MODERATE -> 1
+            else -> 0
+        }
+        if (wanted > thermalLevel) {
+            coolSinceMs = 0L
+            applyThermalLevel(wanted)
+        } else if (wanted < thermalLevel) {
+            // On ne remonte la qualité qu'après 90 s de fraîcheur, pour éviter de chauffer de nouveau aussitôt.
+            if (coolSinceMs == 0L) coolSinceMs = now
+            if (now - coolSinceMs > 90_000L) {
+                coolSinceMs = 0L
+                applyThermalLevel(wanted)
             }
+        } else {
+            coolSinceMs = 0L
+        }
+        if (wanted == 2) {
+            if (severeSinceMs == 0L) severeSinceMs = now
+            else if (now - severeSinceMs > SEVERE_LIMIT_MS) safeStop("Le téléphone est resté trop chaud pendant 10 minutes")
         } else {
             severeSinceMs = 0L
         }
+    }
+
+    private fun applyThermalLevel(level: Int) {
+        thermalLevel = level
+        val base = _state.value.config?.bitrate ?: 0
+        // Niveau 0 : plein régime. 1 : traitement d'image rapide, analyse deux fois plus lente, débit réduit d'un tiers.
+        // 2 : en plus, analyse quatre fois plus lente et débit réduit de moitié.
+        camera?.setHighQualityProcessing(level == 0)
+        analysis?.setSlowdown(when (level) { 0 -> 1; 1 -> 2; else -> 4 })
+        if (base > 0) encoder?.setBitrate(when (level) { 0 -> base; 1 -> base * 2 / 3; else -> base / 2 })
+        val message = when (level) {
+            0 -> "Le téléphone a refroidi : qualité rétablie"
+            1 -> "Le téléphone chauffe : l'appli allège sa charge pour continuer à filmer"
+            else -> "Le téléphone chauffe fort : qualité réduite pour continuer à filmer. Mets-le à l'ombre"
+        }
+        _state.update { it.copy(message = message) }
+        if (level == 2) alert("SurfCam : le téléphone chauffe", message)
     }
 
     /** Arrête la session proprement : les fichiers en cours sont refermés avant de couper, puis l'utilisateur est prévenu. */
@@ -833,7 +866,7 @@ class RecordingEngine(private val context: Context) {
         const val WARN_FREE_BYTES = 1_500L * 1024 * 1024
         const val MIN_START_FREE_BYTES = 1_500L * 1024 * 1024
         const val STOP_BATTERY_PERCENT = 3
-        const val SEVERE_LIMIT_MS = 120_000L
+        const val SEVERE_LIMIT_MS = 600_000L
         const val ALERT_CHANNEL = "alertes"
         const val ALERT_ID = 2
     }
