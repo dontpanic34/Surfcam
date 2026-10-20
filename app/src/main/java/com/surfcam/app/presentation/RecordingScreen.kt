@@ -107,6 +107,7 @@ private const val SLEEP_AFTER_MS = 60_000L
 @Composable
 fun RecordingScreen(
     engine: RecordingEngine,
+    onOpenHome: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenGimbal: () -> Unit,
     options: SessionOptions,
@@ -212,7 +213,7 @@ fun RecordingScreen(
                     Viewfinder(engine, state, hasCamera, options.fps60, options.reframe, Modifier.weight(1f).fillMaxHeight())
                     SideControls(
                         state, running, options, onOptionsChange, engine,
-                        onOpenLibrary, { showInfo = true }, startGuarded, onStopSession,
+                        onOpenLibrary, onOpenHome, { showInfo = true }, startGuarded, onStopSession,
                     )
                 }
                 if (asleep) SleepOverlay(deviceForSleep) {
@@ -517,6 +518,7 @@ private fun SideControls(
     onOptionsChange: (SessionOptions) -> Unit,
     engine: RecordingEngine,
     onOpenLibrary: () -> Unit,
+    onOpenHome: () -> Unit,
     onOpenSettings: () -> Unit,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
@@ -554,6 +556,14 @@ private fun SideControls(
                         Offset(center.x + 9.5.dp.toPx() * kotlin.math.cos(ang), center.y + 9.5.dp.toPx() * kotlin.math.sin(ang)),
                         strokeWidth = 3.5.dp.toPx(), cap = StrokeCap.Butt,
                     )
+                }
+            }
+            if (!running) {
+                RoundIcon(36.dp, on = false, onClick = onOpenHome) { tint ->
+                    // Flèche vers la gauche : retour à l'accueil.
+                    drawLine(tint, Offset(center.x + 8.dp.toPx(), center.y), Offset(center.x - 8.dp.toPx(), center.y), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                    drawLine(tint, Offset(center.x - 8.dp.toPx(), center.y), Offset(center.x - 2.dp.toPx(), center.y - 6.dp.toPx()), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                    drawLine(tint, Offset(center.x - 8.dp.toPx(), center.y), Offset(center.x - 2.dp.toPx(), center.y + 6.dp.toPx()), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
                 }
             }
             if (running && state.gimbalStatus != null) {
@@ -799,7 +809,7 @@ private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: 
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun InfoDialog(
+internal fun InfoDialog(
     state: EngineState,
     options: SessionOptions,
     onOptionsChange: (SessionOptions) -> Unit,
@@ -808,105 +818,142 @@ private fun InfoDialog(
     onOpenGimbal: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val portrait = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+    var advanced by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth(0.86f).fillMaxHeight(0.92f),
+            modifier = if (portrait) Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.92f) else Modifier.fillMaxWidth(0.86f).fillMaxHeight(0.92f),
         ) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Réglages", color = SurfColors.Aqua, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     Button(onClick = onDismiss) { Text("Fermer") }
                 }
-                Row(Modifier.weight(1f).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    var advanced by remember { mutableStateOf(false) }
-                    val preset = if (options.hd) "eco" else if (options.hdr) "max" else "eq"
-                    fun apply(id: String) {
-                        if (running) return
-                        val next = when (id) {
-                            "max" -> options.copy(hd = false, fps60 = false, hdr = true)
-                            "eco" -> options.copy(hd = true, fps60 = false, hdr = false)
-                            else -> options.copy(hd = false, fps60 = false, hdr = false)
-                        }
-                        // Un nouvel essai du HDR après une panne : on lève l'interdiction.
-                        if (next.hdr) context.getSharedPreferences("camera", android.content.Context.MODE_PRIVATE).edit().putBoolean("hdr_broken", false).apply()
-                        onOptionsChange(next)
+                if (portrait) {
+                    Column(Modifier.weight(1f).padding(top = 10.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        QualitySection(options, running, onOptionsChange)
+                        BehaviourSection(options, running, onOptionsChange)
+                        AdvancedHeader(advanced) { advanced = !advanced }
+                        if (advanced) AdvancedSections(state, options, onOptionsChange, engine, running, onOpenGimbal)
                     }
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Section("Qualité de la session") {
-                            PresetCard("Équilibré", "4K · environ ${options.copy(hd = false, hdr = false, fps60 = false).gigabytesPerHour()} Go par heure", preset == "eq") { apply("eq") }
-                            PresetCard("Qualité maximale", "4K, HDR si le téléphone le permet · le plus beau rendu", preset == "max") { apply("max") }
-                            PresetCard("Longue durée", "1080p · environ ${options.copy(hd = true, hdr = false, fps60 = false).gigabytesPerHour()} Go par heure, tient plus longtemps", preset == "eco") { apply("eco") }
-                            if (running) Text("Modifiable avant de démarrer.", color = SurfColors.Muted, fontSize = 11.sp)
+                } else {
+                    Row(Modifier.weight(1f).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            QualitySection(options, running, onOptionsChange)
+                            BehaviourSection(options, running, onOptionsChange)
                         }
-                        Section("Ce que fait l'appli") {
-                            OptionSwitch("Me repérer par ma couleur", "", options.markerColor != null) {
-                                onOptionsChange(options.copy(markerColor = if (it) com.surfcam.app.domain.detection.MarkerColor.ORANGE else null))
-                            }
-                            if (options.markerColor != null) {
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    for (c in com.surfcam.app.domain.detection.MarkerColor.entries) {
-                                        FilterChip(selected = options.markerColor == c, onClick = { onOptionsChange(options.copy(markerColor = c)) }, label = { Text(c.label) })
-                                    }
-                                }
-                            }
-                            OptionSwitch("Suivre avec le gimbal", "", options.followGimbal) { if (!running) onOptionsChange(options.copy(followGimbal = it)) }
-                            OptionSwitch("Garder aussi toute la session", "", options.fullSession) { if (!running) onOptionsChange(options.copy(fullSession = it)) }
-                        }
-                    }
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            (if (advanced) "▾" else "▸") + " Avancé",
-                            color = SurfColors.Aqua, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable { advanced = !advanced }.padding(14.dp),
-                        )
-                        if (advanced) {
-                            Section("Réglages fins") {
-                                OptionSwitch("Mode recadrage", "Filme large (×1), recadre ensuite sur le surfeur", options.reframe) { if (!running) onOptionsChange(options.copy(reframe = it)) }
-                                OptionSwitch("Écran noir après 1 minute", "", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = it)) }
-                                OptionSwitch("Forcer le téléobjectif", "Champ fixe ×5", options.tele) { if (!running) onOptionsChange(options.copy(tele = it)) }
-                                OptionSwitch("Verrouiller l'exposition", "Si l'image pompe quand un surfeur passe", options.lockExposure) { if (!running) onOptionsChange(options.copy(lockExposure = it)) }
-                                OptionSwitch("HDR 10 bits (expérimental)", "Se règle aussi avec « Qualité maximale »", options.hdr) {
-                                    if (!running) {
-                                        if (it) context.getSharedPreferences("camera", android.content.Context.MODE_PRIVATE).edit().putBoolean("hdr_broken", false).apply()
-                                        onOptionsChange(options.copy(hdr = it))
-                                    }
-                                }
-                                if (running) Text("Modifiable avant de démarrer.", color = SurfColors.Muted, fontSize = 11.sp)
-                            }
-                            if (!running) {
-                                Section("Tête motorisée") {
-                                    OutlinedButton(onClick = onOpenGimbal) { Text("Essai et calibrage du gimbal") }
-                                }
-                            }
-                            LearningSection(engine)
-                            if (state.phase == Phase.RUNNING) DiagnosticSection(state)
-                            if (state.phase == Phase.RUNNING) {
-                                Section("Test manuel") {
-                                    if (state.clipActive) {
-                                        Button(
-                                            onClick = engine::finishClip,
-                                            modifier = Modifier.fillMaxWidth().height(44.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = SurfColors.Alert, contentColor = Color.White),
-                                        ) { Text("Fin de vague · +${CaptureConfig.POST_ROLL_SEC} s") }
-                                    } else {
-                                        Button(onClick = engine::startClip, modifier = Modifier.fillMaxWidth().height(44.dp)) {
-                                            Text("Début de vague · -${CaptureConfig.PRE_ROLL_SEC} s")
-                                        }
-                                    }
-                                }
-                            }
-                            state.lastClip?.let { Section("Dernier clip") { Text(it, color = SurfColors.Foam, fontSize = 13.sp) } }
-                            details(state)?.let { Section("Technique") { Text(it, color = SurfColors.Muted, fontSize = 12.sp, lineHeight = 17.sp) } }
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            AdvancedHeader(advanced) { advanced = !advanced }
+                            if (advanced) AdvancedSections(state, options, onOptionsChange, engine, running, onOpenGimbal)
                         }
                     }
                 }
             }
         }
     }
+}
+
+/** Les trois qualités d'un toucher : elles règlent définition, HDR et cadence ensemble. */
+@Composable
+internal fun QualitySection(options: SessionOptions, running: Boolean, onOptionsChange: (SessionOptions) -> Unit) {
+    val context = LocalContext.current
+    val preset = if (options.hd) "eco" else if (options.hdr) "max" else "eq"
+    fun apply(id: String) {
+        if (running) return
+        val next = when (id) {
+            "max" -> options.copy(hd = false, fps60 = false, hdr = true)
+            "eco" -> options.copy(hd = true, fps60 = false, hdr = false)
+            else -> options.copy(hd = false, fps60 = false, hdr = false)
+        }
+        // Un nouvel essai du HDR après une panne : on lève l'interdiction.
+        if (next.hdr) context.getSharedPreferences("camera", android.content.Context.MODE_PRIVATE).edit().putBoolean("hdr_broken", false).apply()
+        onOptionsChange(next)
+    }
+    Section("Qualité de la session") {
+        PresetCard("Équilibré", "4K · environ ${options.copy(hd = false, hdr = false, fps60 = false).gigabytesPerHour()} Go par heure", preset == "eq") { apply("eq") }
+        PresetCard("Qualité maximale", "4K, HDR si le téléphone le permet · le plus beau rendu", preset == "max") { apply("max") }
+        PresetCard("Longue durée", "1080p · environ ${options.copy(hd = true, hdr = false, fps60 = false).gigabytesPerHour()} Go par heure, tient plus longtemps", preset == "eco") { apply("eco") }
+        if (running) Text("Modifiable avant de démarrer.", color = SurfColors.Muted, fontSize = 11.sp)
+    }
+}
+
+@Composable
+internal fun BehaviourSection(options: SessionOptions, running: Boolean, onOptionsChange: (SessionOptions) -> Unit) {
+    Section("Ce que fait l'appli") {
+        OptionSwitch("Me repérer par ma couleur", "", options.markerColor != null) {
+            onOptionsChange(options.copy(markerColor = if (it) com.surfcam.app.domain.detection.MarkerColor.ORANGE else null))
+        }
+        if (options.markerColor != null) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (c in com.surfcam.app.domain.detection.MarkerColor.entries) {
+                    FilterChip(selected = options.markerColor == c, onClick = { onOptionsChange(options.copy(markerColor = c)) }, label = { Text(c.label) })
+                }
+            }
+        }
+        OptionSwitch("Suivre avec le gimbal", "", options.followGimbal) { if (!running) onOptionsChange(options.copy(followGimbal = it)) }
+        OptionSwitch("Garder aussi toute la session", "", options.fullSession) { if (!running) onOptionsChange(options.copy(fullSession = it)) }
+    }
+}
+
+@Composable
+internal fun AdvancedHeader(open: Boolean, onToggle: () -> Unit) {
+    Text(
+        (if (open) "▾" else "▸") + " Avancé",
+        color = SurfColors.Aqua, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onToggle).padding(14.dp),
+    )
+}
+
+@Composable
+internal fun AdvancedSections(
+    state: EngineState,
+    options: SessionOptions,
+    onOptionsChange: (SessionOptions) -> Unit,
+    engine: RecordingEngine,
+    running: Boolean,
+    onOpenGimbal: () -> Unit,
+) {
+    val context = LocalContext.current
+    Section("Réglages fins") {
+        OptionSwitch("Mode recadrage", "Filme large (×1), recadre ensuite sur le surfeur", options.reframe) { if (!running) onOptionsChange(options.copy(reframe = it)) }
+        OptionSwitch("Écran noir après 1 minute", "", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = it)) }
+        OptionSwitch("Forcer le téléobjectif", "Champ fixe ×5", options.tele) { if (!running) onOptionsChange(options.copy(tele = it)) }
+        OptionSwitch("Verrouiller l'exposition", "Si l'image pompe quand un surfeur passe", options.lockExposure) { if (!running) onOptionsChange(options.copy(lockExposure = it)) }
+        OptionSwitch("HDR 10 bits", "Se règle aussi avec « Qualité maximale »", options.hdr) {
+            if (!running) {
+                if (it) context.getSharedPreferences("camera", android.content.Context.MODE_PRIVATE).edit().putBoolean("hdr_broken", false).apply()
+                onOptionsChange(options.copy(hdr = it))
+            }
+        }
+        if (running) Text("Modifiable avant de démarrer.", color = SurfColors.Muted, fontSize = 11.sp)
+    }
+    if (!running) {
+        Section("Tête motorisée") {
+            OutlinedButton(onClick = onOpenGimbal) { Text("Essai et calibrage du gimbal") }
+        }
+    }
+    LearningSection(engine)
+    if (state.phase == Phase.RUNNING) DiagnosticSection(state)
+    if (state.phase == Phase.RUNNING) {
+        Section("Test manuel") {
+            if (state.clipActive) {
+                Button(
+                    onClick = engine::finishClip,
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = SurfColors.Alert, contentColor = Color.White),
+                ) { Text("Fin de vague · +${CaptureConfig.POST_ROLL_SEC} s") }
+            } else {
+                Button(onClick = engine::startClip, modifier = Modifier.fillMaxWidth().height(44.dp)) {
+                    Text("Début de vague · -${CaptureConfig.PRE_ROLL_SEC} s")
+                }
+            }
+        }
+    }
+    state.lastClip?.let { Section("Dernier clip") { Text(it, color = SurfColors.Foam, fontSize = 13.sp) } }
+    details(state)?.let { Section("Technique") { Text(it, color = SurfColors.Muted, fontSize = 12.sp, lineHeight = 17.sp) } }
 }
 
 @Composable
@@ -999,7 +1046,7 @@ private fun LearningSection(engine: RecordingEngine) {
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+internal fun Section(title: String, content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1014,7 +1061,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun OptionSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun OptionSwitch(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Column(Modifier.weight(1f)) {
             Text(title, color = SurfColors.Foam, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -1044,7 +1091,7 @@ private fun details(state: EngineState): String? {
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun CrashDialog(report: String, onDismiss: () -> Unit) {
+internal fun CrashDialog(report: String, onDismiss: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     AlertDialog(
         onDismissRequest = onDismiss,

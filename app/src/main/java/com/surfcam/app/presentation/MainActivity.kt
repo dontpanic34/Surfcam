@@ -45,9 +45,13 @@ class MainActivity : ComponentActivity() {
             val optionsStore = remember { OptionsStore(applicationContext) }
             var options by remember { mutableStateOf(optionsStore.load()) }
             var showLibrary by rememberSaveable { mutableStateOf(false) }
+            // L'accueil (portrait) est l'écran de départ ; on va directement à la caméra si une session tourne déjà.
+            var showCamera by rememberSaveable { mutableStateOf(engine.state.value.phase == Phase.RUNNING || engine.state.value.phase == Phase.STARTING) }
             var showGimbal by rememberSaveable { mutableStateOf(false) }
             val library = remember { VideoLibrary(applicationContext) }
             BackHandler(enabled = showLibrary) { showLibrary = false }
+            val enginePhase by engine.state.collectAsStateWithLifecycle()
+            BackHandler(enabled = !showLibrary && showCamera && enginePhase.phase != Phase.RUNNING && enginePhase.phase != Phase.STARTING) { showCamera = false }
             var hasCamera by remember {
                 mutableStateOf(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
             }
@@ -62,8 +66,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
             // La bibliothèque et le lecteur suivent l'orientation du téléphone ; l'écran caméra reste en paysage (trépied).
-            LaunchedEffect(showLibrary, showGimbal) {
-                requestedOrientation = if (showLibrary || showGimbal) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            LaunchedEffect(showLibrary, showGimbal, showCamera) {
+                requestedOrientation = if (showLibrary || showGimbal || !showCamera) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             }
             if (showGimbal) {
                 GimbalScreen(onBack = { showGimbal = false })
@@ -79,8 +83,29 @@ class MainActivity : ComponentActivity() {
                 )
                 return@setContent
             }
+            if (!showCamera) {
+                HomeScreen(
+                    engine = engine,
+                    options = options,
+                    onOptionsChange = {
+                        options = it
+                        optionsStore.save(it)
+                        engine.setMarkerColor(it.markerColor)
+                    },
+                    crashReport = crash,
+                    onDismissCrash = {
+                        app.clearLastCrash()
+                        crash = null
+                    },
+                    onOpenCamera = { showCamera = true },
+                    onOpenLibrary = { showLibrary = true },
+                    onOpenGimbal = { showGimbal = true },
+                )
+                return@setContent
+            }
             RecordingScreen(
                 engine = engine,
+                onOpenHome = { showCamera = false },
                 onOpenLibrary = { showLibrary = true },
                 onOpenGimbal = { showGimbal = true },
                 options = options,
