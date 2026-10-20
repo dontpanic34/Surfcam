@@ -10,6 +10,7 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.params.DynamicRangeProfiles
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
 import android.media.MediaCodec
@@ -18,6 +19,7 @@ import android.os.HandlerThread
 import android.util.Range
 import android.util.Size
 import android.view.Surface
+import com.surfcam.app.data.encoder.HevcEncoder
 import com.surfcam.app.domain.model.CaptureConfig
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
@@ -96,6 +98,8 @@ class Camera2Source(context: Context) {
 
     private var zoom = 1f
     private var lastOptical: Boolean? = null
+    private var tenBit = false
+    private val hdrPrefs = context.getSharedPreferences("camera", Context.MODE_PRIVATE)
     private var zoomOptical = true
     private var lensOk = true
     private var lastStabilized: Boolean? = null
@@ -149,7 +153,7 @@ class Camera2Source(context: Context) {
     private var closed = false
 
     /** Choisit la caméra, la définition et la cadence ; [maxFps] permet de retomber à 30 si 60 échoue. */
-    fun probe(maxFps: Int, lens: Lens, hd: Boolean = false): CameraProbe {
+    fun probe(maxFps: Int, lens: Lens, hd: Boolean = false, hdr: Boolean = false): CameraProbe {
         var best: Pair<String, CameraCharacteristics>? = null
         var bestZoom = 0f
         for (id in manager.cameraIdList) {
@@ -207,13 +211,14 @@ class Camera2Source(context: Context) {
         val useCases = chars.get(CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES)
         val videoUseCase = useCases?.contains(CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD.toLong()) == true
         characteristics = chars
+        tenBit = hdr && fps <= 30 && hdrUsable(chars, if (lens == Lens.MAIN) teleCandidate?.second else null)
         return CameraProbe(
             cameraId = cameraId,
             physicalId = physical,
             telePhysicalId = if (lens == Lens.MAIN) teleCandidate?.first else null,
             videoStreamUseCases = videoUseCase,
             maxFpsAtSize = sizeMaxFps,
-            config = CaptureConfig(size.width, size.height, fps, bitrate),
+            config = CaptureConfig(size.width, size.height, fps, bitrate, tenBit = tenBit),
             fpsRange = range,
             sensorOrientation = sizeChars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
             minZoom = maxOf(1f, zoomRange?.lower ?: 1f),
@@ -397,7 +402,11 @@ class Camera2Source(context: Context) {
 
                         override fun onConfigureFailed(failed: CameraCaptureSession) {
                             if (closed) return
-                            if (useStreamUseCases && !retriedWithoutUseCases) {
+                            if (tenBit) {
+                                // Le téléphone refuse le HDR avec ces flux : on le coupe pour les prochaines sessions.
+                                hdrPrefs.edit().putBoolean(HDR_BROKEN_KEY, true).apply()
+                                listener?.onError("Le HDR 10 bits n'est pas possible sur ce téléphone avec ces réglages : il est désactivé, relance la session.")
+                            } else if (useStreamUseCases && !retriedWithoutUseCases) {
                                 // Certaines combinaisons refusent les cas d'usage de flux : on réessaie sans.
                                 retriedWithoutUseCases = true
                                 useStreamUseCases = false
@@ -500,6 +509,21 @@ class Camera2Source(context: Context) {
 
     private fun chars(): CameraCharacteristics? = characteristics
 
+    /**
+     * HDR 10 bits possible : l'objectif (et le téléobjectif, si on peut y basculer) annonce le profil HLG10, il se combine avec
+     * les flux ordinaires (aperçu, analyse), l'encodeur sait faire du Main 10, et une tentative précédente n'a pas échoué.
+     */
+    private fun hdrUsable(chars: CameraCharacteristics, tele: CameraCharacteristics?): Boolean {
+        if (hdrPrefs.getBoolean(HDR_BROKEN_KEY, false) || !HevcEncoder.supportsMain10()) return false
+        fun ok(c: CameraCharacteristics): Boolean {
+            val profiles = c.get(CameraCharacteristics.REQUEST_AVAILABLE_DYNAMIC_RANGE_PROFILES) ?: return false
+            if (!profiles.supportedProfiles.contains(DynamicRangeProfiles.HLG10)) return false
+            val mixable = profiles.getProfileCaptureRequestConstraints(DynamicRangeProfiles.HLG10)
+            return mixable.isEmpty() || mixable.contains(DynamicRangeProfiles.STANDARD)
+        }
+        return ok(chars) && (tele == null || ok(tele))
+    }
+
     private fun supports(available: IntArray?, mode: Int): Boolean = available?.contains(mode) == true
 
     private val captureCallback = object : CameraCaptureSession.CaptureCallback() {
@@ -533,6 +557,8 @@ class Camera2Source(context: Context) {
         OutputConfiguration(surface).also {
             physicalId?.let { id -> it.setPhysicalCameraId(id) }
             if (useStreamUseCases) it.setStreamUseCase(streamUseCase.toLong())
+            // Seul le flux de l'encodeur est en HDR ; l'aperçu et l'analyse restent en 8 bits.
+            if (tenBit && surface === encoderSurface) it.setDynamicRangeProfile(DynamicRangeProfiles.HLG10)
         }
 
     /** Avertit l'écran dès que l'image n'est plus entièrement optique : zoom au-delà de l'objectif, ou mauvais objectif actif. */
@@ -601,6 +627,7 @@ class Camera2Source(context: Context) {
         const val TELEPHOTO_SWITCH = 5f
         const val TELEPHOTO_RELEASE = 4.6f
         const val MIN_SWITCH_GAP_MS = 1_500L
+        const val HDR_BROKEN_KEY = "hdr_broken"
 
         // Au plus environ quatre à huit secondes d'attente, selon la cadence.
         const val MAX_CONVERGENCE_FRAMES = 240

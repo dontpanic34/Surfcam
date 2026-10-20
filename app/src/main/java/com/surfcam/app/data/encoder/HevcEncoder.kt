@@ -36,7 +36,15 @@ class HevcEncoder(
             setInteger(MediaFormat.KEY_FRAME_RATE, config.fps)
             setFloat(MediaFormat.KEY_I_FRAME_INTERVAL, config.keyFrameIntervalSec)
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.HEVCProfileMain)
+            setInteger(
+                MediaFormat.KEY_PROFILE,
+                if (config.tenBit) MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 else MediaCodecInfo.CodecProfileLevel.HEVCProfileMain,
+            )
+            if (config.tenBit) {
+                setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT2020)
+                setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_HLG)
+                setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED)
+            }
             setInteger(MediaFormat.KEY_PRIORITY, 0)
         }
         val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_HEVC)
@@ -77,7 +85,14 @@ class HevcEncoder(
             while (running) {
                 val index = encoder.dequeueOutputBuffer(info, DEQUEUE_TIMEOUT_US)
                 if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    listener.onFormat(encoder.outputFormat)
+                    val out = encoder.outputFormat
+                    if (config.tenBit) {
+                        // Le conteneur doit annoncer HLG, sinon les lecteurs montrent des couleurs ternes.
+                        out.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT2020)
+                        out.setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_HLG)
+                        out.setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED)
+                    }
+                    listener.onFormat(out)
                 } else if (index >= 0) {
                     val isConfig = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
                     val buffer = encoder.getOutputBuffer(index)
@@ -97,7 +112,19 @@ class HevcEncoder(
         }
     }
 
-    private companion object {
-        const val DEQUEUE_TIMEOUT_US = 20_000L
+    companion object {
+        private const val DEQUEUE_TIMEOUT_US = 20_000L
+
+        /** Vrai si l'encodeur H.265 du téléphone sait faire du 10 bits (profil Main 10). */
+        fun supportsMain10(): Boolean = try {
+            android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+                .filter { it.isEncoder && MediaFormat.MIMETYPE_VIDEO_HEVC in it.supportedTypes }
+                .any { info ->
+                    info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_HEVC).profileLevels
+                        .any { it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 }
+                }
+        } catch (_: Exception) {
+            false
+        }
     }
 }

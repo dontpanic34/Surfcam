@@ -59,6 +59,8 @@ class OfflineAnalyzer(private val context: Context) {
                     extractor.selectTrack(track)
                     val format = extractor.getTrackFormat(track)
                     format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
+                    // Vidéo HDR 10 bits : on demande au décodeur une image SDR 8 bits, la seule que l'analyse sait lire.
+                    if (Build.VERSION.SDK_INT >= 33) format.setInteger(MediaFormat.KEY_COLOR_TRANSFER_REQUEST, MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
                     val firstPts = extractor.sampleTime.coerceAtLeast(0L)
                     codec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
                     codec.configure(format, null, null, 0)

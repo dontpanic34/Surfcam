@@ -127,6 +127,7 @@ class MainActivity : ComponentActivity() {
             .putExtra(RecordingService.EXTRA_LOCK_EXPOSURE, options.lockExposure)
             .putExtra(RecordingService.EXTRA_REFRAME, options.reframe)
             .putExtra(RecordingService.EXTRA_FOLLOW_GIMBAL, options.followGimbal)
+            .putExtra(RecordingService.EXTRA_HDR, options.hdr)
             .putExtra(RecordingService.EXTRA_MARKER, options.markerColor?.name)
         ContextCompat.startForegroundService(this, intent)
     }

@@ -373,7 +373,7 @@ class RecordingEngine(private val context: Context) {
     }
 
     private fun tryStart(source: Camera2Source, maxFps: Int, rotationDegrees: Int, options: SessionOptions): Boolean {
-        val probe: CameraProbe = source.probe(maxFps, options.lens, options.hd)
+        val probe: CameraProbe = source.probe(maxFps, options.lens, options.hd, options.hdr)
         val config = probe.config
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.

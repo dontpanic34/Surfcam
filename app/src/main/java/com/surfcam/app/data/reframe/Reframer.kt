@@ -9,6 +9,7 @@ import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
@@ -75,6 +76,10 @@ class Reframer(private val context: Context) {
             })
             .build()
         transformer = t
-        t.start(item, outputFile.absolutePath)
+        // Les vidéos HDR (HLG) sont converties en SDR : le recadré 1080p se lira partout avec de bonnes couleurs.
+        val composition = Composition.Builder(EditedMediaItemSequence(listOf(item)))
+            .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
+            .build()
+        t.start(composition, outputFile.absolutePath)
     }
 }

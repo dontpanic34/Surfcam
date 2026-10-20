@@ -27,6 +27,8 @@ data class SessionOptions(
     val reframe: Boolean = false,
     /** Le gimbal DJI enregistré fait pivoter le téléphone pour garder le surfeur au centre. */
     val followGimbal: Boolean = false,
+    /** Vidéo HDR 10 bits (HLG, couleurs étendues), comme Google Caméra ; sans effet si le téléphone ne sait pas (30 i/s seulement). */
+    val hdr: Boolean = true,
     /** Couleur du manchon que l'utilisateur porte pour être repéré parmi les surfeurs ; null = aucune. */
     val markerColor: com.surfcam.app.domain.detection.MarkerColor? = null,
 ) {
