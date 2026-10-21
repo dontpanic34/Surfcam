@@ -35,8 +35,21 @@ class YuvToTensor {
      * l'image source) qui ont la couleur du manchon. Renvoie aussi le nombre de pixels examinés.
      */
     fun markerPixels(box: com.surfcam.app.domain.tracking.BoundingBox, color: com.surfcam.app.domain.detection.MarkerColor): Pair<Int, Int> {
-        // Le repérage du manchon n'est pas encore disponible avec l'analyse en 10 bits (HDR).
-        if (srcWidth == 0 || tenBit) return 0 to 0
+        if (srcWidth == 0) return 0 to 0
+        if (tenBit) {
+            // En 10 bits, le masque a été rempli pendant la conversion : on compte simplement dans la boîte.
+            if (markerMask.size != srcWidth * srcHeight) return 0 to 0
+            val bx0 = box.left.toInt().coerceIn(0, srcWidth - 1)
+            val bx1 = box.right.toInt().coerceIn(bx0 + 1, srcWidth)
+            val by0 = box.top.toInt().coerceIn(0, srcHeight - 1)
+            val by1 = box.bottom.toInt().coerceIn(by0 + 1, srcHeight)
+            var count = 0
+            for (row in by0 until by1) {
+                val base = row * srcWidth
+                for (col in bx0 until bx1) count += markerMask[base + col]
+            }
+            return count to (bx1 - bx0) * (by1 - by0)
+        }
         val x0 = box.left.toInt().coerceIn(0, srcWidth - 1)
         val x1 = box.right.toInt().coerceIn(x0 + 1, srcWidth)
         val y0 = box.top.toInt().coerceIn(0, srcHeight - 1)
@@ -72,6 +85,11 @@ class YuvToTensor {
 
     private var loggedP010 = false
 
+    /** Couleur du manchon à repérer pendant la conversion 10 bits (les plans ne sont pas gardés, on marque les pixels au passage). */
+    @Volatile
+    var markerColor: com.surfcam.app.domain.detection.MarkerColor? = null
+    private var markerMask = ByteArray(0)
+
     /**
      * Version 10 bits (P010) : on ne recopie pas les plans en bloc (une lecture hors des limites d'un tampon du système fait
      * tomber l'application sans rapport) ; chaque échantillon est lu avec une vérification des bornes.
@@ -100,6 +118,8 @@ class YuvToTensor {
         val vLimit = vb.limit()
         srcWidth = lb.sourceWidth
         srcHeight = lb.sourceHeight
+        val marker = markerColor
+        if (markerMask.size != srcWidth * srcHeight) markerMask = ByteArray(srcWidth * srcHeight) else java.util.Arrays.fill(markerMask, 0)
         if (columns.size != lb.scaledWidth) {
             columns = IntArray(lb.scaledWidth) { x -> min((x / lb.scale).toInt(), lb.sourceWidth - 1) }
         }
@@ -116,9 +136,13 @@ class YuvToTensor {
                 val dst = dstBase + col
                 // BT.2020, plage limitée (16 à 235) : on étend avant de convertir en RVB.
                 val yn = (y - 16f) * 1.16438f
-                out[dst] = clamp(yn + 1.67867f * v) * INV_255
-                out[area + dst] = clamp(yn - 0.18733f * u - 0.65042f * v) * INV_255
-                out[2 * area + dst] = clamp(yn + 2.14177f * u) * INV_255
+                val rr = clamp(yn + 1.67867f * v)
+                val gg = clamp(yn - 0.18733f * u - 0.65042f * v)
+                val bb = clamp(yn + 2.14177f * u)
+                out[dst] = rr * INV_255
+                out[area + dst] = gg * INV_255
+                out[2 * area + dst] = bb * INV_255
+                if (marker != null && marker.matches(rr.toInt(), gg.toInt(), bb.toInt())) markerMask[sy * srcWidth + sx] = 1
             }
         }
     }

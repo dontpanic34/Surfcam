@@ -174,6 +174,7 @@ class AnalysisPipeline(
                 clock.add(timestampUs, encoded)
                 clockOffsetUs = clock.offsetUs
             }
+            converter.markerColor = markerColor
             converter.convert(image, input, letterbox)
             if (received == 1) com.surfcam.app.data.engine.Trail.mark("première conversion faite")
             busy.set(true)
