@@ -164,34 +164,9 @@ fun RecordingScreen(
     }
     val deviceForSleep by rememberDeviceStatus()
 
-    // Rappel avant de démarrer : le mode avion économise la batterie et évite les appels (une appli ne peut pas l'activer seule).
-    val context = LocalContext.current
-    var askAirplane by remember { mutableStateOf(false) }
-    val startGuarded = {
-        val airplane = Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1
-        if (airplane) onStartSession() else askAirplane = true
-    }
+    val startGuarded = { onStartSession() }
 
     SurfCamTheme {
-        if (askAirplane) {
-            AlertDialog(
-                onDismissRequest = { askAirplane = false },
-                title = { Text("Mode avion activé ?") },
-                text = { Text("Il économise la batterie et évite les appels pendant que tu surfes. Active-le depuis les réglages rapides, puis démarre.") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        askAirplane = false
-                        onStartSession()
-                    }) { Text("Démarrer quand même") }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        context.startActivity(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        askAirplane = false
-                    }) { Text("Ouvrir les réglages") }
-                },
-            )
-        }
         if (crashReport != null) CrashDialog(crashReport, onDismissCrash)
         if (showInfo) InfoDialog(state, options, onOptionsChange, engine, running, onOpenGimbal = { showInfo = false; onOpenGimbal() }) { showInfo = false }
         Surface(
@@ -872,9 +847,9 @@ internal fun QualitySection(options: SessionOptions, running: Boolean, onOptions
         onOptionsChange(next)
     }
     Section("Qualité de la session") {
-        PresetCard("Équilibré", "4K · environ ${options.copy(hd = false, hdr = false, fps60 = false).gigabytesPerHour()} Go par heure", preset == "eq") { apply("eq") }
-        PresetCard("Qualité maximale", "4K, HDR si le téléphone le permet · le plus beau rendu", preset == "max") { apply("max") }
-        PresetCard("Longue durée", "1080p · environ ${options.copy(hd = true, hdr = false, fps60 = false).gigabytesPerHour()} Go par heure, tient plus longtemps", preset == "eco") { apply("eco") }
+        PresetCard("Équilibré", "4K standard, couleurs classiques lisibles partout · ${options.copy(hd = false, hdr = false, fps60 = false).gigabytesPerHour()} Go par heure de session complète", preset == "eq") { apply("eq") }
+        PresetCard("Qualité maximale", "4K en HDR 10 bits : lumières et couleurs plus riches, chauffe un peu plus · même place qu'Équilibré", preset == "max") { apply("max") }
+        PresetCard("Longue durée", "1080p : ${options.copy(hd = true, hdr = false, fps60 = false).gigabytesPerHour()} Go par heure de session complète, chauffe moins, batterie plus longue", preset == "eco") { apply("eco") }
         if (running) Text("Modifiable avant de démarrer.", color = SurfColors.Muted, fontSize = 11.sp)
     }
 }
