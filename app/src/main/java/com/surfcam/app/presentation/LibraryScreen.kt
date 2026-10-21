@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -353,15 +354,27 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(onClick = {
-                            if (selecting) { selecting = false; chosen.clear() } else onBack()
-                        }) { Text(if (selecting) "Terminer" else "‹ Retour") }
-                        Text("Mes vidéos", color = SurfColors.Aqua, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            "${shownWaves.size + shownSessions.size + shownMontages.size} sur ${videos.size}",
-                            color = SurfColors.Muted, fontSize = 12.sp,
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(
+                            Modifier.size(40.dp).clip(CircleShape).border(1.dp, Color(0xFF2D4252), CircleShape)
+                                .clickable { if (selecting) { selecting = false; chosen.clear() } else onBack() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Canvas(Modifier.size(18.dp)) {
+                                val t = SurfColors.Foam
+                                drawLine(t, Offset(size.width * 0.85f, size.height * 0.5f), Offset(size.width * 0.15f, size.height * 0.5f), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                                drawLine(t, Offset(size.width * 0.15f, size.height * 0.5f), Offset(size.width * 0.5f, size.height * 0.15f), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                                drawLine(t, Offset(size.width * 0.15f, size.height * 0.5f), Offset(size.width * 0.5f, size.height * 0.85f), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                            }
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text("Mes vidéos", color = SurfColors.Foam, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                            val shown = shownWaves.size + shownSessions.size + shownMontages.size
+                            Text(
+                                if (shown == videos.size) "${videos.count { !it.pending }} vidéos" else "$shown sur ${videos.size}",
+                                color = SurfColors.Muted, fontSize = 12.sp,
+                            )
+                        }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.OutlinedTextField(
@@ -377,20 +390,25 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
                             if (!selecting) chosen.clear()
                         }
                     }
+                    val filtersActive = dayFilter != null || judge != "all" || favOnly
+                    var showFilters by remember { mutableStateOf(false) }
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("all" to "Tout", "wave" to "Vagues", "session" to "Sessions", "film" to "Films").forEach { (id, label) ->
                             FilterPill(label, tab == id) { tab = id }
                         }
+                        FilterPill((if (showFilters) "Filtres ▴" else "Filtres ▾") + if (filtersActive) " •" else "", filtersActive) { showFilters = !showFilters }
                     }
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterPill("Tous les jours", dayFilter == null) { dayFilter = null }
-                        allDates.forEach { d -> FilterPill(dayChipLabel(d), dayFilter == d) { dayFilter = if (dayFilter == d) null else d } }
-                    }
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("all" to "Toutes", "good" to "✓ Bonnes", "bad" to "✗ Fausses alertes", "none" to "Non jugées").forEach { (id, label) ->
-                            FilterPill(label, judge == id) { judge = id }
+                    if (showFilters) {
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterPill("Tous les jours", dayFilter == null) { dayFilter = null }
+                            allDates.forEach { d -> FilterPill(dayChipLabel(d), dayFilter == d) { dayFilter = if (dayFilter == d) null else d } }
                         }
-                        FilterPill("★ Favoris", favOnly, highlight = true) { favOnly = !favOnly }
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("all" to "Toutes", "good" to "✓ Bonnes", "bad" to "✗ Fausses alertes", "none" to "Non jugées").forEach { (id, label) ->
+                                FilterPill(label, judge == id) { judge = id }
+                            }
+                            FilterPill("★ Favoris", favOnly, highlight = true) { favOnly = !favOnly }
+                        }
                     }
 
                     message?.let { Banner(it) }
@@ -412,10 +430,25 @@ fun LibraryScreen(library: VideoLibrary, learning: LearningRepository, sessionRu
                     }
                     val pendingCount = videos.count { it.pending }
                     if (pendingCount > 0) {
-                        Banner(
-                            if (sessionRunning) "$pendingCount vidéo(s) en traitement : le fichier en cours d'écriture sera lisible dès qu'il sera terminé."
-                            else "$pendingCount vidéo(s) en traitement : elles seront lisibles dans quelques secondes.",
-                        )
+                        if (sessionRunning) {
+                            Banner("Un fichier est en cours d'écriture : il sera lisible dès qu'il sera terminé.")
+                        } else {
+                            // Plus aucune session ne tourne : un fichier encore « en traitement » est resté incomplet (arrêt brutal).
+                            Column(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x33FF6B6B)).padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text("$pendingCount fichier(s) incomplet(s) : l'app s'est arrêtée pendant l'enregistrement, ils ne sont pas lisibles.", color = SurfColors.Foam, fontSize = 13.sp)
+                                Button(
+                                    onClick = {
+                                        val broken = videos.filter { it.pending }
+                                        scope.launch(Dispatchers.IO) { broken.forEach { library.delete(it) } }
+                                        videos = videos.filter { !it.pending }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = SurfColors.Alert, contentColor = Color.White),
+                                ) { Text("Supprimer ces fichiers") }
+                            }
+                        }
                     }
                     if (loaded && videos.isEmpty()) {
                         Text(

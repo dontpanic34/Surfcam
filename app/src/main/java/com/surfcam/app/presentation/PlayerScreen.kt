@@ -172,6 +172,9 @@ fun PlayerScreen(
     }
 
     var speed by remember { mutableFloatStateOf(1f) }
+    var holdBoost by remember { mutableStateOf(false) }
+    var speedMenu by remember { mutableStateOf(false) }
+    var moreMenu by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf(true) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
@@ -379,6 +382,20 @@ fun PlayerScreen(
                 }
                 .pointerInput(Unit) {
                     detectTapGestures(
+                        // Appui long : lecture à ×2 tant que le doigt reste posé, comme sur les applis de vidéo.
+                        onLongPress = {
+                            if (player.isPlaying) {
+                                holdBoost = true
+                                player.setPlaybackSpeed(2f)
+                            }
+                        },
+                        onPress = {
+                            tryAwaitRelease()
+                            if (holdBoost) {
+                                holdBoost = false
+                                player.setPlaybackSpeed(speed)
+                            }
+                        },
                         onDoubleTap = {
                             zoomScale = if (zoomScale > 1.01f) 1f else 2.5f
                             panX = 0f
@@ -407,6 +424,12 @@ fun PlayerScreen(
                     },
                 factory = { ctx -> TextureView(ctx).also { player.setVideoTextureView(it) } },
             )
+            if (holdBoost) {
+                Text(
+                    "▶▶  ×2", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 18.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xB3000000)).padding(horizontal = 14.dp, vertical = 7.dp),
+                )
+            }
         }
     }
 
@@ -452,36 +475,32 @@ fun PlayerScreen(
     }
 
     val transport: @Composable () -> Unit = {
-      Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            RoundButton(PlayerIcon.FRAME_BACK, 44.dp) { step(-1) }
-            RoundButton(if (playing) PlayerIcon.PAUSE else PlayerIcon.PLAY, 56.dp, filled = true) {
-                if (player.isPlaying) player.pause() else {
-                    if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
-                    player.play()
-                }
-                touched()
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        RoundButton(PlayerIcon.PREVIOUS, 40.dp) { goTo(index - 1); touched() }
+        RoundButton(PlayerIcon.FRAME_BACK, 40.dp) { step(-1) }
+        RoundButton(if (playing) PlayerIcon.PAUSE else PlayerIcon.PLAY, 60.dp, filled = true) {
+            if (player.isPlaying) player.pause() else {
+                if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
+                player.play()
             }
-            RoundButton(PlayerIcon.FRAME_NEXT, 44.dp) { step(1) }
-            Spacer(Modifier.width(8.dp))
-            listOf(0.25f to "×0,25", 0.5f to "×0,5", 1f to "×1", 2f to "×2").forEach { (value, label) ->
-                SpeedChip(label, speed == value) {
-                    speed = value
-                    touched()
+            touched()
+        }
+        RoundButton(PlayerIcon.FRAME_NEXT, 40.dp) { step(1) }
+        RoundButton(PlayerIcon.NEXT, 40.dp) { goTo(index + 1); touched() }
+        Box {
+            SpeedChip("×" + (if (speed == speed.toInt().toFloat()) speed.toInt().toString() else speed.toString().replace('.', ',')) + " ▾", speed != 1f) { speedMenu = true }
+            DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
+                listOf(0.25f to "×0,25 (très lent)", 0.5f to "×0,5 (lent)", 1f to "×1 (normal)", 2f to "×2 (rapide)").forEach { (value, label) ->
+                    DropdownMenuItem(text = { Text(label) }, onClick = { speed = value; speedMenu = false; touched() })
                 }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Zoom", color = Color.White, fontSize = 12.sp)
-            listOf(1f, 2f, 3f, 4f).forEach { z ->
-                SpeedChip("×${z.toInt()}", abs(zoomScale - z) < 0.05f) {
-                    zoomScale = z
-                    if (z == 1f) {
-                        panX = 0f
-                        panY = 0f
-                    }
-                    touched()
-                }
+        if (zoomScale > 1.01f) {
+            SpeedChip("Zoom ×%.1f ✕".format(zoomScale).replace('.', ','), true) {
+                zoomScale = 1f
+                panX = 0f
+                panY = 0f
+                touched()
             }
         }
       }
@@ -517,33 +536,31 @@ fun PlayerScreen(
                     }
                 }
             }
-            Box {
-                SpeedChip(if (reframeProgress != null) "Recadrage ${reframeProgress}%" else "Recadrer ▾", reframeProgress != null) {
-                    if (reframeProgress == null) reframeMenu = true else {
-                        reframer.cancel()
-                        reframeProgress = null
-                    }
+            if (reframeProgress != null) {
+                SpeedChip("Recadrage ${reframeProgress}% · annuler", true) {
+                    reframer.cancel()
+                    reframeProgress = null
                 }
-                DropdownMenu(expanded = reframeMenu, onDismissRequest = { reframeMenu = false }) {
+            }
+            RoundButton(PlayerIcon.SHARE, 40.dp) { shareVideo(context, video) }
+            Box {
+                RoundButton(PlayerIcon.MORE, 40.dp) { moreMenu = true }
+                DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
                     if (hasPath) {
-                        DropdownMenuItem(text = { Text("Suivre le surfeur · zoom auto") }, onClick = { reframeMenu = false; startReframe(null, false) })
+                        DropdownMenuItem(text = { Text("Recadrer sur le surfeur · zoom auto") }, onClick = { moreMenu = false; startReframe(null, false) })
                         listOf(2f, 3f, 4f).forEach { z ->
-                            DropdownMenuItem(text = { Text("Suivre le surfeur · ×${z.toInt()}") }, onClick = { reframeMenu = false; startReframe(z, false) })
+                            DropdownMenuItem(text = { Text("Recadrer sur le surfeur · ×${z.toInt()}") }, onClick = { moreMenu = false; startReframe(z, false) })
                         }
                     }
                     DropdownMenuItem(
-                        text = { Text(if (zoomScale > 1.01f) "Cette vue (×%.1f)".format(zoomScale).replace('.', ',') else "Cette vue : zoome d'abord sur la vidéo") },
+                        text = { Text(if (zoomScale > 1.01f) "Recadrer cette vue (×%.1f)".format(zoomScale).replace('.', ',') else "Recadrer cette vue (zoome d'abord)") },
                         enabled = zoomScale > 1.01f,
-                        onClick = { reframeMenu = false; startReframe(null, true) },
+                        onClick = { moreMenu = false; startReframe(null, true) },
                     )
-                    if (!hasPath) {
-                        DropdownMenuItem(text = { Text("Suivi du surfeur indisponible pour ce clip") }, enabled = false, onClick = {})
-                    }
+                    if (!hasPath) DropdownMenuItem(text = { Text("Suivi du surfeur indisponible pour ce clip") }, enabled = false, onClick = {})
+                    DropdownMenuItem(text = { Text("Supprimer le clip", color = SurfColors.Alert) }, onClick = { moreMenu = false; confirmDelete = true })
                 }
             }
-            RoundButton(PlayerIcon.PREVIOUS, 40.dp) { goTo(index - 1); touched() }
-            RoundButton(PlayerIcon.NEXT, 40.dp) { goTo(index + 1); touched() }
-            RoundButton(PlayerIcon.TRASH, 40.dp, danger = true) { confirmDelete = true }
         }
     }
 
@@ -585,7 +602,7 @@ fun PlayerScreen(
                         Text("Clip manuel ou session : pas de jugement à donner.", color = SurfColors.Muted, fontSize = 12.sp)
                     }
                     report?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
-                    Text("Glisse la vidéo vers la gauche ou la droite pour changer de clip.", color = SurfColors.Muted, fontSize = 11.sp)
+                    Text("Glisse la vidéo pour changer de clip · reste appuyé dessus pour lire en ×2 · pince pour zoomer.", color = SurfColors.Muted, fontSize = 11.sp)
                 }
             } else {
                 Box(Modifier.fillMaxSize()) {
@@ -677,7 +694,7 @@ private class Scrubber(private val player: ExoPlayer) {
     }
 }
 
-private enum class PlayerIcon { PLAY, PAUSE, FRAME_BACK, FRAME_NEXT, PREVIOUS, NEXT, BACK, TRASH }
+private enum class PlayerIcon { PLAY, PAUSE, FRAME_BACK, FRAME_NEXT, PREVIOUS, NEXT, BACK, TRASH, SHARE, MORE }
 
 @Composable
 private fun RoundButton(icon: PlayerIcon, size: Dp, filled: Boolean = false, danger: Boolean = false, onClick: () -> Unit) {
@@ -731,6 +748,22 @@ private fun RoundButton(icon: PlayerIcon, size: Dp, filled: Boolean = false, dan
                     drawLine(tint, Offset(w * 0.2f, h * 0.5f), Offset(w * 0.5f, h * 0.2f), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
                     drawLine(tint, Offset(w * 0.2f, h * 0.5f), Offset(w * 0.5f, h * 0.8f), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
                 }
+                PlayerIcon.SHARE -> {
+                    // Trois points reliés : le symbole habituel du partage.
+                    val a = Offset(w * 0.75f, h * 0.2f)
+                    val b = Offset(w * 0.25f, h * 0.5f)
+                    val c = Offset(w * 0.75f, h * 0.8f)
+                    drawLine(tint, a, b, strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    drawLine(tint, b, c, strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    drawCircle(tint, 3.2.dp.toPx(), a)
+                    drawCircle(tint, 3.2.dp.toPx(), b)
+                    drawCircle(tint, 3.2.dp.toPx(), c)
+                }
+                PlayerIcon.MORE -> {
+                    drawCircle(tint, 2.2.dp.toPx(), Offset(w * 0.5f, h * 0.2f))
+                    drawCircle(tint, 2.2.dp.toPx(), Offset(w * 0.5f, h * 0.5f))
+                    drawCircle(tint, 2.2.dp.toPx(), Offset(w * 0.5f, h * 0.8f))
+                }
                 PlayerIcon.TRASH -> {
                     drawLine(tint, Offset(w * 0.1f, h * 0.22f), Offset(w * 0.9f, h * 0.22f), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
                     drawLine(tint, Offset(w * 0.38f, h * 0.1f), Offset(w * 0.62f, h * 0.1f), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
@@ -774,6 +807,15 @@ private fun JudgeButton(text: String, selected: Boolean, color: Color, onClick: 
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 12.dp),
     )
+}
+
+/** Ouvre le partage Android pour le clip : messagerie, réseaux, Drive… */
+private fun shareVideo(context: android.content.Context, video: LibraryVideo) {
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+        .setType("video/mp4")
+        .putExtra(android.content.Intent.EXTRA_STREAM, video.uri)
+        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    context.startActivity(android.content.Intent.createChooser(send, "Partager le clip").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
 private fun formatClock(ms: Long): String {
