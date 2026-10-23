@@ -111,8 +111,18 @@ class AnalysisPipeline(
 
     /** Ralentit l'analyse quand le téléphone chauffe : 1 = cadence normale, 2 = deux fois moins d'images, etc. */
     fun setSlowdown(factor: Int) {
-        throttle.minIntervalUs = MIN_INTERVAL_US * factor.coerceIn(1, 8)
+        slowdown = factor.coerceIn(1, 8)
+        throttle.minIntervalUs = baseIntervalUs * slowdown
     }
+
+    /** Cadence de base de l'analyse (plus rapide quand le gimbal suit un surfeur : le retard compte alors). */
+    fun setBaseIntervalMs(ms: Long) {
+        baseIntervalUs = ms * 1_000L
+        throttle.minIntervalUs = baseIntervalUs * slowdown
+    }
+
+    private var slowdown = 1
+    private var baseIntervalUs = MIN_INTERVAL_US
     private var frames = 0
     private var received = 0
 

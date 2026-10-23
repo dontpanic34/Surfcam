@@ -81,6 +81,8 @@ fun GimbalScreen(onBack: () -> Unit) {
     var calibrating by remember { mutableStateOf(false) }
     var invert by remember { mutableStateOf(false) }
     var permissionRefused by remember { mutableStateOf(false) }
+    val horizon by rememberHorizonAngle()
+    var leveling by remember { mutableStateOf(false) }
     val prefs = remember { context.getSharedPreferences("gimbal", Context.MODE_PRIVATE) }
     LaunchedEffect(Unit) { invert = prefs.getBoolean("invert", false) }
 
@@ -115,6 +117,45 @@ fun GimbalScreen(onBack: () -> Unit) {
         while (isActive) {
             link.rotate(direction * speed.toInt())
             delay(150)
+        }
+    }
+
+    /**
+     * Redresse l'horizon avec le roulis du gimbal : on mesure l'inclinaison du téléphone (capteur de gravité), on ordonne
+     * un petit pivotement, on remesure, et on recommence. Si l'écart grandit, le sens était faux : on l'inverse (et on s'en
+     * souvient). S'arrête sous 0,4° ou après six essais.
+     */
+    fun autoLevel() {
+        if (leveling) return
+        leveling = true
+        report = "Redressement de l'horizon…"
+        scope.launch {
+            var sign = prefs.getInt("rollSign", 1)
+            var before = horizon
+            if (before == null) {
+                report = "Le téléphone n'a pas de capteur d'inclinaison utilisable."
+                leveling = false
+                return@launch
+            }
+            val start = before
+            repeat(6) {
+                val e = before ?: return@repeat
+                if (kotlin.math.abs(e) < 0.4f) return@repeat
+                val step = (-e * 0.8f).coerceIn(-5f, 5f) * sign
+                link.rollBy(step, 1.0f)
+                delay(2_500)
+                val after = horizon ?: e
+                if (kotlin.math.abs(after) > kotlin.math.abs(e) - 0.2f) {
+                    // Pas d'amélioration : mauvais sens.
+                    sign = -sign
+                    prefs.edit().putInt("rollSign", sign).apply()
+                }
+                before = after
+            }
+            val end = horizon ?: 0f
+            report = "Horizon : %.1f° avant, %.1f° après.".format(start, end) +
+                if (kotlin.math.abs(end) > 1f) " Le gimbal n'a pas suivi l'ordre de roulis : utilise le réglage de l'appli DJI Mimo." else " C'est droit."
+            leveling = false
         }
     }
 
@@ -204,6 +245,7 @@ fun GimbalScreen(onBack: () -> Unit) {
                         }
                     }
                 } else {
+                    horizon?.let { Text("Inclinaison du téléphone : %.1f°".format(it).replace('.', ','), color = SurfColors.Aqua, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                     Text("Vitesse demandée : ${speed.toInt()} (unités du protocole)", color = SurfColors.Foam, fontSize = 13.sp)
                     Slider(
                         value = speed, onValueChange = { speed = it }, valueRange = 100f..2000f,
@@ -219,7 +261,8 @@ fun GimbalScreen(onBack: () -> Unit) {
                             onClick = { link.stop() },
                             colors = ButtonDefaults.buttonColors(containerColor = SurfColors.Alert, contentColor = Color.White),
                         ) { Text("STOP") }
-                        OutlinedButton(onClick = { calibrate() }, enabled = !calibrating) { Text(if (calibrating) "Calibrage…" else "Calibrer (mesure auto)") }
+                        OutlinedButton(onClick = { autoLevel() }, enabled = !leveling && !calibrating) { Text(if (leveling) "Redressement…" else "Redresser l'horizon") }
+                        OutlinedButton(onClick = { calibrate() }, enabled = !calibrating && !leveling) { Text(if (calibrating) "Calibrage…" else "Calibrer la vitesse") }
                         OutlinedButton(onClick = { link.disconnect() }) { Text("Déconnecter") }
                     }
                     Text(

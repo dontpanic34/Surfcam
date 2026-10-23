@@ -70,6 +70,18 @@ object FollowController {
         return (errorDeg * config.gain).coerceIn(-config.maxStepDeg, config.maxStepDeg)
     }
 
+    /**
+     * Pas d'angle avec anticipation : le surfeur avance pendant que l'analyse répond et que le gimbal tourne. On vise
+     * donc là où il sera dans [leadSeconds] d'après sa vitesse angulaire [velocityDegPerSec] (degrés par seconde dans
+     * le repère fixe). Une vitesse sous 1 °/s est du bruit de mesure : ignorée.
+     */
+    fun stepWithLead(errorDeg: Float, velocityDegPerSec: Float, leadSeconds: Float, config: StepConfig = StepConfig()): Float {
+        val v = if (abs(velocityDegPerSec) < 1f) 0f else velocityDegPerSec
+        val predicted = errorDeg + v * leadSeconds
+        // La zone morte s'applique à l'écart prévu : un surfeur qui file doit être suivi même s'il est encore au centre.
+        return stepDegrees(predicted, config)
+    }
+
     /** Durée du pivotement : douce pour les petits pas, un peu plus longue pour les grands. */
     fun moveSeconds(stepDeg: Float): Float = (0.5f + abs(stepDeg) / 40f).coerceIn(0.5f, 1.2f)
 

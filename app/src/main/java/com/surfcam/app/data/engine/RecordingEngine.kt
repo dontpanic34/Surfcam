@@ -152,21 +152,32 @@ class RecordingEngine(private val context: Context) {
     private var ledEnabled = false
 
     /**
-     * Voyant d'enregistrement : la LED du flash s'allume 0,2 s toutes les 15 s. Elle reste éteinte pendant un clip de vague
-     * (pour ne pas marquer l'image), quand le téléphone chauffe fort ou quand la batterie est basse.
+     * Voyant d'enregistrement : la LED du flash donne un éclair de 0,15 s toutes les 6 s en attente, et un double éclair
+     * toutes les 3 s pendant qu'une vague est enregistrée. Elle s'éteint quand le téléphone chauffe fort ou que la
+     * batterie est basse.
      */
+    private var ledCount = 0
     private val ledTick = object : Runnable {
         override fun run() {
             if (!ledEnabled) return
             val s = _state.value
             val battery = batteryPercent()
-            val ok = s.phase == Phase.RUNNING && !s.clipActive && s.thermalLevel < 2 && (battery == null || battery.first > 15 || battery.second)
-            if (ok) {
-                camera?.setTorch(true)
-                ledHandler.postDelayed({ camera?.setTorch(false) }, 200)
+            val ok = s.phase == Phase.RUNNING && s.thermalLevel < 2 && (battery == null || battery.first > 15 || battery.second)
+            ledCount++
+            // En attente : un éclair court toutes les 6 s. Pendant une vague : un double éclair toutes les 3 s.
+            if (ok && s.clipActive) {
+                pulseLed()
+                ledHandler.postDelayed({ pulseLed() }, 350)
+            } else if (ok && ledCount % 2 == 0) {
+                pulseLed()
             }
-            ledHandler.postDelayed(this, 15_000)
+            ledHandler.postDelayed(this, 3_000)
         }
+    }
+
+    private fun pulseLed() {
+        camera?.setTorch(true)
+        ledHandler.postDelayed({ camera?.setTorch(false) }, 150)
     }
     private var safetyRunning = false
     private var severeSinceMs = 0L
@@ -551,6 +562,8 @@ class RecordingEngine(private val context: Context) {
             val problem = f.start()
             if (problem == null) {
                 follower = f
+                // Le suivi réclame une analyse plus fréquente : le retard de mesure se voit directement sur le gimbal.
+                pipeline?.setBaseIntervalMs(FOLLOW_ANALYSIS_INTERVAL_MS)
                 _state.update { it.copy(gimbalStatus = f.status(), followEnabled = true) }
             } else {
                 _state.update { it.copy(gimbalStatus = problem, followEnabled = false) }
@@ -896,6 +909,7 @@ class RecordingEngine(private val context: Context) {
         const val MIN_START_FREE_BYTES = 1_500L * 1024 * 1024
         const val STOP_BATTERY_PERCENT = 3
         const val SEVERE_LIMIT_MS = 600_000L
+        const val FOLLOW_ANALYSIS_INTERVAL_MS = 250L
         const val ALERT_CHANNEL = "alertes"
         const val ALERT_ID = 2
     }

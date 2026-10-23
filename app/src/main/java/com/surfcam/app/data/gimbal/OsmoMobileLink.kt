@@ -116,6 +116,12 @@ class OsmoMobileLink(private val context: Context) {
         send(packet, force = true)
     }
 
+    /** Fait pivoter le téléphone autour de l'axe de la caméra (degrés, signé) pour redresser l'horizon. */
+    fun rollBy(degrees: Float, seconds: Float) {
+        val packet = DjiPackets.rollBy((degrees * 10).toInt().coerceIn(-300, 300), (seconds * 10).toInt().coerceIn(1, 255))
+        send(packet, force = true)
+    }
+
     private fun note(line: String) {
         _state.update { it.copy(journal = (listOf(line) + it.journal).take(14)) }
     }

@@ -81,4 +81,13 @@ class FollowControllerTest {
         assertEquals(0.875f, FollowController.moveSeconds(15f), 0.001f)
         assertEquals(1.2f, FollowController.moveSeconds(90f), 0f)
     }
+
+    @Test
+    fun `l'anticipation avance l'ordre dans le sens de la marche du surfeur`() {
+        // Au centre mais qui file à 6 °/s vers la droite : on pivote déjà vers la droite.
+        val ahead = FollowController.stepWithLead(0f, 6f, 1.2f)
+        assertTrue(ahead > 0f)
+        assertEquals(0f, FollowController.stepWithLead(0f, 0.5f, 1.2f), 0f) // bruit de mesure
+        assertTrue(FollowController.stepWithLead(0f, -6f, 1.2f) < 0f)
+    }
 }

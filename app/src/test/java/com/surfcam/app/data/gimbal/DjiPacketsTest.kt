@@ -45,6 +45,12 @@ class DjiPacketsTest {
     }
 
     @Test
+    fun `le roulis est place apres le lacet, comme dans le pilote de reference`() {
+        assertEquals("551504a9020401000004140000ceff0000040a55e0", DjiPackets.rollBy(-50, 10).hex())
+        assertEquals("551504a90204010000041400001e0000000408de73", DjiPackets.rollBy(30, 8).hex())
+    }
+
+    @Test
     fun `le lecteur de messages recolle un message coupe en deux et lit la batterie`() {
         // Message fabriqué : longueur 14 (13 + 1 octet de charge utile), ensemble 5, commande 6, batterie 87 %.
         val m = byteArrayOf(0x55, 0x0e, 0x04, 0x00, 0x02, 0x03, 0x01, 0x00, 0x00, 0x05, 0x06, 87, 0x00, 0x00)

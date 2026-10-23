@@ -20,9 +20,9 @@ object DjiPackets {
     private const val MODE_RELATIVE = 0x04
     private const val MODE_SPEED = 0x80
 
-    private fun rotation(yaw: Int, mode: Int, duration: Int): ByteArray {
+    private fun rotation(yaw: Int, mode: Int, duration: Int, roll: Int = 0): ByteArray {
         val body = byteArrayOf(0x02, 0x04, 0x01, 0x00, 0x00, 0x04, if (mode == MODE_SPEED) 0x0c else 0x14)
-        val payload = le16(yaw) + le16(0) + le16(0) + byteArrayOf(mode.toByte(), duration.toByte())
+        val payload = le16(yaw) + le16(roll) + le16(0) + byteArrayOf(mode.toByte(), duration.toByte())
         val crc = crc16(body + payload, 0xdf0c)
         return byteArrayOf(0x55, 0x15, 0x04, 0xa9.toByte()) + body + payload + le16(crc)
     }
@@ -35,6 +35,9 @@ object DjiPackets {
 
     /** Pivotement d'un angle donné (lacet, dixièmes de degré, signé) à effectuer en [duration] dixièmes de seconde. */
     fun rotateBy(yawTenthsDeg: Int, duration: Int): ByteArray = rotation(yawTenthsDeg, MODE_RELATIVE, duration)
+
+    /** Pivotement d'un angle donné autour de l'axe de roulis (dixièmes de degré, signé) : sert à redresser l'horizon. */
+    fun rollBy(rollTenthsDeg: Int, duration: Int): ByteArray = rotation(0, MODE_RELATIVE, duration, roll = rollTenthsDeg)
 }
 
 /** Message DUML reçu du gimbal (en-tête 0x55, longueur sur 10 bits, ensemble de commandes et commande). */

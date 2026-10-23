@@ -28,6 +28,10 @@ class GimbalFollower(context: Context) {
     private var lastSeenAtMs = 0L
     private var lastCommandAtMs = 0L
     private var nextStepAtMs = 0L
+    private var yawCmdDeg = 0f
+    private var prevWorld: Float? = null
+    private var prevWorldAtMs = 0L
+    private var velocity = 0f
     private var lastX: Float? = null
     private var moving = false
     private var gain = 0f
@@ -64,19 +68,38 @@ class GimbalFollower(context: Context) {
 
     /**
      * À appeler à chaque image analysée : surfeurs vus, champ de vision horizontal de l'image en degrés.
-     * Un pas de pivotement à la fois, puis une pause le temps que le gimbal bouge et que l'analyse rattrape son retard.
+     * Un pas de pivotement à la fois, avec anticipation du déplacement du surfeur, puis une courte pause le temps que le
+     * gimbal bouge et que l'analyse rattrape son retard.
      */
     fun onFrame(boxes: List<FollowBox>, hfovDeg: Float) {
         if (!started || !enabled || !link.state.value.connected) return
         val now = SystemClock.elapsedRealtime()
+        val target = FollowController.chooseTarget(boxes, lastX)
+        if (target == null) {
+            // Surfeur perdu un moment : on oublie sa vitesse, elle ne vaut plus rien.
+            if (now - lastSeenAtMs > LOST_TIMEOUT_MS) {
+                prevWorld = null
+                velocity = 0f
+            }
+            return
+        }
+        lastSeenAtMs = now
         if (now < nextStepAtMs) return
-        val target = FollowController.chooseTarget(boxes, lastX) ?: return
         lastX = target.centerX
-        val step = FollowController.stepDegrees((target.centerX - 0.5f) * hfovDeg)
+        val error = (target.centerX - 0.5f) * hfovDeg
+        // Position du surfeur dans un repère fixe : là où le gimbal est tourné (somme des pas ordonnés) plus l'écart vu.
+        val world = yawCmdDeg + error
+        prevWorld?.let { pw ->
+            val dt = (now - prevWorldAtMs) / 1000f
+            if (dt in 0.15f..3f) velocity += VELOCITY_SMOOTHING * ((world - pw) / dt - velocity)
+        }
+        prevWorld = world
+        prevWorldAtMs = now
+        val step = FollowController.stepWithLead(error, velocity, LEAD_SECONDS)
         if (step == 0f) return
         val seconds = FollowController.moveSeconds(step)
         link.rotateBy(if (invert) -step else step, seconds)
-        // Le mouvement dure [seconds] ; on attend ensuite l'analyse (retard d'environ une seconde) avant de re-mesurer.
+        yawCmdDeg += step
         nextStepAtMs = now + ((seconds + SETTLE_SECONDS) * 1000).toLong()
     }
 
@@ -93,7 +116,9 @@ class GimbalFollower(context: Context) {
 
     private companion object {
         const val LOST_TIMEOUT_MS = 1_200L
-        const val SETTLE_SECONDS = 1.0f
+        const val SETTLE_SECONDS = 0.5f
+        const val LEAD_SECONDS = 1.0f
+        const val VELOCITY_SMOOTHING = 0.5f
         const val STALL_TIMEOUT_MS = 1_500L
     }
 }
