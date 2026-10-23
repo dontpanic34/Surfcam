@@ -123,6 +123,7 @@ fun HomeScreen(
                 }
 
                 QualitySection(options, running, onOptionsChange)
+                GimbalCard()
                 BehaviourSection(options, running, onOptionsChange)
 
                 Column(

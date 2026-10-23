@@ -14,7 +14,7 @@ import com.surfcam.app.domain.gimbal.FollowController
  */
 class GimbalFollower(context: Context) {
 
-    private val link = OsmoMobileLink(context)
+    private val link = GimbalHub.link(context)
     private val prefs = context.getSharedPreferences("gimbal", Context.MODE_PRIVATE)
     private val handler = Handler(Looper.getMainLooper())
 
@@ -51,7 +51,7 @@ class GimbalFollower(context: Context) {
     fun start(): String? {
         val address = prefs.getString("address", null) ?: return "Aucun gimbal enregistré : fais d'abord l'essai dans « Tête motorisée »"
         invert = prefs.getBoolean("invert", false)
-        link.connect(address)
+        if (!link.state.value.connected && !link.state.value.connecting) link.connect(address)
         started = true
         handler.postDelayed(watchdog, 500)
         return null
@@ -111,7 +111,8 @@ class GimbalFollower(context: Context) {
     fun stop() {
         started = false
         handler.removeCallbacks(watchdog)
-        link.disconnect()
+        // La liaison reste ouverte pour l'accueil ; on arrête seulement le mouvement.
+        link.stop()
     }
 
     private companion object {

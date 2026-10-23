@@ -557,7 +557,7 @@ class RecordingEngine(private val context: Context) {
         synchronized(pathCaptures) { pathCaptures.clear() }
         follower?.stop()
         follower = null
-        if (options.followGimbal) {
+        if (com.surfcam.app.data.gimbal.GimbalHub.hasSavedGimbal(context)) {
             val f = GimbalFollower(context)
             val problem = f.start()
             if (problem == null) {

@@ -73,7 +73,7 @@ import kotlin.math.sqrt
 fun GimbalScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val link = remember { OsmoMobileLink(context) }
+    val link = remember { com.surfcam.app.data.gimbal.GimbalHub.link(context) }
     val state by link.state.collectAsState()
     var speed by remember { mutableFloatStateOf(600f) }
     var measured by remember { mutableFloatStateOf(0f) }
@@ -101,11 +101,11 @@ fun GimbalScreen(onBack: () -> Unit) {
         if (gyro != null) manager.registerListener(listener, gyro, SensorManager.SENSOR_DELAY_GAME)
         onDispose {
             manager.unregisterListener(listener)
-            link.disconnect()
+            link.stop()
         }
     }
     BackHandler {
-        link.disconnect()
+        link.stop()
         onBack()
     }
 
@@ -120,41 +120,12 @@ fun GimbalScreen(onBack: () -> Unit) {
         }
     }
 
-    /**
-     * Redresse l'horizon avec le roulis du gimbal : on mesure l'inclinaison du téléphone (capteur de gravité), on ordonne
-     * un petit pivotement, on remesure, et on recommence. Si l'écart grandit, le sens était faux : on l'inverse (et on s'en
-     * souvient). S'arrête sous 0,4° ou après six essais.
-     */
     fun autoLevel() {
         if (leveling) return
         leveling = true
         report = "Redressement de l'horizon…"
         scope.launch {
-            var sign = prefs.getInt("rollSign", 1)
-            var before = horizon
-            if (before == null) {
-                report = "Le téléphone n'a pas de capteur d'inclinaison utilisable."
-                leveling = false
-                return@launch
-            }
-            val start = before
-            repeat(6) {
-                val e = before ?: return@repeat
-                if (kotlin.math.abs(e) < 0.4f) return@repeat
-                val step = (-e * 0.8f).coerceIn(-5f, 5f) * sign
-                link.rollBy(step, 1.0f)
-                delay(2_500)
-                val after = horizon ?: e
-                if (kotlin.math.abs(after) > kotlin.math.abs(e) - 0.2f) {
-                    // Pas d'amélioration : mauvais sens.
-                    sign = -sign
-                    prefs.edit().putInt("rollSign", sign).apply()
-                }
-                before = after
-            }
-            val end = horizon ?: 0f
-            report = "Horizon : %.1f° avant, %.1f° après.".format(start, end) +
-                if (kotlin.math.abs(end) > 1f) " Le gimbal n'a pas suivi l'ordre de roulis : utilise le réglage de l'appli DJI Mimo." else " C'est droit."
+            report = com.surfcam.app.data.gimbal.HorizonLeveler(link, prefs).run { horizon }
             leveling = false
         }
     }
@@ -202,7 +173,7 @@ fun GimbalScreen(onBack: () -> Unit) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(onClick = {
-                        link.disconnect()
+                        link.stop()
                         onBack()
                     }) { Text("‹ Retour") }
                     Text("Tête motorisée · test", color = SurfColors.Aqua, fontSize = 20.sp, fontWeight = FontWeight.Bold)
