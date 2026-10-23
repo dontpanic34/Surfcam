@@ -118,7 +118,7 @@ fun GimbalCard() {
     Section("Gimbal") {
         Text(
             when {
-                state.connected -> "Connecté" + (state.battery?.let { " · batterie $it %" } ?: "")
+                state.connected -> "Connecté · batterie du gimbal " + (state.battery?.let { "$it %" + if (state.charging) " (en charge)" else "" } ?: "…")
                 state.connecting -> "Connexion…"
                 prefs.getString("address", null) != null -> "Non connecté (allume le gimbal)"
                 else -> "Aucun gimbal choisi"

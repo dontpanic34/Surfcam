@@ -50,6 +50,25 @@ class OsmoMobileLink(private val context: Context) {
     private var lastWriteAt = 0L
     private var lastNoteAt = 0L
     private val parser = DumlParser()
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var batteryChar: BluetoothGattCharacteristic? = null
+
+    /** Lit le niveau de batterie du gimbal (service standard 0x180F), sans attendre qu'il l'envoie de lui-même. */
+    private fun readBattery() {
+        val g = gatt ?: return
+        val c = batteryChar ?: return
+        try {
+            g.readCharacteristic(c)
+        } catch (_: Exception) {
+        }
+    }
+
+    private val batteryPoll = object : Runnable {
+        override fun run() {
+            if (_state.value.connected) readBattery()
+            handler.postDelayed(this, 60_000)
+        }
+    }
 
     private val _state = MutableStateFlow(GimbalState())
     val state: StateFlow<GimbalState> = _state
@@ -96,6 +115,7 @@ class OsmoMobileLink(private val context: Context) {
     }
 
     fun disconnect() {
+        handler.removeCallbacks(batteryPoll)
         stop()
         gatt?.disconnect()
         gatt?.close()
@@ -187,6 +207,7 @@ class OsmoMobileLink(private val context: Context) {
                 return
             }
             writeChar = write
+            batteryChar = g.getService(BATTERY_SERVICE)?.getCharacteristic(BATTERY_LEVEL)
             note("Services trouvés, écriture ${write.uuid.toString().substring(4, 8)} · notif ${notify.uuid.toString().substring(4, 8)}")
             g.setCharacteristicNotification(notify, true)
             notify.getDescriptor(CCCD)?.let { d ->
@@ -197,6 +218,26 @@ class OsmoMobileLink(private val context: Context) {
                 }
             }
             _state.update { it.copy(connected = true, connecting = false, status = "Connecté : prêt à tourner") }
+        }
+
+        override fun onDescriptorWrite(g: BluetoothGatt, descriptor: android.bluetooth.BluetoothGattDescriptor, status: Int) {
+            // Les notifications sont branchées : première lecture de la batterie, puis une par minute.
+            if (descriptor.characteristic.uuid == NOTIFY) {
+                readBattery()
+                handler.removeCallbacks(batteryPoll)
+                handler.postDelayed(batteryPoll, 60_000)
+            }
+        }
+
+        @Deprecated("Deprecated in Java")
+        override fun onCharacteristicRead(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            if (status != BluetoothGatt.GATT_SUCCESS || characteristic.uuid != BATTERY_LEVEL) return
+            @Suppress("DEPRECATION")
+            val level = characteristic.value?.firstOrNull()?.toInt()?.and(0xFF) ?: return
+            if (level in 0..100) {
+                _state.update { it.copy(battery = level) }
+                note("Batterie du gimbal : $level %")
+            }
         }
 
         @Deprecated("Deprecated in Java")
@@ -215,6 +256,8 @@ class OsmoMobileLink(private val context: Context) {
         val SERVICE: UUID = UUID.fromString("0000fff0-0000-1000-8000-00805f9b34fb")
         val NOTIFY: UUID = UUID.fromString("0000fff4-0000-1000-8000-00805f9b34fb")
         val WRITE: UUID = UUID.fromString("0000fff5-0000-1000-8000-00805f9b34fb")
+        val BATTERY_SERVICE: UUID = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb")
+        val BATTERY_LEVEL: UUID = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb")
         private val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         private val BluetoothGattDescriptorEnable = byteArrayOf(0x01, 0x00)
         private const val MIN_INTERVAL_MS = 60L
