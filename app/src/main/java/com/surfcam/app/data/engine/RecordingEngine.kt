@@ -565,6 +565,7 @@ class RecordingEngine(private val context: Context) {
             val problem = f.start()
             if (problem == null) {
                 follower = f
+                f.searchEnabled = options.markerColor != null
                 // Le suivi réclame une analyse plus fréquente : le retard de mesure se voit directement sur le gimbal.
                 pipeline?.setBaseIntervalMs(FOLLOW_ANALYSIS_INTERVAL_MS)
                 _state.update { it.copy(gimbalStatus = f.status(), followEnabled = true) }

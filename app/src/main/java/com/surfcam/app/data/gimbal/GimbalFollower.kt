@@ -37,6 +37,12 @@ class GimbalFollower(context: Context) {
     private var zoneDeg = 45f
     private var savedAddress: String? = null
     private var lastReconnectAtMs = 0L
+
+    /** Cherche le surfeur en balayant la zone quand il est perdu (activé quand on le repère par son manchon). */
+    @Volatile
+    var searchEnabled = false
+    private var searchPhase = 0
+    private var sweeps = 0
     private var lastX: Float? = null
     private var moving = false
     private var gain = 0f
@@ -70,6 +76,8 @@ class GimbalFollower(context: Context) {
         prevWorld = null
         velocity = 0f
         nextStepAtMs = 0L
+        searchPhase = 0
+        sweeps = 0
         if (!link.state.value.connected && !link.state.value.connecting) link.connect(address)
         started = true
         handler.postDelayed(watchdog, 500)
@@ -101,10 +109,16 @@ class GimbalFollower(context: Context) {
                 velocity = 0f
             }
             // Plus de surfeur depuis un moment : retour à la direction de départ, face à la zone de surf.
-            if (lastSeenAtMs > 0 && now - lastSeenAtMs > HOME_AFTER_MS && abs(yawCmdDeg) > 3f && now >= nextStepAtMs) returnHome(now)
+            if (searchEnabled && lastSeenAtMs > 0 && now - lastSeenAtMs > SEARCH_AFTER_MS && sweeps < MAX_SWEEPS && now >= nextStepAtMs) {
+                searchStep(now, hfovDeg)
+            } else if (lastSeenAtMs > 0 && now - lastSeenAtMs > HOME_AFTER_MS && abs(yawCmdDeg) > 3f && now >= nextStepAtMs) {
+                returnHome(now)
+            }
             return
         }
         lastSeenAtMs = now
+        searchPhase = 0
+        sweeps = 0
         if (now < nextStepAtMs) return
         lastX = target.centerX
         val error = (target.centerX - 0.5f) * hfovDeg
@@ -124,6 +138,33 @@ class GimbalFollower(context: Context) {
         link.rotateBy(if (invert) -step else step, seconds)
         yawCmdDeg += step
         nextStepAtMs = now + ((seconds + style.settleSeconds) * 1000).toLong()
+    }
+
+    /** Un pas de balayage : vers la droite jusqu'au bord de la zone, puis vers la gauche, puis retour au centre. */
+    private fun searchStep(now: Long, hfovDeg: Float) {
+        val width = (hfovDeg * 0.8f).coerceAtLeast(5f)
+        var next = when (searchPhase) {
+            0 -> yawCmdDeg + width
+            1 -> yawCmdDeg - width
+            else -> yawCmdDeg + width
+        }
+        when (searchPhase) {
+            0 -> if (next >= zoneDeg) { next = zoneDeg; searchPhase = 1 }
+            1 -> if (next <= -zoneDeg) { next = -zoneDeg; searchPhase = 2 }
+            else -> if (next >= 0f) { next = 0f; searchPhase = 0; sweeps++ }
+        }
+        val step = next - yawCmdDeg
+        if (abs(step) < 0.5f) {
+            // Déjà au bord : on passe directement à la phase suivante au prochain tour.
+            nextStepAtMs = now + 500
+            return
+        }
+        val seconds = (abs(step) / 25f + 0.6f).coerceIn(0.8f, 2.5f)
+        link.rotateBy(if (invert) -step else step, seconds)
+        yawCmdDeg = next
+        prevWorld = null
+        velocity = 0f
+        nextStepAtMs = now + ((seconds + SEARCH_DWELL_SECONDS) * 1000).toLong()
     }
 
     private fun returnHome(now: Long) {
@@ -151,6 +192,9 @@ class GimbalFollower(context: Context) {
     private companion object {
         const val LOST_TIMEOUT_MS = 1_200L
         const val HOME_AFTER_MS = 8_000L
+        const val SEARCH_AFTER_MS = 12_000L
+        const val MAX_SWEEPS = 2
+        const val SEARCH_DWELL_SECONDS = 2.5f
         const val VELOCITY_SMOOTHING = 0.5f
         const val STALL_TIMEOUT_MS = 1_500L
     }
