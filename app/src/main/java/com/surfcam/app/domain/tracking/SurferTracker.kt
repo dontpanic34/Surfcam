@@ -50,7 +50,11 @@ class Track(val id: Int, first: Detection, private val historyUs: Long) {
         internal set
 
     /** Cette silhouette est probablement l'utilisateur. */
-    val isMarked: Boolean get() = markerShare >= 0.4f
+    val isMarked: Boolean get() = everMarked || markerShare >= 0.4f
+
+    /** Une fois le manchon bien vu, la silhouette reste « la mienne » même si le manchon disparaît (bras sous l'eau, vague). */
+    var everMarked: Boolean = false
+        internal set
 
     /** Vitesse estimée du centre de la boîte, en pixels par seconde. */
     var velocityX: Float = 0f
@@ -152,6 +156,7 @@ class SurferTracker(private val config: TrackerConfig = TrackerConfig()) {
             track.confidence = 0.5f * det.confidence + 0.5f * track.confidence
             track.hits++
             track.markerShare = 0.6f * track.markerShare + 0.4f * (if (det.wearsMarker) 1f else 0f)
+            if (track.markerShare >= 0.6f) track.everMarked = true
             track.record(timestampUs, det.box)
         }
         for (det in detections) {

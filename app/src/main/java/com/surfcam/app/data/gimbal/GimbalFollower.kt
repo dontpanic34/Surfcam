@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.SystemClock
 import com.surfcam.app.domain.gimbal.FollowBox
 import com.surfcam.app.domain.gimbal.FollowController
+import kotlin.math.abs
 
 /**
  * Fait pivoter un gimbal DJI Osmo Mobile pour garder le surfeur au centre de l'image. Utilise l'appareil et le
@@ -32,6 +33,10 @@ class GimbalFollower(context: Context) {
     private var prevWorld: Float? = null
     private var prevWorldAtMs = 0L
     private var velocity = 0f
+    private var style = FollowController.FollowStyle.NORMAL
+    private var zoneDeg = 45f
+    private var savedAddress: String? = null
+    private var lastReconnectAtMs = 0L
     private var lastX: Float? = null
     private var moving = false
     private var gain = 0f
@@ -43,6 +48,13 @@ class GimbalFollower(context: Context) {
             if (!started) return
             val now = SystemClock.elapsedRealtime()
             if (moving && now - lastCommandAtMs > STALL_TIMEOUT_MS) haltOnce()
+            // Liaison perdue (gimbal éteint un instant, trop loin) : on retente toutes les 6 secondes.
+            val s = link.state.value
+            val address = savedAddress
+            if (address != null && !s.connected && !s.connecting && now - lastReconnectAtMs > 6_000) {
+                lastReconnectAtMs = now
+                link.connect(address)
+            }
             handler.postDelayed(this, 500)
         }
     }
@@ -51,6 +63,13 @@ class GimbalFollower(context: Context) {
     fun start(): String? {
         val address = prefs.getString("address", null) ?: return "Aucun gimbal enregistré : fais d'abord l'essai dans « Tête motorisée »"
         invert = prefs.getBoolean("invert", false)
+        savedAddress = address
+        style = FollowController.FollowStyle.fromName(prefs.getString("followStyle", null))
+        zoneDeg = prefs.getFloat("zoneDeg", 45f)
+        yawCmdDeg = 0f
+        prevWorld = null
+        velocity = 0f
+        nextStepAtMs = 0L
         if (!link.state.value.connected && !link.state.value.connecting) link.connect(address)
         started = true
         handler.postDelayed(watchdog, 500)
@@ -81,6 +100,8 @@ class GimbalFollower(context: Context) {
                 prevWorld = null
                 velocity = 0f
             }
+            // Plus de surfeur depuis un moment : retour à la direction de départ, face à la zone de surf.
+            if (lastSeenAtMs > 0 && now - lastSeenAtMs > HOME_AFTER_MS && abs(yawCmdDeg) > 3f && now >= nextStepAtMs) returnHome(now)
             return
         }
         lastSeenAtMs = now
@@ -95,12 +116,24 @@ class GimbalFollower(context: Context) {
         }
         prevWorld = world
         prevWorldAtMs = now
-        val step = FollowController.stepWithLead(error, velocity, LEAD_SECONDS)
-        if (step == 0f) return
-        val seconds = FollowController.moveSeconds(step)
+        val wanted = FollowController.stepWithLead(error, velocity, style.leadSeconds, style.step)
+        // Le gimbal ne sort jamais de la zone de surf (de part et d'autre de sa direction de départ).
+        val step = FollowController.clampToZone(yawCmdDeg, wanted, zoneDeg)
+        if (abs(step) < 0.5f) return
+        val seconds = (FollowController.moveSeconds(step) * style.moveScale).coerceIn(0.3f, 1.5f)
         link.rotateBy(if (invert) -step else step, seconds)
         yawCmdDeg += step
-        nextStepAtMs = now + ((seconds + SETTLE_SECONDS) * 1000).toLong()
+        nextStepAtMs = now + ((seconds + style.settleSeconds) * 1000).toLong()
+    }
+
+    private fun returnHome(now: Long) {
+        val back = -yawCmdDeg
+        val seconds = (abs(back) / 30f + 0.8f).coerceIn(1f, 4f)
+        link.rotateBy(if (invert) -back else back, seconds)
+        yawCmdDeg = 0f
+        prevWorld = null
+        velocity = 0f
+        nextStepAtMs = now + ((seconds + 0.5f) * 1000).toLong()
     }
 
     private fun haltOnce() {
@@ -117,8 +150,7 @@ class GimbalFollower(context: Context) {
 
     private companion object {
         const val LOST_TIMEOUT_MS = 1_200L
-        const val SETTLE_SECONDS = 0.5f
-        const val LEAD_SECONDS = 1.0f
+        const val HOME_AFTER_MS = 8_000L
         const val VELOCITY_SMOOTHING = 0.5f
         const val STALL_TIMEOUT_MS = 1_500L
     }

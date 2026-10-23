@@ -85,5 +85,30 @@ object FollowController {
     /** Durée du pivotement : douce pour les petits pas, un peu plus longue pour les grands. */
     fun moveSeconds(stepDeg: Float): Float = (0.5f + abs(stepDeg) / 40f).coerceIn(0.5f, 1.2f)
 
+    /** Réactivité du suivi, choisie dans l'appli : plus c'est réactif, plus le gimbal corrige vite et fort. */
+    enum class FollowStyle(
+        val label: String,
+        val step: StepConfig,
+        /** Pause après un pivotement, avant de mesurer de nouveau (secondes). */
+        val settleSeconds: Float,
+        /** Anticipation : on vise là où le surfeur sera dans ce délai (secondes). */
+        val leadSeconds: Float,
+        /** Facteur sur la durée des pivotements : sous 1, ils sont plus rapides. */
+        val moveScale: Float,
+    ) {
+        SMOOTH("Doux", StepConfig(deadbandDeg = 3.5f, gain = 0.6f, maxStepDeg = 8f), 0.8f, 0.8f, 1.3f),
+        NORMAL("Normal", StepConfig(), 0.5f, 1.0f, 1.0f),
+        REACTIVE("Réactif", StepConfig(deadbandDeg = 1.5f, gain = 1.0f, maxStepDeg = 25f), 0.3f, 1.3f, 0.75f),
+        ;
+
+        companion object {
+            fun fromName(name: String?): FollowStyle = entries.firstOrNull { it.name == name } ?: NORMAL
+        }
+    }
+
+    /** Limite le pas pour que le gimbal reste dans la zone de surf : [limitDeg] de chaque côté de sa position de départ. */
+    fun clampToZone(currentYawDeg: Float, stepDeg: Float, limitDeg: Float): Float =
+        (currentYawDeg + stepDeg).coerceIn(-limitDeg, limitDeg) - currentYawDeg
+
     const val MAX_UNITS = 3000
 }

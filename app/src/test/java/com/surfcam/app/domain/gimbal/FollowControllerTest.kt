@@ -90,4 +90,24 @@ class FollowControllerTest {
         assertEquals(0f, FollowController.stepWithLead(0f, 0.5f, 1.2f), 0f) // bruit de mesure
         assertTrue(FollowController.stepWithLead(0f, -6f, 1.2f) < 0f)
     }
+
+    @Test
+    fun `les styles vont du plus doux au plus reactif`() {
+        val smooth = FollowController.FollowStyle.SMOOTH
+        val fast = FollowController.FollowStyle.REACTIVE
+        assertTrue(smooth.step.deadbandDeg > fast.step.deadbandDeg)
+        assertTrue(smooth.step.gain < fast.step.gain)
+        assertTrue(smooth.step.maxStepDeg < fast.step.maxStepDeg)
+        assertTrue(smooth.settleSeconds > fast.settleSeconds)
+        assertTrue(smooth.moveScale > fast.moveScale)
+        assertEquals(FollowController.FollowStyle.NORMAL, FollowController.FollowStyle.fromName("inconnu"))
+    }
+
+    @Test
+    fun `la zone de surf borne la position du gimbal`() {
+        assertEquals(10f, FollowController.clampToZone(0f, 10f, 45f), 0f)
+        assertEquals(5f, FollowController.clampToZone(40f, 10f, 45f), 0f)
+        assertEquals(0f, FollowController.clampToZone(45f, 10f, 45f), 0f)
+        assertEquals(-10f, FollowController.clampToZone(40f, -10f, 45f), 0f) // revenir vers le centre reste permis
+    }
 }

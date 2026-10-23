@@ -138,6 +138,7 @@ class RecordingEngine(private val context: Context) {
     private var recorder: ClipRecorder? = null
     private var analysis: AnalysisPipeline? = null
     private var lastRotation = 90
+    private var onlyMarkedFollow = false
     private var lastOptions: SessionOptions? = null
     private var session: SessionRecorder? = null
     private var previewSurface: Surface? = null
@@ -468,7 +469,7 @@ class RecordingEngine(private val context: Context) {
                     val focal = _state.value.focalPx1x * _state.value.zoom
                     if (focal > 0f) {
                         f.onFrame(
-                            snapshot.boxes.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked) },
+                            snapshot.boxes.filter { !onlyMarkedFollow || it.marked }.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked) },
                             FollowController.horizontalFovDeg(focal, CaptureConfig.ANALYSIS_WIDTH),
                         )
                     }
@@ -490,6 +491,8 @@ class RecordingEngine(private val context: Context) {
             }
         }, learning.currentConfig(), config.tenBit)
         pipeline?.markerColor = options.markerColor
+        pipeline?.onlyMarked = options.subject == Subject.ME && options.markerColor != null
+        onlyMarkedFollow = options.subject == Subject.ME && options.markerColor != null
         Trail.mark("analyse créée")
         analysis = pipeline
         _state.update {

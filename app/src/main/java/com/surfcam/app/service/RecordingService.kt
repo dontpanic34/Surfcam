@@ -48,6 +48,7 @@ class RecordingService : Service() {
             followGimbal = intent?.getBooleanExtra(EXTRA_FOLLOW_GIMBAL, false) == true,
             hdr = intent?.getBooleanExtra(EXTRA_HDR, false) == true,
             ledBlink = intent?.getBooleanExtra(EXTRA_LED, true) != false,
+            subject = if (intent?.getStringExtra(EXTRA_SUBJECT) == "ME") com.surfcam.app.data.engine.Subject.ME else com.surfcam.app.data.engine.Subject.EVERYONE,
             markerColor = com.surfcam.app.domain.detection.MarkerColor.fromName(intent?.getStringExtra(EXTRA_MARKER)),
         )
         if (intent?.getBooleanExtra(EXTRA_DND, false) == true) DoNotDisturb.enable(this)
@@ -111,6 +112,7 @@ class RecordingService : Service() {
         const val EXTRA_FOLLOW_GIMBAL = "follow_gimbal"
         const val EXTRA_HDR = "hdr"
         const val EXTRA_LED = "led"
+        const val EXTRA_SUBJECT = "subject"
         const val EXTRA_MARKER = "marker_color"
         private const val CHANNEL_ID = "session"
         private const val NOTIFICATION_ID = 1

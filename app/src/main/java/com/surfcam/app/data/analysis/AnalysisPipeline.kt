@@ -100,6 +100,10 @@ class AnalysisPipeline(
     @Volatile
     private var released = false
 
+    /** Mode « moi » : seules les silhouettes portant le manchon comptent pour détecter une vague. */
+    @Volatile
+    var onlyMarked = false
+
     /** Couleur du manchon de l'utilisateur ; null = ne pas chercher. */
     @Volatile
     var markerColor: com.surfcam.app.domain.detection.MarkerColor? = null
@@ -216,7 +220,7 @@ class AnalysisPipeline(
             if (frames == 1) com.surfcam.app.data.engine.Trail.mark("première détection terminée")
             if (frames % THUMBNAIL_EVERY == 1) thumbnail = makeThumbnail()
             val tracks = tracker.update(detections, timestampUs)
-            val event = waveDetector.onFrame(tracks, timestampUs)
+            val event = waveDetector.onFrame(if (onlyMarked) tracks.filter { it.isMarked } else tracks, timestampUs)
             if (event is WaveEvent.Ended) event.stats?.let(listener::onRide)
             val actions = (if (event != null) planner.onWave(event, timestampUs) else emptyList()) + planner.onTick(timestampUs)
             actions.forEach {

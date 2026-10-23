@@ -31,10 +31,12 @@ data class SessionOptions(
     val hdr: Boolean = false,
     /** La LED du flash clignote brièvement toutes les 15 s pendant la session, pour voir de loin que ça filme. */
     val ledBlink: Boolean = true,
+    /** Qui filmer : tout le monde, ou seulement moi (repéré par la couleur de mon manchon, en ×5 optique). */
+    val subject: Subject = Subject.EVERYONE,
     /** Couleur du manchon que l'utilisateur porte pour être repéré parmi les surfeurs ; null = aucune. */
     val markerColor: com.surfcam.app.domain.detection.MarkerColor? = null,
 ) {
-    val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
+    val lens: Lens get() = if (tele || subject == Subject.ME) Lens.TELE else Lens.MAIN
 
     /** Place approximative prise par une heure de session complète, en Go (débit vidéo × 3600 s). */
     fun gigabytesPerHour(): Int {
@@ -45,3 +47,5 @@ data class SessionOptions(
         return Math.round(mbps * 3600f / 8f / 1000f)
     }
 }
+
+enum class Subject { EVERYONE, ME }

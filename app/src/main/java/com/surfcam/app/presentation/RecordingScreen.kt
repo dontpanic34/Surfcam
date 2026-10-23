@@ -857,18 +857,36 @@ internal fun QualitySection(options: SessionOptions, running: Boolean, onOptions
 @Composable
 internal fun BehaviourSection(options: SessionOptions, running: Boolean, onOptionsChange: (SessionOptions) -> Unit) {
     Section("Ce que fait l'appli") {
-        OptionSwitch("Me repérer par ma couleur", "", options.markerColor != null) {
-            onOptionsChange(options.copy(markerColor = if (it) com.surfcam.app.domain.detection.MarkerColor.ORANGE else null))
+        Text("Qui filmer", color = SurfColors.Foam, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        val mode = when {
+            options.subject == com.surfcam.app.data.engine.Subject.ME -> "me"
+            options.markerColor != null -> "priority"
+            else -> "all"
         }
-        if (options.markerColor != null) {
+        val firstColor = options.markerColor ?: com.surfcam.app.domain.detection.MarkerColor.ORANGE
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = mode == "all", onClick = { if (!running) onOptionsChange(options.copy(subject = com.surfcam.app.data.engine.Subject.EVERYONE, markerColor = null)) }, label = { Text("Tout le monde") })
+            FilterChip(selected = mode == "priority", onClick = { if (!running) onOptionsChange(options.copy(subject = com.surfcam.app.data.engine.Subject.EVERYONE, markerColor = firstColor)) }, label = { Text("Moi en priorité") })
+            FilterChip(selected = mode == "me", onClick = { if (!running) onOptionsChange(options.copy(subject = com.surfcam.app.data.engine.Subject.ME, markerColor = firstColor)) }, label = { Text("Seulement moi") })
+        }
+        if (mode != "all") {
+            Text("Couleur de mon manchon", color = SurfColors.Muted, fontSize = 12.sp)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (c in com.surfcam.app.domain.detection.MarkerColor.entries) {
                     FilterChip(selected = options.markerColor == c, onClick = { onOptionsChange(options.copy(markerColor = c)) }, label = { Text(c.label) })
                 }
             }
         }
-        OptionSwitch("Voyant LED pendant la session", "Un éclair toutes les 6 s ; double éclair pendant une vague", options.ledBlink) { onOptionsChange(options.copy(ledBlink = it)) }
+        Text(
+            when (mode) {
+                "me" -> "Filme et suit uniquement ta silhouette repérée par le manchon, en ×5 optique. Sans manchon visible, rien n'est filmé."
+                "priority" -> "Filme tout le monde, mais le suivi du gimbal se cale sur toi dès que ton manchon est reconnu."
+                else -> "Filme et suit tous les surfeurs."
+            },
+            color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
+        )
         OptionSwitch("Garder aussi toute la session", "", options.fullSession) { if (!running) onOptionsChange(options.copy(fullSession = it)) }
+        OptionSwitch("Voyant LED pendant la session", "Un éclair toutes les 6 s ; double éclair pendant une vague", options.ledBlink) { onOptionsChange(options.copy(ledBlink = it)) }
     }
 }
 

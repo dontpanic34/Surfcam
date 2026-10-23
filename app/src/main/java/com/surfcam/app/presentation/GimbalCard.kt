@@ -57,6 +57,8 @@ fun GimbalCard() {
     var message by remember { mutableStateOf<String?>(null) }
     var leveling by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
+    var styleName by remember { mutableStateOf(prefs.getString("followStyle", null) ?: "NORMAL") }
+    var zone by remember { mutableStateOf(prefs.getFloat("zoneDeg", 45f)) }
 
     fun permitted() = listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT).all {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
@@ -161,6 +163,27 @@ fun GimbalCard() {
             }
             Text("Place le téléphone en paysage dans le gimbal, puis touche « Redresser » (ou règle à la main).", color = SurfColors.Muted, fontSize = 12.sp)
         }
+        Text("Vitesse du suivi", color = SurfColors.Foam, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (st in com.surfcam.app.domain.gimbal.FollowController.FollowStyle.entries) {
+                androidx.compose.material3.FilterChip(
+                    selected = styleName == st.name,
+                    onClick = { styleName = st.name; prefs.edit().putString("followStyle", st.name).apply() },
+                    label = { Text(st.label) },
+                )
+            }
+        }
+        Text("Zone de surf (de chaque côté du point de départ)", color = SurfColors.Foam, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for ((deg, label) in listOf(25f to "Étroite ±25°", 45f to "Normale ±45°", 90f to "Large ±90°")) {
+                androidx.compose.material3.FilterChip(
+                    selected = zone == deg,
+                    onClick = { zone = deg; prefs.edit().putFloat("zoneDeg", deg).apply() },
+                    label = { Text(label) },
+                )
+            }
+        }
+        Text("Sans surfeur pendant 8 s, le gimbal revient face à la zone.", color = SurfColors.Muted, fontSize = 12.sp)
         message?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
     }
 }
