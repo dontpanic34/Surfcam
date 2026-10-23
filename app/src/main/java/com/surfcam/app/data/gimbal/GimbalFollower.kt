@@ -27,6 +27,7 @@ class GimbalFollower(context: Context) {
 
     private var lastSeenAtMs = 0L
     private var lastCommandAtMs = 0L
+    private var nextStepAtMs = 0L
     private var lastX: Float? = null
     private var moving = false
     private var gain = 0f
@@ -45,8 +46,6 @@ class GimbalFollower(context: Context) {
     /** Se connecte au gimbal enregistré. Renvoie un message d'erreur, ou null si la connexion est lancée. */
     fun start(): String? {
         val address = prefs.getString("address", null) ?: return "Aucun gimbal enregistré : fais d'abord l'essai dans « Tête motorisée »"
-        gain = prefs.getFloat("deg_per_sec_per_unit", 0f)
-        if (gain <= 0f) return "Gimbal non calibré : touche « Calibrer » dans « Tête motorisée »"
         invert = prefs.getBoolean("invert", false)
         link.connect(address)
         started = true
@@ -63,26 +62,22 @@ class GimbalFollower(context: Context) {
         }
     }
 
-    /** À appeler à chaque image analysée : surfeurs vus, champ de vision horizontal de l'image en degrés. */
+    /**
+     * À appeler à chaque image analysée : surfeurs vus, champ de vision horizontal de l'image en degrés.
+     * Un pas de pivotement à la fois, puis une pause le temps que le gimbal bouge et que l'analyse rattrape son retard.
+     */
     fun onFrame(boxes: List<FollowBox>, hfovDeg: Float) {
         if (!started || !enabled || !link.state.value.connected) return
         val now = SystemClock.elapsedRealtime()
-        val target = FollowController.chooseTarget(boxes, lastX)
-        if (target == null) {
-            if (moving && now - lastSeenAtMs > LOST_TIMEOUT_MS) haltOnce()
-            return
-        }
-        lastSeenAtMs = now
+        if (now < nextStepAtMs) return
+        val target = FollowController.chooseTarget(boxes, lastX) ?: return
         lastX = target.centerX
-        val speed = FollowController.desiredSpeedDegPerSec((target.centerX - 0.5f) * hfovDeg)
-        val units = FollowController.toProtocolUnits(speed, gain, invert)
-        if (units == 0) {
-            haltOnce()
-            return
-        }
-        link.rotate(units)
-        moving = true
-        lastCommandAtMs = now
+        val step = FollowController.stepDegrees((target.centerX - 0.5f) * hfovDeg)
+        if (step == 0f) return
+        val seconds = FollowController.moveSeconds(step)
+        link.rotateBy(if (invert) -step else step, seconds)
+        // Le mouvement dure [seconds] ; on attend ensuite l'analyse (retard d'environ une seconde) avant de re-mesurer.
+        nextStepAtMs = now + ((seconds + SETTLE_SECONDS) * 1000).toLong()
     }
 
     private fun haltOnce() {
@@ -98,6 +93,7 @@ class GimbalFollower(context: Context) {
 
     private companion object {
         const val LOST_TIMEOUT_MS = 1_200L
+        const val SETTLE_SECONDS = 1.0f
         const val STALL_TIMEOUT_MS = 1_500L
     }
 }

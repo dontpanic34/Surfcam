@@ -50,5 +50,28 @@ object FollowController {
         return (if (invert) -units else units).coerceIn(-MAX_UNITS, MAX_UNITS)
     }
 
+    /**
+     * Suivi par pas d'angle : on mesure l'écart, on commande un pivotement relatif d'une fraction de cet écart, puis on
+     * attend avant de mesurer de nouveau. Insensible au retard de l'analyse (les ordres de vitesse continuaient à tourner
+     * après le centrage et faisaient partir le gimbal en oscillation) et sans calibrage de vitesse.
+     */
+    data class StepConfig(
+        /** Écart (en degrés) sous lequel on ne bouge pas. */
+        val deadbandDeg: Float = 2.5f,
+        /** Part de l'écart corrigée à chaque pas : sous 1, pour ne pas dépasser le centre. */
+        val gain: Float = 0.8f,
+        /** Pas maximal, en degrés. */
+        val maxStepDeg: Float = 15f,
+    )
+
+    /** Angle à pivoter (degrés, positif vers la droite), 0 si l'écart est dans la zone morte. */
+    fun stepDegrees(errorDeg: Float, config: StepConfig = StepConfig()): Float {
+        if (abs(errorDeg) < config.deadbandDeg) return 0f
+        return (errorDeg * config.gain).coerceIn(-config.maxStepDeg, config.maxStepDeg)
+    }
+
+    /** Durée du pivotement : douce pour les petits pas, un peu plus longue pour les grands. */
+    fun moveSeconds(stepDeg: Float): Float = (0.5f + abs(stepDeg) / 40f).coerceIn(0.5f, 1.2f)
+
     const val MAX_UNITS = 3000
 }

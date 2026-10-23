@@ -64,4 +64,21 @@ class FollowControllerTest {
         val boxes = listOf(FollowBox(0.3f, 0.30f, riding = true), FollowBox(0.7f, 0.10f, riding = false, marked = true))
         assertEquals(0.7f, FollowController.chooseTarget(boxes, null)!!.centerX, 0f)
     }
+
+    @Test
+    fun `le pas d'angle est nul dans la zone morte, proportionnel au dela, et plafonne`() {
+        assertEquals(0f, FollowController.stepDegrees(2f), 0f)
+        assertEquals(4f, FollowController.stepDegrees(5f), 0.001f) // 5 × 0,8
+        assertEquals(-4f, FollowController.stepDegrees(-5f), 0.001f)
+        assertEquals(15f, FollowController.stepDegrees(60f), 0f)
+        assertEquals(-15f, FollowController.stepDegrees(-60f), 0f)
+    }
+
+    @Test
+    fun `la duree du pivotement croit avec le pas, entre 0,5 s et 1,2 s`() {
+        assertEquals(0.5f, FollowController.moveSeconds(0f), 0f)
+        assertTrue(FollowController.moveSeconds(10f) > FollowController.moveSeconds(4f))
+        assertEquals(0.875f, FollowController.moveSeconds(15f), 0.001f)
+        assertEquals(1.2f, FollowController.moveSeconds(90f), 0f)
+    }
 }
