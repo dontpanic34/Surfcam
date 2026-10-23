@@ -29,6 +29,8 @@ data class SessionOptions(
     val followGimbal: Boolean = false,
     /** Vidéo HDR 10 bits (HLG, couleurs étendues), comme Google Caméra ; sans effet si le téléphone ne sait pas (30 i/s seulement). */
     val hdr: Boolean = false,
+    /** La LED du flash clignote brièvement toutes les 15 s pendant la session, pour voir de loin que ça filme. */
+    val ledBlink: Boolean = true,
     /** Couleur du manchon que l'utilisateur porte pour être repéré parmi les surfeurs ; null = aucune. */
     val markerColor: com.surfcam.app.domain.detection.MarkerColor? = null,
 ) {

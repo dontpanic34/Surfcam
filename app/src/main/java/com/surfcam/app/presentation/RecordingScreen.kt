@@ -867,6 +867,7 @@ internal fun BehaviourSection(options: SessionOptions, running: Boolean, onOptio
                 }
             }
         }
+        OptionSwitch("Voyant LED pendant la session", "Le flash clignote 0,2 s toutes les 15 s", options.ledBlink) { onOptionsChange(options.copy(ledBlink = it)) }
         OptionSwitch("Suivre avec le gimbal", "", options.followGimbal) { if (!running) onOptionsChange(options.copy(followGimbal = it)) }
         OptionSwitch("Garder aussi toute la session", "", options.fullSession) { if (!running) onOptionsChange(options.copy(fullSession = it)) }
     }

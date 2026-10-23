@@ -164,6 +164,19 @@ class Camera2Source(context: Context) {
         }
     }
 
+    @Volatile
+    private var torch = false
+
+    /** Allume ou éteint la LED du flash en continu (voyant d'enregistrement : quelques instants à intervalles réguliers). */
+    fun setTorch(on: Boolean) {
+        handler.post {
+            if (torch != on) {
+                torch = on
+                applyRequest()
+            }
+        }
+    }
+
     fun setFocusMode(mode: FocusMode) {
         handler.post {
             focusMode = mode
@@ -511,6 +524,10 @@ class Camera2Source(context: Context) {
             val ois = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
             if (supports(ois, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)) {
                 builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
+            }
+
+            if (torch && characteristics?.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true) {
+                builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
             }
 
             // Traitement d'image au meilleur niveau : moins de bruit, plus de netteté, ombrages et franges de couleur corrigés.

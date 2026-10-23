@@ -148,6 +148,26 @@ class RecordingEngine(private val context: Context) {
     private var currentClipAuto = false
     private val rideStats = mutableListOf<RideStats>()
     private val safetyHandler = Handler(Looper.getMainLooper())
+    private val ledHandler = Handler(Looper.getMainLooper())
+    private var ledEnabled = false
+
+    /**
+     * Voyant d'enregistrement : la LED du flash s'allume 0,2 s toutes les 15 s. Elle reste éteinte pendant un clip de vague
+     * (pour ne pas marquer l'image), quand le téléphone chauffe fort ou quand la batterie est basse.
+     */
+    private val ledTick = object : Runnable {
+        override fun run() {
+            if (!ledEnabled) return
+            val s = _state.value
+            val battery = batteryPercent()
+            val ok = s.phase == Phase.RUNNING && !s.clipActive && s.thermalLevel < 2 && (battery == null || battery.first > 15 || battery.second)
+            if (ok) {
+                camera?.setTorch(true)
+                ledHandler.postDelayed({ camera?.setTorch(false) }, 200)
+            }
+            ledHandler.postDelayed(this, 15_000)
+        }
+    }
     private var safetyRunning = false
     private var severeSinceMs = 0L
     private var lowSpaceWarned = false
@@ -657,6 +677,9 @@ class RecordingEngine(private val context: Context) {
     private fun startSafetyChecks() {
         safetyRunning = true
         severeSinceMs = 0L
+        ledEnabled = lastOptions?.ledBlink == true
+        ledHandler.removeCallbacks(ledTick)
+        if (ledEnabled) ledHandler.postDelayed(ledTick, 5_000)
         thermalLevel = 0
         coolSinceMs = 0L
         lowSpaceWarned = false
@@ -667,6 +690,9 @@ class RecordingEngine(private val context: Context) {
     private fun stopSafetyChecks() {
         safetyRunning = false
         safetyHandler.removeCallbacks(safetyTick)
+        ledEnabled = false
+        ledHandler.removeCallbacks(ledTick)
+        camera?.setTorch(false)
     }
 
     private fun checkSafety() {
