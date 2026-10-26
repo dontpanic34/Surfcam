@@ -27,6 +27,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,6 +70,27 @@ fun HomeScreen(
     val running = state.phase == Phase.RUNNING || state.phase == Phase.STARTING
     val context = LocalContext.current
     var advanced by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val horizon by rememberHorizonAngle()
+    val gimbalState by com.surfcam.app.data.gimbal.GimbalHub.link(context).state.collectAsStateWithLifecycle()
+    var leveling by remember { mutableStateOf(false) }
+    // Redressement automatique avant de filmer : seulement si le gimbal est connecté, penché de plus de 0,8°, et si le roulis a déjà répondu.
+    val openCamera: () -> Unit = {
+        val gp = context.getSharedPreferences("gimbal", android.content.Context.MODE_PRIVATE)
+        val angle = horizon
+        if (gimbalState.connected && angle != null && abs(angle) > 0.8f && !gp.getBoolean("rollFailed", false)) {
+            leveling = true
+            scope.launch {
+                val leveler = com.surfcam.app.data.gimbal.HorizonLeveler(com.surfcam.app.data.gimbal.GimbalHub.link(context), gp)
+                leveler.run { horizon }
+                if (abs(leveler.lastEndDeg ?: 0f) > 1.5f) gp.edit().putBoolean("rollFailed", true).apply()
+                leveling = false
+                onOpenCamera()
+            }
+        } else {
+            onOpenCamera()
+        }
+    }
     // La caméra n'a pas à rester ouverte sur l'accueil.
     LaunchedEffect(running) { if (!running) engine.stopPreview() }
     val device by rememberDeviceStatus()
@@ -114,10 +138,11 @@ fun HomeScreen(
                         val silent = options.doNotDisturb && DoNotDisturb.isAllowed(context)
                         ReadyRow(if (silent) SurfColors.Ok else SurfColors.Warn, "Mode silence", if (silent) "activé pendant la session" else "à autoriser dans l'appli caméra")
                         Button(
-                            onClick = onOpenCamera,
+                            onClick = openCamera,
+                            enabled = !leveling,
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = SurfColors.Aqua, contentColor = SurfColors.OnAqua),
-                        ) { Text("Ouvrir la caméra", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(vertical = 6.dp)) }
+                        ) { Text(if (leveling) "Redressement du gimbal…" else "Ouvrir la caméra", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(vertical = 6.dp)) }
                         Text("Pose le téléphone sur le trépied en paysage, puis touche le bouton rond.", color = SurfColors.Muted, fontSize = 12.sp)
                     }
                 }

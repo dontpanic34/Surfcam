@@ -16,6 +16,10 @@ class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: Shared
         link.rollBy(-degrees * prefs.getInt("rollSign", 1), 0.5f)
     }
 
+    /** Inclinaison restante (degrés) à la fin du dernier redressement, null avant le premier. */
+    var lastEndDeg: Float? = null
+        private set
+
     /** @return un compte rendu en français */
     suspend fun run(read: () -> Float?): String {
         var sign = prefs.getInt("rollSign", 1)
@@ -33,6 +37,7 @@ class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: Shared
             before = after
         }
         val end = read() ?: before
+        lastEndDeg = end
         return "Horizon : %.1f° avant, %.1f° après.".format(start, end).replace('.', ',') +
             if (abs(end) > 1f) " Le gimbal n'a pas suivi l'ordre de roulis : réglage possible dans l'appli DJI Mimo." else " C'est droit."
     }

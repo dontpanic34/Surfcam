@@ -153,6 +153,7 @@ fun GimbalCard() {
                         message = "Redressement…"
                         scope.launch {
                             message = leveler.run { horizon }
+                            prefs.edit().putBoolean("rollFailed", abs(leveler.lastEndDeg ?: 0f) > 1.5f).apply()
                             leveling = false
                         }
                     },
