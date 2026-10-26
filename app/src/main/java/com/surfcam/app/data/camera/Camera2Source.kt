@@ -659,6 +659,10 @@ class Camera2Source(context: Context) {
                 if (iso != null) append(" · ISO ").append(iso).append(if (lowLight) " (faible lumière)" else "")
                 if (focus != null) append(" · mise au point ").append(if (focus < 0.01f) "infini" else "%.1f m".format(1f / focus))
                 append(" · ").append(af)
+                // Modes réellement appliqués par le téléphone (il peut ignorer une demande) : réduction de bruit et netteté.
+                fun mode(v: Int?) = when (v) { 0 -> "aucun"; 1 -> "rapide"; 2 -> "max"; 3 -> "minimal"; 4 -> "ZSL"; else -> "?" }
+                append("\nTraitement : bruit ").append(mode(result.get(CaptureResult.NOISE_REDUCTION_MODE)))
+                append(" · netteté ").append(mode(result.get(CaptureResult.EDGE_MODE)))
             }
             listener?.onCaptureInfo(text)
         }
