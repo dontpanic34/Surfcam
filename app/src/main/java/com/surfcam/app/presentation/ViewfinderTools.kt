@@ -83,6 +83,38 @@ fun rememberHorizonAngle(): State<Float?> {
     return angle
 }
 
+/**
+ * Vrai si le téléphone est physiquement debout (portrait), faux s'il est couché (paysage), d'après la gravité, quelle
+ * que soit l'orientation de l'écran. Null sans capteur.
+ */
+@Composable
+fun rememberPhoneUpright(): State<Boolean?> {
+    val context = LocalContext.current
+    val upright = remember { mutableStateOf<Boolean?>(null) }
+    DisposableEffect(Unit) {
+        val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val sensor = manager.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        var gx = 0f
+        var gy = 0f
+        var started = false
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(e: SensorEvent) {
+                if (!started) { gx = e.values[0]; gy = e.values[1]; started = true } else {
+                    gx += SMOOTHING * (e.values[0] - gx)
+                    gy += SMOOTHING * (e.values[1] - gy)
+                }
+                // Posé à plat (gravité surtout sur l'axe de l'écran) : on ne sait pas.
+                upright.value = if (abs(gx) + abs(gy) < 4f) null else abs(gy) > abs(gx)
+            }
+
+            override fun onAccuracyChanged(s: Sensor?, accuracy: Int) = Unit
+        }
+        if (sensor != null) manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
+        onDispose { manager.unregisterListener(listener) }
+    }
+    return upright
+}
+
 private const val SMOOTHING = 0.12f
 
 /** Niveau à bulle : un repère horizontal fixe, la ligne d'horizon réelle qui s'incline, et l'angle en degrés. */

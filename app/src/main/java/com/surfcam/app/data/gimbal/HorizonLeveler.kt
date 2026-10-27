@@ -11,6 +11,25 @@ import kotlin.math.abs
  */
 class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: SharedPreferences) {
 
+    /**
+     * Met le téléphone en paysage avec l'axe de roulis, comme le double appui sur M : s'il est tenu en portrait, on le
+     * fait pivoter de 90° (dans l'un ou l'autre sens, les deux donnent un paysage). Renvoie vrai si le téléphone est en
+     * paysage à la fin. [isPortrait] : vrai si le téléphone est physiquement debout, null si inconnu.
+     */
+    suspend fun toLandscape(isPortrait: () -> Boolean?): Boolean {
+        if (isPortrait() != true) return true
+        val sign = prefs.getInt("landSign", 1)
+        link.rollBy(90f * sign, 2.0f)
+        delay(3_500)
+        if (isPortrait() == false) return true
+        // Rien n'a bougé dans ce sens : on essaie l'autre.
+        link.rollBy(-90f * sign, 2.0f)
+        delay(3_500)
+        val ok = isPortrait() == false
+        if (ok) prefs.edit().putInt("landSign", -sign).apply()
+        return ok
+    }
+
     /** Retouche manuelle de [degrees] (signé, dans le sens de l'inclinaison affichée). */
     fun nudge(degrees: Float) {
         link.rollBy(-degrees * prefs.getInt("rollSign", 1), 0.5f)

@@ -74,16 +74,31 @@ fun HomeScreen(
     val horizon by rememberHorizonAngle()
     val gimbalState by com.surfcam.app.data.gimbal.GimbalHub.link(context).state.collectAsStateWithLifecycle()
     var leveling by remember { mutableStateOf(false) }
-    // Redressement automatique avant de filmer : seulement si le gimbal est connecté, penché de plus de 0,8°, et si le roulis a déjà répondu.
+    val upright by rememberPhoneUpright()
+    var notice by remember { mutableStateOf<String?>(null) }
+    // Avant de filmer, si le gimbal est connecté : paysage (comme un double appui sur M), puis horizon à 0°. Ce qui ne répond pas
+    // est noté pour ne plus faire attendre, et l'utilisateur est prévenu.
     val openCamera: () -> Unit = {
         val gp = context.getSharedPreferences("gimbal", android.content.Context.MODE_PRIVATE)
+        val leveler = com.surfcam.app.data.gimbal.HorizonLeveler(com.surfcam.app.data.gimbal.GimbalHub.link(context), gp)
+        val needLandscape = upright == true && !gp.getBoolean("landscapeFailed", false)
         val angle = horizon
-        if (gimbalState.connected && angle != null && abs(angle) > 0.8f && !gp.getBoolean("rollFailed", false)) {
+        val needLevel = angle != null && abs(angle) > 0.8f && !gp.getBoolean("rollFailed", false)
+        if (gimbalState.connected && (needLandscape || needLevel)) {
             leveling = true
+            notice = null
             scope.launch {
-                val leveler = com.surfcam.app.data.gimbal.HorizonLeveler(com.surfcam.app.data.gimbal.GimbalHub.link(context), gp)
-                leveler.run { horizon }
-                if (abs(leveler.lastEndDeg ?: 0f) > 1.5f) gp.edit().putBoolean("rollFailed", true).apply()
+                if (needLandscape) {
+                    val ok = leveler.toLandscape { upright }
+                    if (!ok) {
+                        gp.edit().putBoolean("landscapeFailed", true).apply()
+                        notice = "Le gimbal n'a pas tourné en paysage : fais un double appui sur son bouton M."
+                    }
+                }
+                if (horizon?.let { abs(it) > 0.8f } == true && !gp.getBoolean("rollFailed", false)) {
+                    leveler.run { horizon }
+                    if (abs(leveler.lastEndDeg ?: 0f) > 1.5f) gp.edit().putBoolean("rollFailed", true).apply()
+                }
                 leveling = false
                 onOpenCamera()
             }
@@ -143,6 +158,7 @@ fun HomeScreen(
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = SurfColors.Aqua, contentColor = SurfColors.OnAqua),
                         ) { Text(if (leveling) "Redressement du gimbal…" else "Ouvrir la caméra", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(vertical = 6.dp)) }
+                        notice?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
                         Text("Pose le téléphone sur le trépied en paysage, puis touche le bouton rond.", color = SurfColors.Muted, fontSize = 12.sp)
                     }
                 }
