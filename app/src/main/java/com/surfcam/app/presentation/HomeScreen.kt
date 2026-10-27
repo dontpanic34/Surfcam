@@ -107,6 +107,8 @@ fun HomeScreen(
             delay(3_000)
         }
     }
+    var sdDeclined by remember { mutableStateOf(setOf<String>()) }
+    val sdOffer = if (running) null else storages.firstOrNull { it.removable && it.name != options.storage && it.name !in sdDeclined }
     val videoCount by produceState(0, running) { value = withContext(Dispatchers.IO) { VideoLibrary(context).list().count { !it.pending } } }
     var leveling by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -152,6 +154,16 @@ fun HomeScreen(
 
     SurfCamTheme {
         if (crashReport != null) CrashDialog(crashReport, onDismissCrash)
+        if (sdOffer != null) {
+            val free = sdOffer.freeBytes?.let { " (${it / 1_000_000_000L} Go libres)" } ?: ""
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { sdDeclined = sdDeclined + sdOffer.name },
+                title = { Text("Carte SD détectée") },
+                text = { Text("Enregistrer les vidéos sur « ${sdOffer.label} »$free au lieu de la mémoire du téléphone ?") },
+                confirmButton = { androidx.compose.material3.TextButton(onClick = { sdDeclined = sdDeclined + sdOffer.name; onOptionsChange(options.copy(storage = sdOffer.name)) }) { Text("Oui, sur la carte") } },
+                dismissButton = { androidx.compose.material3.TextButton(onClick = { sdDeclined = sdDeclined + sdOffer.name }) { Text("Non") } },
+            )
+        }
         if (showSettings) InfoDialog(state, options, onOptionsChange, engine, running, onOpenGimbal = { showSettings = false; onOpenGimbal() }) { showSettings = false }
         if (showGimbal) {
             Dialog(onDismissRequest = { showGimbal = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
