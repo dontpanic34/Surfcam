@@ -771,19 +771,24 @@ internal fun InfoDialog(
                 if (portrait) {
                     Column(Modifier.weight(1f).padding(top = 10.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         QualitySection(options, running, onOptionsChange)
-                        BehaviourSection(options, running, onOptionsChange)
+                        WhoSection(options, running, onOptionsChange)
+                        SessionSection(options, running, onOptionsChange)
                         AdvancedHeader(advanced) { advanced = !advanced }
                         if (advanced) AdvancedSections(state, options, onOptionsChange, engine, running, onOpenGimbal)
                     }
+                } else if (advanced) {
+                    Column(Modifier.weight(1f).padding(top = 10.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("◂ Retour aux réglages", color = SurfColors.Aqua, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { advanced = false }.padding(8.dp))
+                        AdvancedSections(state, options, onOptionsChange, engine, running, onOpenGimbal)
+                    }
                 } else {
-                    Row(Modifier.weight(1f).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            QualitySection(options, running, onOptionsChange)
-                            BehaviourSection(options, running, onOptionsChange)
-                        }
-                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            AdvancedHeader(advanced) { advanced = !advanced }
-                            if (advanced) AdvancedSections(state, options, onOptionsChange, engine, running, onOpenGimbal)
+                    Row(Modifier.weight(1f).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(Modifier.weight(1f).fillMaxHeight()) { QualitySection(options, running, onOptionsChange) }
+                        Column(Modifier.weight(1f).fillMaxHeight()) { WhoSection(options, running, onOptionsChange) }
+                        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SessionSection(options, running, onOptionsChange)
+                            AdvancedHeader(false) { advanced = true }
                         }
                     }
                 }
@@ -792,48 +797,60 @@ internal fun InfoDialog(
     }
 }
 
-/** Les trois qualités d'un toucher : elles règlent définition, HDR et cadence ensemble. */
+@Composable
+private fun Choice(items: List<String>, selected: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        items.forEachIndexed { i, t ->
+            val on = i == selected
+            Box(
+                Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                    .background(if (on) SurfColors.Aqua else Color.Transparent)
+                    .border(1.dp, if (on) SurfColors.Aqua else Color(0xFF3A5260), RoundedCornerShape(10.dp))
+                    .clickable(enabled = enabled) { onSelect(i) }.padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(t, color = if (on) Color(0xFF05241F) else SurfColors.Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
+        }
+    }
+}
+
+/** Définition et cadence : le seul vrai choix de qualité. Le HDR reste dans Avancé. */
 @Composable
 internal fun QualitySection(options: SessionOptions, running: Boolean, onOptionsChange: (SessionOptions) -> Unit) {
-    val context = LocalContext.current
-    val preset = if (options.hd) "eco" else if (options.hdr) "max" else "eq"
-    fun apply(id: String) {
-        if (running) return
-        val next = when (id) {
-            "max" -> options.copy(hd = false, fps60 = false, hdr = true)
-            "eco" -> options.copy(hd = true, fps60 = false, hdr = false)
-            else -> options.copy(hd = false, fps60 = false, hdr = false)
-        }
-        // Un nouvel essai du HDR après une panne : on lève l'interdiction.
-        if (next.hdr) context.getSharedPreferences("camera", android.content.Context.MODE_PRIVATE).edit().putBoolean("hdr_broken", false).apply()
-        onOptionsChange(next)
-    }
-    Section("Qualité de la session") {
-        PresetCard("Équilibré", "4K standard, couleurs classiques lisibles partout · ${options.copy(hd = false, hdr = false, fps60 = false).gigabytesPerHour()} Go par heure de session complète", preset == "eq") { apply("eq") }
-        PresetCard("Qualité maximale", "4K en HDR 10 bits : lumières et couleurs plus riches, chauffe un peu plus · même place qu'Équilibré", preset == "max") { apply("max") }
-        PresetCard("Longue durée", "1080p : ${options.copy(hd = true, hdr = false, fps60 = false).gigabytesPerHour()} Go par heure de session complète, chauffe moins, batterie plus longue", preset == "eco") { apply("eco") }
+    Section("Vidéo") {
+        Text("Résolution", color = SurfColors.Muted, fontSize = 12.sp)
+        Choice(listOf("4K", "1080p"), if (options.hd) 1 else 0, !running) { onOptionsChange(options.copy(hd = it == 1, hdr = if (it == 1) false else options.hdr)) }
+        Text("Images par seconde", color = SurfColors.Muted, fontSize = 12.sp)
+        Choice(listOf("30", "60"), if (options.fps60) 1 else 0, !running) { onOptionsChange(options.copy(fps60 = it == 1)) }
+        Text(
+            "4K ≈ ${options.copy(hd = false, fps60 = false).gigabytesPerHour()} Go/h · 1080p ≈ ${options.copy(hd = true, fps60 = false).gigabytesPerHour()} Go/h" +
+                if (options.fps60) "\n60 i/s : chauffe plus, zoom limité à ×2 (sans téléobjectif)" else "",
+            color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
+        )
         if (running) Text("Modifiable avant de démarrer.", color = SurfColors.Muted, fontSize = 11.sp)
     }
 }
 
 @Composable
-internal fun BehaviourSection(options: SessionOptions, running: Boolean, onOptionsChange: (SessionOptions) -> Unit) {
-    Section("Ce que fait l'appli") {
-        Text("Qui filmer", color = SurfColors.Foam, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+internal fun WhoSection(options: SessionOptions, running: Boolean, onOptionsChange: (SessionOptions) -> Unit) {
+    Section("Qui filmer") {
         val mode = when {
-            options.subject == com.surfcam.app.data.engine.Subject.ME -> "me"
-            options.markerColor != null -> "priority"
-            else -> "all"
+            options.subject == com.surfcam.app.data.engine.Subject.ME -> 2
+            options.markerColor != null -> 1
+            else -> 0
         }
         val firstColor = options.markerColor ?: com.surfcam.app.domain.detection.MarkerColor.ORANGE
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(selected = mode == "all", onClick = { if (!running) onOptionsChange(options.copy(subject = com.surfcam.app.data.engine.Subject.EVERYONE, markerColor = null)) }, label = { Text("Tout le monde") })
-            FilterChip(selected = mode == "priority", onClick = { if (!running) onOptionsChange(options.copy(subject = com.surfcam.app.data.engine.Subject.EVERYONE, markerColor = firstColor)) }, label = { Text("Moi en priorité") })
-            FilterChip(selected = mode == "me", onClick = { if (!running) onOptionsChange(options.copy(subject = com.surfcam.app.data.engine.Subject.ME, markerColor = firstColor)) }, label = { Text("Seulement moi") })
+        Choice(listOf("Tout", "Moi d'abord", "Que moi"), mode, !running) {
+            onOptionsChange(
+                when (it) {
+                    0 -> options.copy(subject = com.surfcam.app.data.engine.Subject.EVERYONE, markerColor = null)
+                    1 -> options.copy(subject = com.surfcam.app.data.engine.Subject.EVERYONE, markerColor = firstColor)
+                    else -> options.copy(subject = com.surfcam.app.data.engine.Subject.ME, markerColor = firstColor)
+                },
+            )
         }
-        if (mode != "all") {
+        if (mode != 0) {
             Text("Couleur de mon manchon", color = SurfColors.Muted, fontSize = 12.sp)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (c in com.surfcam.app.domain.detection.MarkerColor.entries) {
                     FilterChip(selected = options.markerColor == c, onClick = { onOptionsChange(options.copy(markerColor = c)) }, label = { Text(c.label) })
                 }
@@ -841,14 +858,21 @@ internal fun BehaviourSection(options: SessionOptions, running: Boolean, onOptio
         }
         Text(
             when (mode) {
-                "me" -> "Filme et suit uniquement ta silhouette repérée par le manchon, en ×5 optique. Sans manchon visible, rien n'est filmé."
-                "priority" -> "Filme tout le monde, mais le suivi du gimbal se cale sur toi dès que ton manchon est reconnu."
+                2 -> "Filme et suit uniquement ta silhouette repérée par le manchon, en ×5 optique. Sans manchon visible, rien n'est filmé."
+                1 -> "Filme tout le monde, mais le gimbal te suit toi dès que ton manchon est reconnu."
                 else -> "Filme et suit tous les surfeurs."
             },
             color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
         )
-        OptionSwitch("Garder aussi toute la session", "", options.fullSession) { if (!running) onOptionsChange(options.copy(fullSession = it)) }
-        OptionSwitch("Voyant LED pendant la session", "Un éclair toutes les 6 s ; double éclair pendant une vague", options.ledBlink) { onOptionsChange(options.copy(ledBlink = it)) }
+    }
+}
+
+@Composable
+internal fun SessionSection(options: SessionOptions, running: Boolean, onOptionsChange: (SessionOptions) -> Unit) {
+    Section("Session") {
+        OptionSwitch("Garder toute la session", "", options.fullSession) { if (!running) onOptionsChange(options.copy(fullSession = it)) }
+        OptionSwitch("Voyant LED", "", options.ledBlink) { onOptionsChange(options.copy(ledBlink = it)) }
+        OptionSwitch("Écran noir après 1 min", "", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = it)) }
     }
 }
 
@@ -874,11 +898,9 @@ internal fun AdvancedSections(
     val context = LocalContext.current
     Section("Réglages fins") {
         OptionSwitch("Mode recadrage", "Filme large (×1), recadre ensuite sur le surfeur", options.reframe) { if (!running) onOptionsChange(options.copy(reframe = it)) }
-        OptionSwitch("Écran noir après 1 minute", "", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = it)) }
-        OptionSwitch("60 images/s", "Plus fluide, mais sans téléobjectif (zoom limité à ×2)", options.fps60) { if (!running) onOptionsChange(options.copy(fps60 = it)) }
         OptionSwitch("Forcer le téléobjectif", "Champ fixe ×5", options.tele) { if (!running) onOptionsChange(options.copy(tele = it)) }
         OptionSwitch("Verrouiller l'exposition", "Si l'image pompe quand un surfeur passe", options.lockExposure) { if (!running) onOptionsChange(options.copy(lockExposure = it)) }
-        OptionSwitch("HDR 10 bits", "Se règle aussi avec « Qualité maximale »", options.hdr) {
+        OptionSwitch("HDR 10 bits", "Lumières et couleurs plus riches, chauffe un peu plus", options.hdr) {
             if (!running) {
                 if (it) context.getSharedPreferences("camera", android.content.Context.MODE_PRIVATE).edit().putBoolean("hdr_broken", false).apply()
                 onOptionsChange(options.copy(hdr = it))
