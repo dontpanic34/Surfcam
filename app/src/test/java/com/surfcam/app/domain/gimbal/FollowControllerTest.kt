@@ -110,4 +110,15 @@ class FollowControllerTest {
         assertEquals(0f, FollowController.clampToZone(45f, 10f, 45f), 0f)
         assertEquals(-10f, FollowController.clampToZone(40f, -10f, 45f), 0f) // revenir vers le centre reste permis
     }
+
+    @Test
+    fun `le gimbal ne bouge que près du bord de l'image`() {
+        // Champ de 15° : le centre libre va jusqu'à ±4,5° (30 %).
+        assertEquals(0f, FollowController.edgeStep(3f, 0f, 1f, 15f, 0.30f, 15f), 0f)
+        assertEquals(0f, FollowController.edgeStep(-4f, 0f, 1f, 15f, 0.30f, 15f), 0f)
+        assertEquals(6f, FollowController.edgeStep(6f, 0f, 1f, 15f, 0.30f, 15f), 0f)
+        // Un surfeur qui file vers le bord déclenche le pivotement avant d'y arriver.
+        assertEquals(7f, FollowController.edgeStep(2f, 5f, 1f, 15f, 0.30f, 15f), 0f)
+        assertEquals(15f, FollowController.edgeStep(40f, 0f, 1f, 15f, 0.30f, 15f), 0f)
+    }
 }

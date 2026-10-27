@@ -130,11 +130,12 @@ class GimbalFollower(context: Context) {
         }
         prevWorld = world
         prevWorldAtMs = now
-        val wanted = FollowController.stepWithLead(error, velocity, style.leadSeconds, style.step)
+        // Le gimbal reste immobile tant que le surfeur est dans la partie centrale ; il ne bouge que près du bord.
+        val wanted = FollowController.edgeStep(error, velocity, style.leadSeconds, hfovDeg, style.edgeFraction, style.step.maxStepDeg)
         // Le gimbal ne sort jamais de la zone de surf (de part et d'autre de sa direction de départ).
         val step = FollowController.clampToZone(yawCmdDeg, wanted, zoneDeg)
         if (abs(step) < 0.5f) return
-        val seconds = (FollowController.moveSeconds(step) * style.moveScale).coerceIn(0.3f, 1.5f)
+        val seconds = ((0.8f + abs(step) / 30f) * style.moveScale).coerceIn(0.6f, 2f)
         link.rotateBy(if (invert) -step else step, seconds)
         yawCmdDeg += step
         nextStepAtMs = now + ((seconds + style.settleSeconds) * 1000).toLong()

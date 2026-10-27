@@ -82,6 +82,18 @@ object FollowController {
         return stepDegrees(predicted, config)
     }
 
+    /**
+     * Suivi « par le bord » : tant que le surfeur (position prévue) reste dans la partie centrale de l'image, le gimbal
+     * ne bouge pas. Dès qu'il approche du bord (au-delà de [edgeFraction] du champ de chaque côté du centre), un seul
+     * pivotement le ramène au centre. Évite le balayage perpétuel droite-gauche à fort zoom.
+     */
+    fun edgeStep(errorDeg: Float, velocityDegPerSec: Float, leadSeconds: Float, hfovDeg: Float, edgeFraction: Float, maxStepDeg: Float): Float {
+        val v = if (abs(velocityDegPerSec) < 1f) 0f else velocityDegPerSec
+        val predicted = errorDeg + v * leadSeconds
+        if (abs(predicted) < edgeFraction * hfovDeg) return 0f
+        return predicted.coerceIn(-maxStepDeg, maxStepDeg)
+    }
+
     /** Durée du pivotement : douce pour les petits pas, un peu plus longue pour les grands. */
     fun moveSeconds(stepDeg: Float): Float = (0.5f + abs(stepDeg) / 40f).coerceIn(0.5f, 1.2f)
 
@@ -95,10 +107,12 @@ object FollowController {
         val leadSeconds: Float,
         /** Facteur sur la durée des pivotements : sous 1, ils sont plus rapides. */
         val moveScale: Float,
+        /** Part du champ (de chaque côté du centre) où le surfeur peut évoluer sans que le gimbal bouge. */
+        val edgeFraction: Float,
     ) {
-        SMOOTH("Doux", StepConfig(deadbandDeg = 3.5f, gain = 0.6f, maxStepDeg = 8f), 0.8f, 0.8f, 1.3f),
-        NORMAL("Normal", StepConfig(), 0.5f, 1.0f, 1.0f),
-        REACTIVE("Réactif", StepConfig(deadbandDeg = 1.5f, gain = 1.0f, maxStepDeg = 25f), 0.3f, 1.3f, 0.75f),
+        SMOOTH("Doux", StepConfig(deadbandDeg = 3.5f, gain = 0.6f, maxStepDeg = 8f), 0.8f, 0.8f, 1.3f, 0.34f),
+        NORMAL("Normal", StepConfig(), 0.5f, 1.0f, 1.0f, 0.30f),
+        REACTIVE("Réactif", StepConfig(deadbandDeg = 1.5f, gain = 1.0f, maxStepDeg = 25f), 0.3f, 1.3f, 0.75f, 0.24f),
         ;
 
         companion object {
