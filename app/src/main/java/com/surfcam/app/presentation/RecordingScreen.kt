@@ -267,11 +267,12 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 drawCircle(SurfColors.Warn, radius = 34.dp.toPx(), center = p, style = Stroke(width = 2.dp.toPx()))
             }
         }
-        if (state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) {
+        // La mise au point automatique est le cas normal : la pastille n'apparaît que si elle a été changée (toucher l'image).
+        if ((state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) && state.focusMode != com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO) {
             val label = when (state.focusMode) {
                 com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO -> "Focus : auto"
-                com.surfcam.app.data.camera.Camera2Source.FocusMode.POINT -> "Focus : point (toucher = auto)"
-                com.surfcam.app.data.camera.Camera2Source.FocusMode.INFINITY -> "Focus : infini"
+                com.surfcam.app.data.camera.Camera2Source.FocusMode.POINT -> "Focus : point · toucher pour repasser en auto"
+                com.surfcam.app.data.camera.Camera2Source.FocusMode.INFINITY -> "Focus : infini · toucher pour repasser en auto"
             }
             InfoChip(
                 label,
@@ -279,13 +280,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(12.dp)
-                    .clickable {
-                        engine.setFocusMode(
-                            if (state.focusMode == com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO)
-                                com.surfcam.app.data.camera.Camera2Source.FocusMode.INFINITY
-                            else com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO,
-                        )
-                    },
+                    .clickable { engine.setFocusMode(com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO) },
             )
         }
 
@@ -315,7 +310,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
         val target = state.analysis?.boxes?.maxByOrNull { it.bottom - it.top }
         if (reframe) {
             // Mode recadrage : on filme large, pas de zoom conseillé.
-        } else if (target != null && state.focalPx1x > 0f) {
+        } else if (state.phase == Phase.PREVIEW && target != null && state.focalPx1x > 0f) {
             val heightPx = (target.bottom - target.top) * CaptureConfig.ANALYSIS_HEIGHT
             val distance = DistanceEstimator.distanceMeters(state.focalPx1x * state.zoom, heightPx)
             if (distance != null) {
@@ -336,7 +331,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
         }
 
         val horizon by rememberHorizonAngle()
-        if (hasCamera) horizon?.takeIf { kotlin.math.abs(it) <= 30f }?.let { angle ->
+        if (hasCamera && state.phase != Phase.RUNNING) horizon?.takeIf { kotlin.math.abs(it) <= 30f }?.let { angle ->
             HorizonLevel(angle)
             Text(
                 levelLabel(angle),
@@ -356,30 +351,30 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            val config = state.config
             val device by rememberDeviceStatus()
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Pendant la session : durée et nombre de vagues. Sinon : température et batterie, en une pastille discrète.
+            if (state.phase == Phase.RUNNING) {
+                var now by remember { mutableStateOf(System.currentTimeMillis()) }
+                LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(1_000) } }
+                val secs = ((now - state.startedAtMs).coerceAtLeast(0L) / 1000).toInt()
+                InfoChip(
+                    "%d:%02d:%02d · %d vague%s".format(secs / 3600, secs / 60 % 60, secs % 60, state.waves, if (state.waves > 1) "s" else ""),
+                    SurfColors.Foam,
+                )
+            }
             device?.let { d ->
-                // La batterie est déjà dans la barre d'état : on ne la répète que si elle devient critique.
-                if (d.batteryPercent in 0..15 && !d.charging) InfoChip("Batterie ${d.batteryPercent} %", SurfColors.Alert)
-                d.temperatureC?.let { t ->
-                    // Le degré est celui de la batterie ; l'état du système (normale, forte...) reste donné à côté.
-                    val color = if (state.thermalStatus > PowerManager.THERMAL_STATUS_LIGHT) {
-                        if (temperatureColor(t) == SurfColors.Ok) thermalColor(state.thermalStatus) else temperatureColor(t)
-                    } else temperatureColor(t)
-                    InfoChip("%.1f °C · %s".format(t, thermalLabel(state.thermalStatus)).replace('.', ','), color)
-                }
-            }
-            }
-            if (state.phase == Phase.RUNNING && config != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (state.fullSession) InfoChip("REC · partie ${state.sessionPart}", SurfColors.Alert)
-                    // La cadence réelle n'est signalée que si elle s'écarte de la cadence demandée.
-                    val slow = state.actualFps > 0f && state.actualFps < config.fps * 0.85f
-                    InfoChip(
-                        resolutionLabel(config) + if (slow) " · ${"%.0f".format(state.actualFps)} i/s réels" else "",
-                        if (slow) SurfColors.Warn else SurfColors.Foam,
-                    )
+                val t = d.temperatureC
+                val hot = state.thermalStatus > PowerManager.THERMAL_STATUS_LIGHT
+                val low = d.batteryPercent in 0..15 && !d.charging
+                // Rien à signaler pendant la session : la pastille ne s'affiche qu'en préparation ou en cas de souci.
+                if (state.phase != Phase.RUNNING || hot || low || (t != null && t >= 40f)) {
+                    val color = when {
+                        low -> SurfColors.Alert
+                        t != null && hot -> if (temperatureColor(t) == SurfColors.Ok) thermalColor(state.thermalStatus) else temperatureColor(t)
+                        t != null -> temperatureColor(t)
+                        else -> SurfColors.Foam
+                    }
+                    InfoChip((t?.let { "%.0f°".format(it) } ?: "") + (if (d.batteryPercent >= 0) " · ${d.batteryPercent} %" else ""), color)
                 }
             }
         }
@@ -422,16 +417,17 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
 
 @Composable
 private fun Pill(text: String, color: Color, modifier: Modifier = Modifier) {
-    Column(
+    Row(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xCC0B1620))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .clip(RoundedCornerShape(50))
+            .background(Color(0xB30B1620))
+            .border(1.dp, Color(0x29FFFFFF), RoundedCornerShape(50))
+            .padding(start = 10.dp, end = 14.dp, top = 7.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Box(Modifier.size(14.dp).clip(CircleShape).background(color))
-        Text(text, color = SurfColors.Foam, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Box(Modifier.size(9.dp).clip(CircleShape).background(color))
+        Text(text, color = SurfColors.Foam, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -550,43 +546,9 @@ private fun SideControls(
                     drawLine(tint, Offset(center.x + 9.dp.toPx(), center.y), Offset(center.x + 5.dp.toPx(), center.y + 4.dp.toPx()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
                 }
             }
-            if (!running) {
-                val needsAuth = options.doNotDisturb && !dndAllowed
-                RoundIcon(36.dp, on = options.doNotDisturb, warn = needsAuth, onClick = {
-                    val turnOn = !options.doNotDisturb
-                    onOptionsChange(options.copy(doNotDisturb = turnOn))
-                    // Première fois : Android demande à l'utilisateur d'autoriser l'app dans ses réglages.
-                    if (turnOn && !DoNotDisturb.isAllowed(context)) {
-                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    }
-                }) { tint ->
-                    drawCircle(tint, radius = 8.dp.toPx(), center = center, style = Stroke(2.dp.toPx()))
-                    drawLine(tint, Offset(center.x - 4.5.dp.toPx(), center.y), Offset(center.x + 4.5.dp.toPx(), center.y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-                }
-            }
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!running) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SideChip(if (options.hd) "1080p" else "4K", false) { onOptionsChange(options.copy(hd = !options.hd)) }
-                    SideChip(if (options.fps60) "60" else "30", options.fps60) { onOptionsChange(options.copy(fps60 = !options.fps60)) }
-                }
-                val chosen = storages.firstOrNull { it.name == options.storage }
-                val gb = (chosen ?: storages.firstOrNull())?.freeBytes?.let { it / 1_000_000_000L }
-                val low = options.fullSession && gb != null && gb < 2L * options.gigabytesPerHour()
-                SideChip(
-                    (chosen?.label ?: "Téléphone") + (gb?.let { " · $it Go" } ?: ""),
-                    warn = chosen == null || low,
-                    wide = true,
-                ) {
-                    // Passe au support suivant (téléphone, carte SD, clé USB).
-                    if (storages.size > 1) {
-                        val next = storages[(storages.indexOfFirst { it.name == options.storage } + 1).mod(storages.size)]
-                        onOptionsChange(options.copy(storage = next.name))
-                    }
-                }
-            }
             // Bouton de prise de vue : rond blanc, point turquoise au repos, carré rouge pendant la session.
             Box(
                 Modifier
@@ -913,6 +875,7 @@ internal fun AdvancedSections(
     Section("Réglages fins") {
         OptionSwitch("Mode recadrage", "Filme large (×1), recadre ensuite sur le surfeur", options.reframe) { if (!running) onOptionsChange(options.copy(reframe = it)) }
         OptionSwitch("Écran noir après 1 minute", "", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = it)) }
+        OptionSwitch("60 images/s", "Plus fluide, mais sans téléobjectif (zoom limité à ×2)", options.fps60) { if (!running) onOptionsChange(options.copy(fps60 = it)) }
         OptionSwitch("Forcer le téléobjectif", "Champ fixe ×5", options.tele) { if (!running) onOptionsChange(options.copy(tele = it)) }
         OptionSwitch("Verrouiller l'exposition", "Si l'image pompe quand un surfeur passe", options.lockExposure) { if (!running) onOptionsChange(options.copy(lockExposure = it)) }
         OptionSwitch("HDR 10 bits", "Se règle aussi avec « Qualité maximale »", options.hdr) {

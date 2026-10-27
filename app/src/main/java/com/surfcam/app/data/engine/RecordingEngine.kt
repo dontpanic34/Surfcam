@@ -92,6 +92,9 @@ data class EngineState(
     val thermalStatus: Int = PowerManager.THERMAL_STATUS_NONE,
     /** Niveau d'allègement appliqué à cause de la chaleur : 0 aucun, 1 léger, 2 fort. */
     val thermalLevel: Int = 0,
+    /** Début de la session (ms) et nombre de vagues déjà enregistrées, pour l'affichage en cours de session. */
+    val startedAtMs: Long = 0L,
+    val waves: Int = 0,
     val message: String? = null,
 )
 
@@ -546,6 +549,8 @@ class RecordingEngine(private val context: Context) {
         _state.update {
             it.copy(
                 phase = Phase.RUNNING,
+                startedAtMs = System.currentTimeMillis(),
+                waves = 0,
                 focusMode = Camera2Source.FocusMode.AUTO,
                 config = config,
                 maxFpsAtSize = probe.maxFpsAtSize,
@@ -675,6 +680,7 @@ class RecordingEngine(private val context: Context) {
         _state.update {
             it.copy(
                 clipActive = false,
+                waves = clipsSaved,
                 lastClip = saved?.let { s ->
                     val pre = recorder?.lastPreRollSec ?: 0f
                     "${s.name} (${"%.1f".format(s.durationSec)} s dont %.1f s avant l'appui, ${s.sizeBytes / (1024 * 1024)} Mo)".format(pre)
