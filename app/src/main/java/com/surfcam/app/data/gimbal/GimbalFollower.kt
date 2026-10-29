@@ -40,6 +40,25 @@ class GimbalFollower(context: Context) {
         GimbalLog.add(text)
     }
 
+    /** Direction du pic (cap par rapport au départ) : le gimbal y revient quand il n'a plus de surfeur. */
+    @Volatile
+    var peakYawDeg = 0f
+        private set
+    private var clipActive = false
+    private var clipEndedAtMs = 0L
+
+    /** Mémorise la direction actuelle comme étant le pic. */
+    fun setPeakHere() {
+        peakYawDeg = yawCmdDeg
+        log("PIC redéfini : cap %+.1f° par rapport au départ".format(peakYawDeg))
+    }
+
+    /** Pendant qu'une vague est en cours de clip, le gimbal ne repart pas vers le pic ; il attend 2 s après la fin. */
+    fun setClipActive(active: Boolean) {
+        if (clipActive && !active) clipEndedAtMs = SystemClock.elapsedRealtime()
+        clipActive = active
+    }
+
     private var lastSeenAtMs = 0L
     private var lastCommandAtMs = 0L
     private var nextStepAtMs = 0L
@@ -92,12 +111,13 @@ class GimbalFollower(context: Context) {
         style = FollowController.FollowStyle.fromName(prefs.getString("followStyle", null))
         zoneDeg = prefs.getFloat("zoneDeg", 45f)
         yawCmdDeg = 0f
+        peakYawDeg = 0f
         prevWorld = null
         velocity = 0f
         nextStepAtMs = 0L
         searchPhase = 0
         sweeps = 0
-        GimbalLog.start(appContext, "Début du suivi · style ${style.label} (zone libre ${(style.edgeFraction * 200).toInt()} % du champ) · zone ±${zoneDeg.toInt()}° · recherche ${if (searchEnabled) "oui" else "non"}")
+        GimbalLog.start(appContext, "Début du suivi (le pic = direction de départ) · style ${style.label} (zone libre ${(style.edgeFraction * 200).toInt()} % du champ) · zone ±${zoneDeg.toInt()}° · recherche ${if (searchEnabled) "oui" else "non"}")
         if (!link.state.value.connected && !link.state.value.connecting) link.connect(address)
         started = true
         handler.postDelayed(watchdog, 500)
@@ -133,7 +153,9 @@ class GimbalFollower(context: Context) {
             // Plus de surfeur depuis un moment : retour à la direction de départ, face à la zone de surf.
             if (searchEnabled && lastSeenAtMs > 0 && now - lastSeenAtMs > SEARCH_AFTER_MS && sweeps < MAX_SWEEPS && now >= nextStepAtMs) {
                 searchStep(now, hfovDeg)
-            } else if (lastSeenAtMs > 0 && now - lastSeenAtMs > HOME_AFTER_MS && abs(yawCmdDeg) > 3f && now >= nextStepAtMs) {
+            } else if (lastSeenAtMs > 0 && now - lastSeenAtMs > HOME_AFTER_MS && !clipActive && now - clipEndedAtMs > CLIP_END_DELAY_MS &&
+                abs(yawCmdDeg - peakYawDeg) > 3f && now >= nextStepAtMs
+            ) {
                 returnHome(now)
             }
             return
@@ -204,11 +226,11 @@ class GimbalFollower(context: Context) {
     }
 
     private fun returnHome(now: Long) {
-        val back = -yawCmdDeg
+        val back = peakYawDeg - yawCmdDeg
         val seconds = (abs(back) / 30f + 0.8f).coerceIn(1f, 4f)
-        log("RETOUR au point de départ : %+.0f°".format(back))
+        log("RETOUR au pic : %+.0f°".format(back))
         link.rotateBy(if (invert) -back else back, seconds)
-        yawCmdDeg = 0f
+        yawCmdDeg = peakYawDeg
         prevWorld = null
         velocity = 0f
         nextStepAtMs = now + ((seconds + 0.5f) * 1000).toLong()
@@ -230,7 +252,8 @@ class GimbalFollower(context: Context) {
 
     private companion object {
         const val LOST_TIMEOUT_MS = 1_200L
-        const val HOME_AFTER_MS = 8_000L
+        const val HOME_AFTER_MS = 4_000L
+        const val CLIP_END_DELAY_MS = 2_000L
         const val SEARCH_AFTER_MS = 12_000L
         const val MAX_SWEEPS = 2
         const val SEARCH_DWELL_SECONDS = 2.5f

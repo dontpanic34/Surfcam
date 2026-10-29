@@ -302,6 +302,21 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                     },
             )
+            if (state.gimbalStatus != null) {
+                var peakSet by remember { mutableStateOf(false) }
+                InfoChip(
+                    if (peakSet) "📍 Pic mémorisé" else "📍 Ici le pic",
+                    if (peakSet) SurfColors.Ok else Color.White,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 12.dp, top = 124.dp)
+                        .clickable {
+                            engine.markPeak()
+                            peakSet = true
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        },
+                )
+            }
             InfoChip(
                 if (flagged > 0) "⚑ Problème noté ($flagged)" else "⚑ Problème ici",
                 Color.White,

@@ -431,6 +431,12 @@ class RecordingEngine(private val context: Context) {
         }
     }
 
+    /** Le bouton « Ici le pic » : la direction actuelle du gimbal devient le point de retour entre deux vagues. */
+    fun markPeak() {
+        follower?.setPeakHere()
+        SessionLog.ev("PIC", "L'utilisateur désigne la direction actuelle comme étant le pic")
+    }
+
     /** Le bouton « Problème » : repère dans le rapport l'instant où l'utilisateur voit quelque chose d'anormal. */
     fun markProblem() {
         val st = _state.value
@@ -498,6 +504,7 @@ class RecordingEngine(private val context: Context) {
                         )
                     }
                 }
+                follower?.setClipActive(_state.value.clipActive)
                 logFrame(snapshot, follower)
                 val targetId = follower?.targetId
                     ?: FollowController.chooseTarget(snapshot.boxes.filter { !onlyMarkedFollow || it.marked }.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked, it.id) }, null)?.id
