@@ -114,9 +114,9 @@ object FollowController {
         /** Part du champ (de chaque côté du centre) où le surfeur peut évoluer sans que le gimbal bouge. */
         val edgeFraction: Float,
     ) {
-        SMOOTH("Doux", StepConfig(deadbandDeg = 3.5f, gain = 0.6f, maxStepDeg = 8f), 0.8f, 0.8f, 1.3f, 0.34f),
-        NORMAL("Normal", StepConfig(), 0.5f, 1.0f, 1.0f, 0.30f),
-        REACTIVE("Réactif", StepConfig(deadbandDeg = 1.5f, gain = 1.0f, maxStepDeg = 25f), 0.3f, 1.3f, 0.75f, 0.24f),
+        SMOOTH("Doux", StepConfig(deadbandDeg = 3.5f, gain = 0.6f, maxStepDeg = 10f), 0.3f, 1.2f, 1.3f, 0.16f),
+        NORMAL("Normal", StepConfig(), 0.25f, 1.3f, 1.0f, 0.12f),
+        REACTIVE("Réactif", StepConfig(deadbandDeg = 1.5f, gain = 1.0f, maxStepDeg = 25f), 0.2f, 1.5f, 0.75f, 0.08f),
         ;
 
         companion object {
@@ -130,5 +130,5 @@ object FollowController {
 
     const val MAX_UNITS = 3000
     /** Vitesse angulaire maximale prise en compte pour l'anticipation, en degrés par seconde. */
-    const val MAX_LEAD_SPEED = 8f
+    const val MAX_LEAD_SPEED = 20f
 }

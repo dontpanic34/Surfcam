@@ -166,7 +166,9 @@ class GimbalFollower(context: Context) {
             log("$who · écart %+.1f° · vitesse %+.1f °/s → reste immobile (zone libre ±%.1f°)".format(error, velocity, style.edgeFraction * hfovDeg), 1000)
             return
         }
-        val seconds = ((0.8f + abs(step) / 30f) * style.moveScale).coerceIn(0.6f, 2f)
+        // Le pivotement dure le temps de suivre le surfeur à sa vitesse (au moins 2,5 °/s) : mouvement continu, sans à-coups.
+        val speed = maxOf(2.5f, 1.1f * abs(velocity))
+        val seconds = (abs(step) / speed * style.moveScale).coerceIn(0.5f, 1.6f)
         link.rotateBy(if (invert) -step else step, seconds)
         yawCmdDeg += step
         log("$who · écart %+.1f° · vitesse %+.1f °/s → PAS %+.1f° en %.1f s (cap %+.0f° depuis le départ)".format(error, velocity, step, seconds, yawCmdDeg))
@@ -233,7 +235,7 @@ class GimbalFollower(context: Context) {
         const val MAX_SWEEPS = 2
         const val SEARCH_DWELL_SECONDS = 2.5f
         const val VELOCITY_SMOOTHING = 0.5f
-        const val MAX_PLAUSIBLE_SPEED = 25f
+        const val MAX_PLAUSIBLE_SPEED = 45f
         const val STALL_TIMEOUT_MS = 1_500L
     }
 }
