@@ -14,6 +14,11 @@ object GimbalLog {
     private var t0 = 0L
     private val lines = ArrayDeque<String>()
 
+    /** Dernière décision du suivi (affichée à l'écran pendant les tests). */
+    @Volatile
+    var last: String = ""
+        private set
+
     @Synchronized
     fun start(context: Context, header: String) {
         file = File(context.filesDir, "gimbal_log.txt")
@@ -26,6 +31,8 @@ object GimbalLog {
     @Synchronized
     fun add(text: String) {
         val t = (SystemClock.elapsedRealtime() - t0) / 1000f
+        last = text
+        com.surfcam.app.data.engine.SessionLog.ev("gimbal", text)
         val line = "%6.1f s  %s".format(t, text)
         lines.addLast(line)
         if (lines.size > MAX_LINES) lines.removeFirst()

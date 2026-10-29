@@ -28,6 +28,7 @@ import com.surfcam.app.data.storage.SavedClip
 import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
 import com.surfcam.app.data.gimbal.GimbalFollower
+import com.surfcam.app.data.gimbal.GimbalLog
 import com.surfcam.app.data.reframe.PathStore
 import com.surfcam.app.domain.gimbal.FollowBox
 import com.surfcam.app.domain.gimbal.FollowController
@@ -70,6 +71,8 @@ data class EngineState(
     val followEnabled: Boolean = false,
     /** Identifiant du surfeur que le suivi a choisi (cadre jaune à l'écran), -1 si aucun. */
     val followTargetId: Int = -1,
+    /** Dernière décision du suivi, en clair (aide au réglage). */
+    val followNote: String = "",
     val maxFpsAtSize: Int = 0,
     val keyFrameIntervalSec: Float = 0f,
     /** Cadence réellement obtenue de la caméra (images par seconde), mesurée sur la vidéo encodée. */
@@ -209,6 +212,12 @@ class RecordingEngine(private val context: Context) {
         if (_state.value.phase == Phase.STARTING || _state.value.phase == Phase.RUNNING) return
         lastRotation = displayRotationDegrees
         lastOptions = options
+        SessionLog.start(
+            context,
+            "Options : 4K=${!options.hd} 60i/s=${options.fps60} tele=${options.tele} HDR=${options.hdr} session complète=${options.fullSession} " +
+                "qui=${options.subject}/${options.markerColor ?: "-"} stockage=${options.storage} recadrage=${options.reframe} " +
+                "expo verrouillée=${options.lockExposure} LED=${options.ledBlink}",
+        )
         Trail.mark("DEMARRAGE hdr=${options.hdr} tele=${options.tele} fps60=${options.fps60} 4K=${!options.hd}")
         clipsSaved = 0
         waveCounter = 0
@@ -273,6 +282,8 @@ class RecordingEngine(private val context: Context) {
         val batteryLine = endBatteryLog()
         val summary = buildSummary() + (batteryLine?.let { "\n$it" } ?: "")
         Trail.mark("FIN")
+        SessionLog.ev("bilan", summary.replace("\n", " | "))
+        SessionLog.end(context)
         _state.update { it.copy(phase = Phase.IDLE, lastSummary = summary, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, sessionPart = 0, message = null) }
     }
 
@@ -321,6 +332,7 @@ class RecordingEngine(private val context: Context) {
                 }
 
                 override fun onStabilization(active: Boolean) {
+                SessionLog.ev("camera", "stabilisation ${if (active) "active" else "INACTIVE"}")
                     _state.update { it.copy(stabilized = active) }
                 }
 
@@ -419,6 +431,12 @@ class RecordingEngine(private val context: Context) {
         }
     }
 
+    /** Le bouton « Problème » : repère dans le rapport l'instant où l'utilisateur voit quelque chose d'anormal. */
+    fun markProblem() {
+        val st = _state.value
+        SessionLog.ev("MARQUE", "L'UTILISATEUR SIGNALE UN PROBLÈME · cible=#${st.followTargetId} · ${st.followNote} · gimbal : ${st.gimbalStatus ?: "-"} · zoom ×${"%.1f".format(st.zoom)}")
+    }
+
     /** Termine le clip après [CaptureConfig.POST_ROLL_SEC] secondes supplémentaires. */
     @Synchronized
     fun finishClip() {
@@ -452,6 +470,7 @@ class RecordingEngine(private val context: Context) {
         val pipeline = AnalysisPipeline(context, object : AnalysisPipeline.Listener {
             // Appelé depuis le thread d'analyse : pas de verrou du moteur ici, pour éviter tout blocage à l'arrêt.
             override fun onClipAction(action: ClipAction) {
+                SessionLog.ev("clip", "décision auto : ${action::class.simpleName}")
                 when (action) {
                     is ClipAction.Start -> if (clips.startFrom(action.fromUs, ++waveCounter)) {
                         clipStartPtsUs = clips.lastStartPtsUs
@@ -479,10 +498,12 @@ class RecordingEngine(private val context: Context) {
                         )
                     }
                 }
+                logFrame(snapshot, follower)
                 val targetId = follower?.targetId
                     ?: FollowController.chooseTarget(snapshot.boxes.filter { !onlyMarkedFollow || it.marked }.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked, it.id) }, null)?.id
                     ?: -1
-                if (_state.value.followTargetId != targetId) _state.update { it.copy(followTargetId = targetId) }
+                val note = GimbalLog.last
+                if (_state.value.followTargetId != targetId || _state.value.followNote != note) _state.update { it.copy(followTargetId = targetId, followNote = note) }
             }
 
             override fun onStatus(message: String?) {
@@ -604,6 +625,7 @@ class RecordingEngine(private val context: Context) {
             }
 
             override fun onHdrRefused() {
+                SessionLog.ev("camera", "HDR refusé par la caméra : redémarrage en 8 bits")
                 // Relance aussitôt la session en 8 bits : le HDR est désormais coupé par la caméra elle-même.
                 val rotation = lastRotation
                 val opts = lastOptions ?: return
@@ -678,6 +700,7 @@ class RecordingEngine(private val context: Context) {
     }
 
     private fun onClipResult(saved: SavedClip?, error: String?) {
+        SessionLog.ev("clip", if (saved != null) "enregistré : ${saved.name} (%.1f s, ${saved.sizeBytes / (1024 * 1024)} Mo)".format(saved.durationSec) else "échec : ${error ?: "?"}")
         if (saved != null) clipsSaved++
         if (saved != null && reframeOn) savePath(saved.name)
         // Un clip automatique réussi est mémorisé avec ses caractéristiques : l'utilisateur pourra le juger.
@@ -784,7 +807,36 @@ class RecordingEngine(private val context: Context) {
         }
     }
 
+    private var lastFrameLogMs = 0L
+    private var lastTickLogMs = 0L
+
+    /** Une ligne du rapport à chaque demi-seconde : toutes les personnes vues, la cible, le cap du gimbal ; plus un état général toutes les 10 s. */
+    private fun logFrame(snapshot: AnalysisSnapshot, f: GimbalFollower?) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastFrameLogMs >= 500) {
+            lastFrameLogMs = now
+            val st = _state.value
+            val boxes = snapshot.boxes.joinToString(" ") {
+                "#${it.id}(x%.2f y%.2f h%.2f%s%s)".format((it.left + it.right) / 2f, (it.top + it.bottom) / 2f, it.bottom - it.top, if (it.riding) " VAGUE" else "", if (it.marked) " MANCHON" else "")
+            }
+            SessionLog.ev(
+                "image",
+                "n=${snapshot.frames} personnes=${snapshot.personsInFrame} conf=%.2f ${snapshot.inferenceMs}ms · retenus: ${boxes.ifEmpty { "aucun" }} · cible=#${f?.targetId ?: -1} · cap gimbal %+.1f° · zoom ×%.1f".format(snapshot.bestConfidence, f?.yawCmdDeg ?: 0f, st.zoom),
+            )
+        }
+        if (now - lastTickLogMs >= 10_000) {
+            lastTickLogMs = now
+            val st = _state.value
+            val b = batteryPercent()
+            SessionLog.ev(
+                "état",
+                "batterie=${b?.first ?: "?"}%${if (b?.second == true) " (charge)" else ""} · chaleur niveau ${st.thermalLevel} · ${st.captureInfo ?: "-"} · ${st.gimbalStatus ?: "sans gimbal"} · vagues=${st.waves} · clip actif=${st.clipActive}",
+            )
+        }
+    }
+
     private fun applyThermalLevel(level: Int) {
+        SessionLog.ev("chaleur", "niveau $level (statut système ${_state.value.thermalStatus})")
         thermalLevel = level
         _state.update { it.copy(thermalLevel = level) }
         val base = _state.value.config?.bitrate ?: 0
@@ -804,6 +856,7 @@ class RecordingEngine(private val context: Context) {
 
     /** Arrête la session proprement : les fichiers en cours sont refermés avant de couper, puis l'utilisateur est prévenu. */
     private fun safeStop(reason: String) {
+        SessionLog.ev("arrêt", reason)
         _state.update { it.copy(endedReason = reason) }
         alert("SurfCam a arrêté la session", "$reason. Tes vidéos sont sauvegardées.")
         stop()

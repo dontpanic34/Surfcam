@@ -43,7 +43,11 @@ class GimbalFollower(context: Context) {
     private var lastSeenAtMs = 0L
     private var lastCommandAtMs = 0L
     private var nextStepAtMs = 0L
-    private var yawCmdDeg = 0f
+    /** Cap ordonné depuis la direction de départ, en degrés (positif vers la droite). */
+    @Volatile
+    var yawCmdDeg = 0f
+        private set
+    private var wasConnected: Boolean? = null
     private var prevWorld: Float? = null
     private var prevWorldAtMs = 0L
     private var velocity = 0f
@@ -70,6 +74,7 @@ class GimbalFollower(context: Context) {
             if (moving && now - lastCommandAtMs > STALL_TIMEOUT_MS) haltOnce()
             // Liaison perdue (gimbal éteint un instant, trop loin) : on retente toutes les 6 secondes.
             val s = link.state.value
+            if (wasConnected != s.connected) { wasConnected = s.connected; log("liaison gimbal : ${if (s.connected) "connectée" else "perdue (${s.status})"}") }
             val address = savedAddress
             if (address != null && !s.connected && !s.connecting && now - lastReconnectAtMs > 6_000) {
                 lastReconnectAtMs = now

@@ -13,6 +13,10 @@ class OptionsStore(context: Context) {
         if (!prefs.getBoolean("hdrOffV2", false)) {
             prefs.edit().putBoolean("hdr", false).putBoolean("hdrOffV2", true).apply()
         }
+        // Phase de test : on garde toute la session (le rush complet sert au débogage), une seule fois.
+        if (!prefs.getBoolean("testModeV1", false)) {
+            prefs.edit().putBoolean("fullSession", true).putBoolean("testModeV1", true).apply()
+        }
         return SessionOptions(
             tele = prefs.getBoolean("tele", d.tele),
             fullSession = prefs.getBoolean("fullSession", d.fullSession),

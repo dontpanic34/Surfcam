@@ -267,6 +267,30 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 drawCircle(SurfColors.Warn, radius = 34.dp.toPx(), center = p, style = Stroke(width = 2.dp.toPx()))
             }
         }
+        if (state.phase == Phase.RUNNING) {
+            // Phase de test : la décision du suivi en clair, et un bouton pour repérer un problème dans le rapport.
+            val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+            var flagged by remember { mutableStateOf(0) }
+            if (state.followNote.isNotEmpty()) {
+                InfoChip(
+                    state.followNote,
+                    Color(0xFFFFE600),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
+                )
+            }
+            InfoChip(
+                if (flagged > 0) "⚑ Problème noté ($flagged)" else "⚑ Problème ici",
+                Color.White,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(12.dp)
+                    .clickable {
+                        engine.markProblem()
+                        flagged++
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    },
+            )
+        }
         // La mise au point automatique est le cas normal : la pastille n'apparaît que si elle a été changée (toucher l'image).
         if ((state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) && state.focusMode != com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO) {
             val label = when (state.focusMode) {
@@ -970,7 +994,7 @@ private fun Help(title: String, text: String) {
 private fun GimbalLogSection() {
     val context = LocalContext.current
     var text by remember { mutableStateOf(com.surfcam.app.data.gimbal.GimbalLog.tail(40)) }
-    Section("Journal du gimbal") {
+    Section("Rapport de test") {
         Text(
             if (text.isEmpty()) "Vide : le journal se remplit pendant une session avec le gimbal." else text,
             color = SurfColors.Muted, fontSize = 10.sp, lineHeight = 13.sp,
@@ -986,6 +1010,21 @@ private fun GimbalLogSection() {
                 }
                 context.startActivity(android.content.Intent.createChooser(send, "Partager le journal").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
             }) { Text("Partager", fontSize = 12.sp) }
+        }
+        val exported = com.surfcam.app.data.engine.SessionLog.lastExport(context)
+        Text(
+            if (exported != null) "Dernier rapport complet : Téléchargements/SurfCam/${exported.second}" else "Le rapport complet de chaque session est enregistré dans Téléchargements/SurfCam à l'arrêt.",
+            color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
+        )
+        if (exported != null) {
+            OutlinedButton(onClick = {
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_STREAM, exported.first)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(android.content.Intent.createChooser(send, "Partager le rapport").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }) { Text("Partager le rapport complet", fontSize = 12.sp) }
         }
     }
 }
