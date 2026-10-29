@@ -278,6 +278,30 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
                 )
             }
+            val ctx = LocalContext.current
+            var talking by remember { mutableStateOf(false) }
+            val askMic = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+                if (ok) talking = com.surfcam.app.data.engine.VoiceNote.start(ctx)
+            }
+            DisposableEffect(Unit) { onDispose { com.surfcam.app.data.engine.VoiceNote.stop(ctx); talking = false } }
+            InfoChip(
+                if (talking) "● Je t'écoute… toucher pour finir" else "🎙 Note vocale",
+                if (talking) SurfColors.Alert else Color.White,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 12.dp, top = 84.dp)
+                    .clickable {
+                        if (talking) {
+                            com.surfcam.app.data.engine.VoiceNote.stop(ctx)
+                            talking = false
+                        } else if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            talking = com.surfcam.app.data.engine.VoiceNote.start(ctx)
+                        } else {
+                            askMic.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    },
+            )
             InfoChip(
                 if (flagged > 0) "⚑ Problème noté ($flagged)" else "⚑ Problème ici",
                 Color.White,
@@ -1016,6 +1040,17 @@ private fun GimbalLogSection() {
             if (exported != null) "Dernier rapport complet : Téléchargements/SurfCam/${exported.second}" else "Le rapport complet de chaque session est enregistré dans Téléchargements/SurfCam à l'arrêt.",
             color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
         )
+        val notes = com.surfcam.app.data.engine.VoiceNote.recentNotes(context)
+        if (notes.isNotEmpty()) {
+            OutlinedButton(onClick = {
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "audio/*"
+                    putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, ArrayList(notes))
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(android.content.Intent.createChooser(send, "Partager les notes vocales").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }) { Text("Partager les notes vocales (${notes.size})", fontSize = 12.sp) }
+        }
         if (exported != null) {
             OutlinedButton(onClick = {
                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
