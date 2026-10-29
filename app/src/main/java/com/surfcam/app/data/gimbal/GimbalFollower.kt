@@ -126,7 +126,12 @@ class GimbalFollower(context: Context) {
         val world = yawCmdDeg + error
         prevWorld?.let { pw ->
             val dt = (now - prevWorldAtMs) / 1000f
-            if (dt in 0.15f..3f) velocity += VELOCITY_SMOOTHING * ((world - pw) / dt - velocity)
+            if (dt in 0.15f..3f) {
+                val v = (world - pw) / dt
+                // Un « déplacement » irréaliste (gimbal bougé à la main, cible qui change) n'est pas une vitesse de surfeur.
+                if (abs(v) > MAX_PLAUSIBLE_SPEED) velocity = 0f
+                else velocity += VELOCITY_SMOOTHING * (v - velocity)
+            }
         }
         prevWorld = world
         prevWorldAtMs = now
@@ -197,6 +202,7 @@ class GimbalFollower(context: Context) {
         const val MAX_SWEEPS = 2
         const val SEARCH_DWELL_SECONDS = 2.5f
         const val VELOCITY_SMOOTHING = 0.5f
+        const val MAX_PLAUSIBLE_SPEED = 25f
         const val STALL_TIMEOUT_MS = 1_500L
     }
 }

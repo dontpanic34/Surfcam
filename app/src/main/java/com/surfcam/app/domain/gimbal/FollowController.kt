@@ -88,9 +88,13 @@ object FollowController {
      * pivotement le ramène au centre. Évite le balayage perpétuel droite-gauche à fort zoom.
      */
     fun edgeStep(errorDeg: Float, velocityDegPerSec: Float, leadSeconds: Float, hfovDeg: Float, edgeFraction: Float, maxStepDeg: Float): Float {
-        val v = if (abs(velocityDegPerSec) < 1f) 0f else velocityDegPerSec
+        // Vitesse bornée : une mesure aberrante (cible qui saute, gimbal déplacé à la main) ne doit pas lancer un grand pas.
+        val v = if (abs(velocityDegPerSec) < 1f) 0f else velocityDegPerSec.coerceIn(-MAX_LEAD_SPEED, MAX_LEAD_SPEED)
         val predicted = errorDeg + v * leadSeconds
-        if (abs(predicted) < edgeFraction * hfovDeg) return 0f
+        val edge = edgeFraction * hfovDeg
+        if (abs(predicted) < edge) return 0f
+        // Jamais de pas à l'opposé du surfeur vu, et pas tant qu'il n'est pas déjà décentré (au moins 40 % de la zone libre).
+        if (errorDeg * predicted < 0f || abs(errorDeg) < 0.4f * edge) return 0f
         return predicted.coerceIn(-maxStepDeg, maxStepDeg)
     }
 
@@ -125,4 +129,6 @@ object FollowController {
         (currentYawDeg + stepDeg).coerceIn(-limitDeg, limitDeg) - currentYawDeg
 
     const val MAX_UNITS = 3000
+    /** Vitesse angulaire maximale prise en compte pour l'anticipation, en degrés par seconde. */
+    const val MAX_LEAD_SPEED = 8f
 }

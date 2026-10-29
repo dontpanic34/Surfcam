@@ -118,7 +118,15 @@ class FollowControllerTest {
         assertEquals(0f, FollowController.edgeStep(-4f, 0f, 1f, 15f, 0.30f, 15f), 0f)
         assertEquals(6f, FollowController.edgeStep(6f, 0f, 1f, 15f, 0.30f, 15f), 0f)
         // Un surfeur qui file vers le bord déclenche le pivotement avant d'y arriver.
-        assertEquals(7f, FollowController.edgeStep(2f, 5f, 1f, 15f, 0.30f, 15f), 0f)
+        assertEquals(7f, FollowController.edgeStep(3f, 4f, 1f, 15f, 0.30f, 15f), 0f)
         assertEquals(15f, FollowController.edgeStep(40f, 0f, 1f, 15f, 0.30f, 15f), 0f)
+    }
+
+    @Test
+    fun `jamais de pas a l'oppose du surfeur ni sur une vitesse aberrante`() {
+        // Surfeur à gauche (-3°) mais vitesse de +30°/s : pas de saut vers la droite.
+        assertEquals(0f, FollowController.edgeStep(-3f, 30f, 1f, 15f, 0.30f, 15f), 0f)
+        // Surfeur quasi centré, vitesse énorme : la vitesse est bornée, pas de grand pas.
+        assertEquals(0f, FollowController.edgeStep(1f, 30f, 1f, 15f, 0.30f, 15f), 0f)
     }
 }
