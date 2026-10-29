@@ -26,6 +26,20 @@ class GimbalFollower(context: Context) {
             if (!value) haltOnce()
         }
 
+    /** Surfeur actuellement suivi (identifiant du cadre), -1 si aucun. */
+    @Volatile
+    var targetId = -1
+        private set
+    private var lastLogAtMs = 0L
+    private val appContext = context.applicationContext
+
+    private fun log(text: String, throttleMs: Long = 0L) {
+        val now = SystemClock.elapsedRealtime()
+        if (throttleMs > 0 && now - lastLogAtMs < throttleMs) return
+        lastLogAtMs = now
+        GimbalLog.add(text)
+    }
+
     private var lastSeenAtMs = 0L
     private var lastCommandAtMs = 0L
     private var nextStepAtMs = 0L
@@ -78,6 +92,7 @@ class GimbalFollower(context: Context) {
         nextStepAtMs = 0L
         searchPhase = 0
         sweeps = 0
+        GimbalLog.start(appContext, "Début du suivi · style ${style.label} (zone libre ${(style.edgeFraction * 200).toInt()} % du champ) · zone ±${zoneDeg.toInt()}° · recherche ${if (searchEnabled) "oui" else "non"}")
         if (!link.state.value.connected && !link.state.value.connecting) link.connect(address)
         started = true
         handler.postDelayed(watchdog, 500)
@@ -102,7 +117,9 @@ class GimbalFollower(context: Context) {
         if (!started || !enabled || !link.state.value.connected) return
         val now = SystemClock.elapsedRealtime()
         val target = FollowController.chooseTarget(boxes, lastX)
+        targetId = target?.id ?: -1
         if (target == null) {
+            log("aucune cible (${boxes.size} personne(s) retenue(s)) · perdu depuis ${if (lastSeenAtMs > 0) (now - lastSeenAtMs) / 1000 else -1} s", 1000)
             // Surfeur perdu un moment : on oublie sa vitesse, elle ne vaut plus rien.
             if (now - lastSeenAtMs > LOST_TIMEOUT_MS) {
                 prevWorld = null
@@ -122,6 +139,7 @@ class GimbalFollower(context: Context) {
         if (now < nextStepAtMs) return
         lastX = target.centerX
         val error = (target.centerX - 0.5f) * hfovDeg
+        val who = "cible #${target.id} (${boxes.size} vue(s)${if (target.marked) ", manchon" else if (target.riding) ", en vague" else ""}) x=%.2f".format(target.centerX)
         // Position du surfeur dans un repère fixe : là où le gimbal est tourné (somme des pas ordonnés) plus l'écart vu.
         val world = yawCmdDeg + error
         prevWorld?.let { pw ->
@@ -129,7 +147,7 @@ class GimbalFollower(context: Context) {
             if (dt in 0.15f..3f) {
                 val v = (world - pw) / dt
                 // Un « déplacement » irréaliste (gimbal bougé à la main, cible qui change) n'est pas une vitesse de surfeur.
-                if (abs(v) > MAX_PLAUSIBLE_SPEED) velocity = 0f
+                if (abs(v) > MAX_PLAUSIBLE_SPEED) { velocity = 0f; log("vitesse aberrante %.0f °/s ignorée (gimbal bougé à la main ? cible changée ?)".format(v)) }
                 else velocity += VELOCITY_SMOOTHING * (v - velocity)
             }
         }
@@ -139,10 +157,14 @@ class GimbalFollower(context: Context) {
         val wanted = FollowController.edgeStep(error, velocity, style.leadSeconds, hfovDeg, style.edgeFraction, style.step.maxStepDeg)
         // Le gimbal ne sort jamais de la zone de surf (de part et d'autre de sa direction de départ).
         val step = FollowController.clampToZone(yawCmdDeg, wanted, zoneDeg)
-        if (abs(step) < 0.5f) return
+        if (abs(step) < 0.5f) {
+            log("$who · écart %+.1f° · vitesse %+.1f °/s → reste immobile (zone libre ±%.1f°)".format(error, velocity, style.edgeFraction * hfovDeg), 1000)
+            return
+        }
         val seconds = ((0.8f + abs(step) / 30f) * style.moveScale).coerceIn(0.6f, 2f)
         link.rotateBy(if (invert) -step else step, seconds)
         yawCmdDeg += step
+        log("$who · écart %+.1f° · vitesse %+.1f °/s → PAS %+.1f° en %.1f s (cap %+.0f° depuis le départ)".format(error, velocity, step, seconds, yawCmdDeg))
         nextStepAtMs = now + ((seconds + style.settleSeconds) * 1000).toLong()
     }
 
@@ -166,6 +188,7 @@ class GimbalFollower(context: Context) {
             return
         }
         val seconds = (abs(step) / 25f + 0.6f).coerceIn(0.8f, 2.5f)
+        log("RECHERCHE : balayage %+.0f° (phase %d, passage %d)".format(step, searchPhase, sweeps))
         link.rotateBy(if (invert) -step else step, seconds)
         yawCmdDeg = next
         prevWorld = null
@@ -176,6 +199,7 @@ class GimbalFollower(context: Context) {
     private fun returnHome(now: Long) {
         val back = -yawCmdDeg
         val seconds = (abs(back) / 30f + 0.8f).coerceIn(1f, 4f)
+        log("RETOUR au point de départ : %+.0f°".format(back))
         link.rotateBy(if (invert) -back else back, seconds)
         yawCmdDeg = 0f
         prevWorld = null
@@ -189,7 +213,9 @@ class GimbalFollower(context: Context) {
     }
 
     fun stop() {
+        log("Fin du suivi")
         started = false
+        targetId = -1
         handler.removeCallbacks(watchdog)
         // La liaison reste ouverte pour l'accueil ; on arrête seulement le mouvement.
         link.stop()

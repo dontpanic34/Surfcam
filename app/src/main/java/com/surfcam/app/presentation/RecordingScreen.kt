@@ -295,6 +295,15 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                         style = Stroke(width = if (box.riding || box.marked) 3.dp.toPx() else 1.5.dp.toPx()),
                     )
                 }
+                // Cadre jaune : le surfeur que l'appli suit en ce moment (aide au réglage, à retirer ensuite).
+                snapshot.boxes.firstOrNull { it.id == state.followTargetId }?.let { box ->
+                    drawRect(
+                        color = Color(0xFFFFE600),
+                        topLeft = Offset(box.left * size.width - 4.dp.toPx(), box.top * size.height - 4.dp.toPx()),
+                        size = Size((box.right - box.left) * size.width + 8.dp.toPx(), (box.bottom - box.top) * size.height + 8.dp.toPx()),
+                        style = Stroke(width = 4.dp.toPx()),
+                    )
+                }
             }
         }
 
@@ -913,6 +922,7 @@ internal fun AdvancedSections(
             OutlinedButton(onClick = onOpenGimbal) { Text("Essai et calibrage du gimbal") }
         }
     }
+    GimbalLogSection()
     LearningSection(engine)
     if (state.phase == Phase.RUNNING) DiagnosticSection(state)
     if (state.phase == Phase.RUNNING) {
@@ -952,6 +962,31 @@ private fun Help(title: String, text: String) {
     Column {
         Text(title, color = SurfColors.Foam, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Text(text, color = SurfColors.Muted, fontSize = 12.sp, lineHeight = 16.sp)
+    }
+}
+
+/** Journal des décisions du suivi : à copier ou partager pour comprendre pourquoi le gimbal a bougé. */
+@Composable
+private fun GimbalLogSection() {
+    val context = LocalContext.current
+    var text by remember { mutableStateOf(com.surfcam.app.data.gimbal.GimbalLog.tail(40)) }
+    Section("Journal du gimbal") {
+        Text(
+            if (text.isEmpty()) "Vide : le journal se remplit pendant une session avec le gimbal." else text,
+            color = SurfColors.Muted, fontSize = 10.sp, lineHeight = 13.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { text = com.surfcam.app.data.gimbal.GimbalLog.tail(40) }) { Text("Actualiser", fontSize = 12.sp) }
+            OutlinedButton(onClick = {
+                val full = com.surfcam.app.data.gimbal.GimbalLog.tail(800)
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, "Journal du gimbal SurfCam")
+                    putExtra(android.content.Intent.EXTRA_TEXT, full)
+                }
+                context.startActivity(android.content.Intent.createChooser(send, "Partager le journal").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }) { Text("Partager", fontSize = 12.sp) }
+        }
     }
 }
 

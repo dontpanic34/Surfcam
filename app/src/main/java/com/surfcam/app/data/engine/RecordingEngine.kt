@@ -68,6 +68,8 @@ data class EngineState(
     /** État du suivi par gimbal (null si non utilisé pour cette session). */
     val gimbalStatus: String? = null,
     val followEnabled: Boolean = false,
+    /** Identifiant du surfeur que le suivi a choisi (cadre jaune à l'écran), -1 si aucun. */
+    val followTargetId: Int = -1,
     val maxFpsAtSize: Int = 0,
     val keyFrameIntervalSec: Float = 0f,
     /** Cadence réellement obtenue de la caméra (images par seconde), mesurée sur la vidéo encodée. */
@@ -472,11 +474,15 @@ class RecordingEngine(private val context: Context) {
                     val focal = _state.value.focalPx1x * _state.value.zoom
                     if (focal > 0f) {
                         f.onFrame(
-                            snapshot.boxes.filter { !onlyMarkedFollow || it.marked }.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked) },
+                            snapshot.boxes.filter { !onlyMarkedFollow || it.marked }.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked, it.id) },
                             FollowController.horizontalFovDeg(focal, CaptureConfig.ANALYSIS_WIDTH),
                         )
                     }
                 }
+                val targetId = follower?.targetId
+                    ?: FollowController.chooseTarget(snapshot.boxes.filter { !onlyMarkedFollow || it.marked }.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked, it.id) }, null)?.id
+                    ?: -1
+                if (_state.value.followTargetId != targetId) _state.update { it.copy(followTargetId = targetId) }
             }
 
             override fun onStatus(message: String?) {

@@ -5,7 +5,7 @@ import kotlin.math.atan
 import kotlin.math.roundToInt
 
 /** Un surfeur vu par la détection : position horizontale (0 à 1) et hauteur dans l'image. */
-data class FollowBox(val centerX: Float, val height: Float, val riding: Boolean, val marked: Boolean = false)
+data class FollowBox(val centerX: Float, val height: Float, val riding: Boolean, val marked: Boolean = false, val id: Int = -1)
 
 data class FollowConfig(
     /** Écart (en degrés) sous lequel on ne bouge pas : évite de trembler autour du centre. */
