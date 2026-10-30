@@ -221,6 +221,9 @@ class RecordingEngine(private val context: Context) {
         Trail.mark("DEMARRAGE hdr=${options.hdr} tele=${options.tele} fps60=${options.fps60} 4K=${!options.hd}")
         clipsSaved = 0
         waveCounter = 0
+        standby = false
+        lastBusyAtMs = 0L
+        activeIntervalMs = CaptureConfig.ANALYSIS_INTERVAL_MS
         // Le support choisi doit être branché ; sinon on enregistre sur le téléphone, en le disant.
         val storageMessage = if (options.storage == StorageTarget.PHONE || storage.available().any { it.name == options.storage }) {
             storage.select(options.storage)
@@ -505,6 +508,7 @@ class RecordingEngine(private val context: Context) {
                     }
                 }
                 follower?.setClipActive(_state.value.clipActive)
+                updateDutyCycle(snapshot)
                 logFrame(snapshot, follower)
                 val targetId = follower?.targetId
                     ?: FollowController.chooseTarget(snapshot.boxes.filter { !onlyMarkedFollow || it.marked }.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked, it.id) }, null)?.id
@@ -607,6 +611,7 @@ class RecordingEngine(private val context: Context) {
                 f.searchEnabled = options.markerColor != null
                 // Le suivi réclame une analyse plus fréquente : le retard de mesure se voit directement sur le gimbal.
                 pipeline?.setBaseIntervalMs(FOLLOW_ANALYSIS_INTERVAL_MS)
+                activeIntervalMs = FOLLOW_ANALYSIS_INTERVAL_MS
                 _state.update { it.copy(gimbalStatus = f.status(), followEnabled = true) }
             } else {
                 _state.update { it.copy(gimbalStatus = problem, followEnabled = false) }
@@ -814,6 +819,22 @@ class RecordingEngine(private val context: Context) {
         }
     }
 
+    // Veille / éveil de l'analyse : 1 image par seconde tant que personne n'est en vue, cadence normale dès qu'un surfeur apparaît.
+    private var activeIntervalMs = CaptureConfig.ANALYSIS_INTERVAL_MS
+    private var lastBusyAtMs = 0L
+    private var standby = false
+
+    private fun updateDutyCycle(snapshot: AnalysisSnapshot) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (snapshot.personsInFrame > 0 || snapshot.riding || _state.value.clipActive || snapshot.boxes.isNotEmpty()) lastBusyAtMs = now
+        val wantStandby = lastBusyAtMs != 0L && now - lastBusyAtMs > STANDBY_AFTER_MS || (lastBusyAtMs == 0L && snapshot.frames > 10)
+        if (wantStandby != standby) {
+            standby = wantStandby
+            analysis?.setBaseIntervalMs(if (standby) STANDBY_INTERVAL_MS else activeIntervalMs)
+            SessionLog.ev("veille", if (standby) "personne en vue depuis ${STANDBY_AFTER_MS / 1000} s : analyse à 1 image/s" else "quelqu'un en vue : analyse à pleine cadence")
+        }
+    }
+
     private var lastFrameLogMs = 0L
     private var lastTickLogMs = 0L
 
@@ -986,6 +1007,8 @@ class RecordingEngine(private val context: Context) {
         const val STOP_BATTERY_PERCENT = 3
         const val SEVERE_LIMIT_MS = 600_000L
         const val FOLLOW_ANALYSIS_INTERVAL_MS = 250L
+        const val STANDBY_INTERVAL_MS = 1000L
+        const val STANDBY_AFTER_MS = 6_000L
         const val ALERT_CHANNEL = "alertes"
         const val ALERT_ID = 2
     }

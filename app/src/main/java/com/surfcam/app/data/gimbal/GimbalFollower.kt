@@ -145,7 +145,25 @@ class GimbalFollower(context: Context) {
         targetId = target?.id ?: -1
         if (target == null) {
             log("aucune cible (${boxes.size} personne(s) retenue(s)) · perdu depuis ${if (lastSeenAtMs > 0) (now - lastSeenAtMs) / 1000 else -1} s", 1000)
-            // Surfeur perdu un moment : on oublie sa vitesse, elle ne vaut plus rien.
+            // Surfeur perdu un moment (écume, tube) : on continue sur sa lancée, avec une vitesse qui s'amortit vite,
+            // pour que le gimbal s'arrête en douceur à l'endroit où il devrait ressortir. Au-delà, on oublie sa vitesse.
+            val pw = prevWorld
+            val age = (now - prevWorldAtMs) / 1000f
+            if (pw != null && age in 0.2f..COAST_SECONDS && abs(velocity) > 1.5f && now >= nextStepAtMs) {
+                val decay = Math.exp((-age / COAST_TAU).toDouble()).toFloat()
+                val travelled = velocity * COAST_TAU * (1f - decay)
+                val predictedError = pw + travelled - yawCmdDeg
+                val vNow = velocity * decay
+                val wanted = FollowController.edgeStep(predictedError, vNow, 0f, hfovDeg, style.edgeFraction, style.step.maxStepDeg)
+                val step = FollowController.clampToZone(yawCmdDeg, wanted, zoneDeg)
+                if (abs(step) >= 0.5f) {
+                    val seconds = (abs(step) / maxOf(2.5f, 1.1f * abs(vNow)) * style.moveScale).coerceIn(0.5f, 1.6f)
+                    link.rotateBy(if (invert) -step else step, seconds)
+                    yawCmdDeg += step
+                    log("cible cachée depuis %.1f s : je continue sur sa lancée (vitesse %+.1f °/s amortie) → PAS %+.1f°".format(age, vNow, step))
+                    nextStepAtMs = now + ((seconds + style.settleSeconds) * 1000).toLong()
+                }
+            }
             if (now - lastSeenAtMs > LOST_TIMEOUT_MS) {
                 prevWorld = null
                 velocity = 0f
@@ -251,7 +269,10 @@ class GimbalFollower(context: Context) {
     }
 
     private companion object {
-        const val LOST_TIMEOUT_MS = 1_200L
+        const val LOST_TIMEOUT_MS = 2_500L
+        /** Poursuite à l'aveugle d'un surfeur caché : durée maximale et constante d'amortissement de sa vitesse (secondes). */
+        const val COAST_SECONDS = 1.8f
+        const val COAST_TAU = 0.6f
         const val HOME_AFTER_MS = 4_000L
         const val CLIP_END_DELAY_MS = 2_000L
         const val SEARCH_AFTER_MS = 12_000L
