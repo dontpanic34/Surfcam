@@ -847,9 +847,11 @@ class RecordingEngine(private val context: Context) {
             val boxes = snapshot.boxes.joinToString(" ") {
                 "#${it.id}(x%.2f y%.2f h%.2f%s%s)".format((it.left + it.right) / 2f, (it.top + it.bottom) / 2f, it.bottom - it.top, if (it.riding) " VAGUE" else "", if (it.marked) " MANCHON" else "")
             }
+            val ageMs = (android.os.SystemClock.elapsedRealtimeNanos() / 1000L - snapshot.timestampUs) / 1000L
+            val timing = if (snapshot.timestampUs > 0 && ageMs in 0..5000) "âge de l'image à la décision ${ageMs}ms (capture→fin d'inférence)" else "horloge de capture non comparable (ts=${snapshot.timestampUs}µs)"
             SessionLog.ev(
                 "image",
-                "n=${snapshot.frames} personnes=${snapshot.personsInFrame} conf=%.2f ${snapshot.inferenceMs}ms · retenus: ${boxes.ifEmpty { "aucun" }} · cible=#${f?.targetId ?: -1} · cap gimbal %+.1f° · zoom ×%.1f".format(snapshot.bestConfidence, f?.yawCmdDeg ?: 0f, st.zoom),
+                "n=${snapshot.frames} personnes=${snapshot.personsInFrame} conf=%.2f inférence ${snapshot.inferenceMs}ms · $timing · retenus: ${boxes.ifEmpty { "aucun" }} · cible=#${f?.targetId ?: -1} · cap commandé %+.1f° · gyroscope %+.1f° (%+.1f °/s) · zoom ×%.1f".format(snapshot.bestConfidence, f?.yawCmdDeg ?: 0f, f?.gyroYawDeg ?: 0f, f?.gyroRateDegPerSec ?: 0f, st.zoom),
             )
         }
         if (now - lastTickLogMs >= 10_000) {

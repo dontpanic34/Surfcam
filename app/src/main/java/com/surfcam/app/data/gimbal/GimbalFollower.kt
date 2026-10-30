@@ -31,6 +31,34 @@ class GimbalFollower(context: Context) {
     var targetId = -1
         private set
     private var lastLogAtMs = 0L
+    private var gyro: GyroYaw? = null
+    private val accuracy = com.surfcam.app.domain.gimbal.GyroMath.Accuracy()
+    private var cmdCounter = 0
+    private var lastTargetIdLogged = -1
+
+    /** Rotation réelle mesurée au gyroscope depuis le début du suivi (degrés, positif vers la droite) ; 0 sans gyroscope. */
+    val gyroYawDeg: Float get() = gyro?.cumulativeDeg ?: 0f
+    val gyroRateDegPerSec: Float get() = gyro?.rateDegPerSec ?: 0f
+
+    /**
+     * Envoie un ordre de pivotement au gimbal et le consigne : angle ordonné, durée, instant d'envoi, fin estimée. Une fois
+     * le mouvement fini, la rotation réellement mesurée par le téléphone est comparée à l'ordre. Ne change rien au pilotage.
+     */
+    private fun sendRotate(stepForLink: Float, seconds: Float, what: String) {
+        link.rotateBy(stepForLink, seconds)
+        val id = ++cmdCounter
+        val ordered = if (invert) -stepForLink else stepForLink
+        val g0 = gyro?.cumulativeDeg
+        log("ORDRE #$id ($what) : %+.1f° en %.1f s · envoyé maintenant, fin estimée dans %.1f s".format(ordered, seconds, seconds))
+        if (g0 != null) {
+            handler.postDelayed({
+                val g1 = gyro?.cumulativeDeg ?: return@postDelayed
+                val measured = g1 - g0
+                accuracy.add(ordered, measured)
+                log("MESURE #$id : commandé %+.1f° · réellement tourné (gyroscope) %+.1f° · écart %+.1f°".format(ordered, measured, measured - ordered))
+            }, (seconds * 1000).toLong() + 500L)
+        }
+    }
     private val appContext = context.applicationContext
 
     private fun log(text: String, throttleMs: Long = 0L) {
@@ -119,6 +147,8 @@ class GimbalFollower(context: Context) {
         sweeps = 0
         GimbalLog.start(appContext, "Début du suivi (le pic = direction de départ) · style ${style.label} (zone libre ${(style.edgeFraction * 200).toInt()} % du champ) · zone ±${zoneDeg.toInt()}° · recherche ${if (searchEnabled) "oui" else "non"}")
         if (!link.state.value.connected && !link.state.value.connecting) link.connect(address)
+        gyro = GyroYaw(appContext).also { it.start() }
+        if (gyro?.available != true) log("gyroscope indisponible : pas de mesure de rotation réelle")
         started = true
         handler.postDelayed(watchdog, 500)
         return null
@@ -143,6 +173,16 @@ class GimbalFollower(context: Context) {
         val now = SystemClock.elapsedRealtime()
         val target = FollowController.chooseTarget(boxes, lastX)
         targetId = target?.id ?: -1
+        if (target != null) {
+            if (lastTargetIdLogged != -1 && target.id != lastTargetIdLogged) {
+                val old = boxes.firstOrNull { it.id == lastTargetIdLogged }
+                val gone = if (lastSeenAtMs > 0) "(cible vue pour la dernière fois il y a %.1f s)".format((now - lastSeenAtMs) / 1000f) else ""
+                val why = if (old == null) "l'ancienne cible #$lastTargetIdLogged n'est plus dans l'image $gone"
+                else "#$lastTargetIdLogged toujours visible mais #${target.id} est prioritaire (${if (target.marked) "manchon" else if (target.riding) "en vague" else "plus grande/plus proche"})"
+                log("CHANGEMENT DE CIBLE #$lastTargetIdLogged → #${target.id} (x %.2f, ancien x %s) : %s".format(target.centerX, lastX?.let { "%.2f".format(it) } ?: "?", why))
+            }
+            lastTargetIdLogged = target.id
+        }
         if (target == null) {
             log("aucune cible (${boxes.size} personne(s) retenue(s)) · perdu depuis ${if (lastSeenAtMs > 0) (now - lastSeenAtMs) / 1000 else -1} s", 1000)
             // Surfeur perdu un moment (écume, tube) : on continue sur sa lancée, avec une vitesse qui s'amortit vite,
@@ -158,7 +198,7 @@ class GimbalFollower(context: Context) {
                 val step = FollowController.clampToZone(yawCmdDeg, wanted, zoneDeg)
                 if (abs(step) >= 0.5f) {
                     val seconds = (abs(step) / maxOf(2.5f, 1.1f * abs(vNow)) * style.moveScale).coerceIn(0.5f, 1.6f)
-                    link.rotateBy(if (invert) -step else step, seconds)
+                    sendRotate(if (invert) -step else step, seconds, "sur sa lancée")
                     yawCmdDeg += step
                     log("cible cachée depuis %.1f s : je continue sur sa lancée (vitesse %+.1f °/s amortie) → PAS %+.1f°".format(age, vNow, step))
                     nextStepAtMs = now + ((seconds + style.settleSeconds) * 1000).toLong()
@@ -209,7 +249,7 @@ class GimbalFollower(context: Context) {
         // Le pivotement dure le temps de suivre le surfeur à sa vitesse (au moins 2,5 °/s) : mouvement continu, sans à-coups.
         val speed = maxOf(2.5f, 1.1f * abs(velocity))
         val seconds = (abs(step) / speed * style.moveScale).coerceIn(0.5f, 1.6f)
-        link.rotateBy(if (invert) -step else step, seconds)
+        sendRotate(if (invert) -step else step, seconds, "suivi")
         yawCmdDeg += step
         log("$who · écart %+.1f° · vitesse %+.1f °/s → PAS %+.1f° en %.1f s (cap %+.0f° depuis le départ)".format(error, velocity, step, seconds, yawCmdDeg))
         nextStepAtMs = now + ((seconds + style.settleSeconds) * 1000).toLong()
@@ -236,7 +276,7 @@ class GimbalFollower(context: Context) {
         }
         val seconds = (abs(step) / 25f + 0.6f).coerceIn(0.8f, 2.5f)
         log("RECHERCHE : balayage %+.0f° (phase %d, passage %d)".format(step, searchPhase, sweeps))
-        link.rotateBy(if (invert) -step else step, seconds)
+        sendRotate(if (invert) -step else step, seconds, "recherche")
         yawCmdDeg = next
         prevWorld = null
         velocity = 0f
@@ -247,7 +287,7 @@ class GimbalFollower(context: Context) {
         val back = peakYawDeg - yawCmdDeg
         val seconds = (abs(back) / 30f + 0.8f).coerceIn(1f, 4f)
         log("RETOUR au pic : %+.0f°".format(back))
-        link.rotateBy(if (invert) -back else back, seconds)
+        sendRotate(if (invert) -back else back, seconds, "retour au pic")
         yawCmdDeg = peakYawDeg
         prevWorld = null
         velocity = 0f
@@ -260,7 +300,9 @@ class GimbalFollower(context: Context) {
     }
 
     fun stop() {
-        log("Fin du suivi")
+        log("Fin du suivi · fidélité des pivotements : ${accuracy.summary()}")
+        gyro?.stop()
+        gyro = null
         started = false
         targetId = -1
         handler.removeCallbacks(watchdog)
