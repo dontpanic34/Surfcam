@@ -223,6 +223,9 @@ class RecordingEngine(private val context: Context) {
         waveCounter = 0
         standby = false
         lastBusyAtMs = 0L
+        widePhase = WidePhase.OFF
+        wideEndedAtMs = 0L
+        ignoredBlobs.clear()
         activeIntervalMs = CaptureConfig.ANALYSIS_INTERVAL_MS
         // Le support choisi doit être branché ; sinon on enregistre sur le téléphone, en le disant.
         val storageMessage = if (options.storage == StorageTarget.PHONE || storage.available().any { it.name == options.storage }) {
@@ -511,6 +514,7 @@ class RecordingEngine(private val context: Context) {
                 }
                 follower?.setClipActive(_state.value.clipActive)
                 updateDutyCycle(snapshot)
+                updateWideSearch(snapshot, follower)
                 logFrame(snapshot, follower)
                 val targetId = follower?.targetId
                     ?: FollowController.chooseTarget(snapshot.boxes.filter { !onlyMarkedFollow || it.marked }.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked, it.id) }, null)?.id
@@ -829,13 +833,99 @@ class RecordingEngine(private val context: Context) {
 
     private fun updateDutyCycle(snapshot: AnalysisSnapshot) {
         val now = android.os.SystemClock.elapsedRealtime()
-        if (snapshot.personsInFrame > 0 || snapshot.riding || _state.value.clipActive || snapshot.boxes.isNotEmpty()) lastBusyAtMs = now
+        if (snapshot.personsInFrame > 0 || snapshot.riding || _state.value.clipActive || snapshot.boxes.isNotEmpty() || widePhase != WidePhase.OFF) lastBusyAtMs = now
         val wantStandby = lastBusyAtMs != 0L && now - lastBusyAtMs > STANDBY_AFTER_MS || (lastBusyAtMs == 0L && snapshot.frames > 10)
         if (wantStandby != standby) {
             standby = wantStandby
             analysis?.setBaseIntervalMs(if (standby) STANDBY_INTERVAL_MS else activeIntervalMs)
             SessionLog.ev("veille", if (standby) "personne en vue depuis ${STANDBY_AFTER_MS / 1000} s : analyse à 1 image/s" else "quelqu'un en vue : analyse à pleine cadence")
         }
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Recherche en zoom large : quand l'utilisateur (manchon choisi) n'est plus vu depuis un moment, l'appli dézoome,
+    // cherche la tache de couleur de son manchon, pivote dessus, zoome pour confirmer, puis reprend en zoom normal.
+    // ------------------------------------------------------------------------------------------
+
+    private enum class WidePhase { OFF, WIDE, CONFIRM }
+
+    private var widePhase = WidePhase.OFF
+    private var wideSinceMs = 0L
+    private var wideEndedAtMs = 0L
+    private var confirmSinceMs = 0L
+    private var zoomBeforeWide = 5f
+    private var centeredFrames = 0
+    private var wideAttempts = 0
+    private var lastBlob: Pair<Float, Float>? = null
+    private val ignoredBlobs = ArrayList<Triple<Float, Float, Long>>()
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun zoomTo(ratio: Float) {
+        // Sur le fil principal : cet appel vient du fil d'analyse, qui ne doit jamais attendre le verrou du moteur.
+        mainHandler.post { setZoom(ratio) }
+    }
+
+    private fun updateWideSearch(snapshot: AnalysisSnapshot, f: GimbalFollower?) {
+        val opts = lastOptions
+        val enabled = opts?.searchWide == true && opts.markerColor != null && f != null && _state.value.phase == Phase.RUNNING
+        val now = android.os.SystemClock.elapsedRealtime()
+        val st = _state.value
+        when (widePhase) {
+            WidePhase.OFF -> {
+                if (!enabled || f == null || st.clipActive) return
+                if (f.lostForMs > WIDE_AFTER_MS && now - wideEndedAtMs > WIDE_COOLDOWN_MS && st.zoom >= 4f) {
+                    zoomBeforeWide = st.zoom
+                    widePhase = WidePhase.WIDE
+                    wideSinceMs = now
+                    wideAttempts = 0
+                    centeredFrames = 0
+                    analysis?.scanBlob = true
+                    f.passive = true
+                    zoomTo(WIDE_ZOOM)
+                    SessionLog.ev("recherche", "plus de surfeur depuis ${f.lostForMs / 1000} s : je dézoome (×%.0f → ×%.0f) pour chercher ton manchon".format(zoomBeforeWide, WIDE_ZOOM))
+                }
+            }
+            WidePhase.WIDE -> {
+                if (!enabled || f == null || st.clipActive) { endWideSearch(f, false, "interrompue (clip en cours ou option coupée)"); return }
+                if (now - wideSinceMs > WIDE_TIMEOUT_MS) { endWideSearch(f, false, "manchon introuvable après ${WIDE_TIMEOUT_MS / 1000} s"); return }
+                if (snapshot.blobX < 0f) { centeredFrames = 0; return }
+                ignoredBlobs.removeAll { it.third < now }
+                if (ignoredBlobs.any { kotlin.math.abs(it.first - snapshot.blobX) < 0.08f && kotlin.math.abs(it.second - snapshot.blobY) < 0.12f }) return
+                val hfov = FollowController.horizontalFovDeg(st.focalPx1x * st.zoom, CaptureConfig.ANALYSIS_WIDTH)
+                if (f.centerOn(snapshot.blobX, hfov)) centeredFrames++ else centeredFrames = 0
+                SessionLog.ev("recherche", "tache de la couleur du manchon à x=%.2f y=%.2f (densité ${snapshot.blobCount})%s".format(snapshot.blobX, snapshot.blobY, if (centeredFrames > 0) " · centrée" else " · je pivote dessus"))
+                if (centeredFrames >= 2) {
+                    lastBlob = snapshot.blobX to snapshot.blobY
+                    widePhase = WidePhase.CONFIRM
+                    confirmSinceMs = now
+                    zoomTo(zoomBeforeWide)
+                    SessionLog.ev("recherche", "je zoome (×%.0f) pour confirmer que c'est toi".format(zoomBeforeWide))
+                }
+            }
+            WidePhase.CONFIRM -> {
+                if (!enabled || f == null) { endWideSearch(f, false, "interrompue"); return }
+                if (snapshot.boxes.any { it.marked }) { endWideSearch(f, true, "manchon confirmé en zoom ×%.0f : on filme".format(zoomBeforeWide)); return }
+                if (now - confirmSinceMs > CONFIRM_MS) {
+                    lastBlob?.let { ignoredBlobs += Triple(it.first, it.second, now + IGNORE_MS) }
+                    wideAttempts++
+                    if (wideAttempts >= MAX_WIDE_ATTEMPTS) { endWideSearch(f, false, "${MAX_WIDE_ATTEMPTS} taches écartées : ce n'était pas toi"); return }
+                    widePhase = WidePhase.WIDE
+                    centeredFrames = 0
+                    zoomTo(WIDE_ZOOM)
+                    SessionLog.ev("recherche", "pas confirmé : cette tache n'est pas ton manchon, je dézoome et je cherche ailleurs")
+                }
+            }
+        }
+    }
+
+    private fun endWideSearch(f: GimbalFollower?, success: Boolean, why: String) {
+        SessionLog.ev("recherche", (if (success) "réussie : " else "terminée : ") + why)
+        analysis?.scanBlob = false
+        f?.passive = false
+        f?.resetLost()
+        if (!success && _state.value.zoom < zoomBeforeWide - 0.1f) zoomTo(zoomBeforeWide)
+        widePhase = WidePhase.OFF
+        wideEndedAtMs = android.os.SystemClock.elapsedRealtime()
     }
 
     private var lastFrameLogMs = 0L
@@ -1013,6 +1103,13 @@ class RecordingEngine(private val context: Context) {
         const val SEVERE_LIMIT_MS = 600_000L
         const val FOLLOW_ANALYSIS_INTERVAL_MS = 250L
         const val STANDBY_INTERVAL_MS = 1000L
+        const val WIDE_ZOOM = 2f
+        const val WIDE_AFTER_MS = 8_000L
+        const val WIDE_COOLDOWN_MS = 25_000L
+        const val WIDE_TIMEOUT_MS = 25_000L
+        const val CONFIRM_MS = 4_500L
+        const val IGNORE_MS = 45_000L
+        const val MAX_WIDE_ATTEMPTS = 3
         const val STANDBY_AFTER_MS = 6_000L
         const val ALERT_CHANNEL = "alertes"
         const val ALERT_ID = 2

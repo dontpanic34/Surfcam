@@ -944,6 +944,7 @@ internal fun SessionSection(options: SessionOptions, running: Boolean, onOptions
     Section("Session") {
         OptionSwitch("Garder toute la session", "", options.fullSession) { if (!running) onOptionsChange(options.copy(fullSession = it)) }
         OptionSwitch("Voyant LED", "", options.ledBlink) { onOptionsChange(options.copy(ledBlink = it)) }
+        OptionSwitch("Me chercher en dézoomant", "Avec un manchon choisi : si je te perds, je dézoome, je repère ton manchon, je zoome pour confirmer, puis je filme en ×5", options.searchWide) { onOptionsChange(options.copy(searchWide = it)) }
         OptionSwitch("Écran noir après 1 min", "", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = it)) }
     }
 }

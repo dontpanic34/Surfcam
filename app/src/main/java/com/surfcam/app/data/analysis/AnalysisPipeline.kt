@@ -41,6 +41,10 @@ data class AnalysisSnapshot(
     val clockOffsetMs: Long = 0,
     /** Instant de l'image analysée, dans l'horloge d'analyse (microsecondes). */
     val timestampUs: Long = 0,
+    /** Tache de la couleur du manchon trouvée dans toute l'image (recherche en zoom large) : x, y (0 à 1) et densité ; -1 si aucune. */
+    val blobX: Float = -1f,
+    val blobY: Float = -1f,
+    val blobCount: Int = 0,
 )
 
 /**
@@ -107,6 +111,10 @@ class AnalysisPipeline(
     /** Couleur du manchon de l'utilisateur ; null = ne pas chercher. */
     @Volatile
     var markerColor: com.surfcam.app.domain.detection.MarkerColor? = null
+
+    /** Recherche de la tache de couleur du manchon dans toute l'image à chaque analyse (zoom large, pour se retrouver). */
+    @Volatile
+    var scanBlob = false
 
     /** En pause (téléphone trop chaud) : les images sont reçues puis jetées sans être analysées. */
     @Volatile
@@ -235,6 +243,7 @@ class AnalysisPipeline(
             }
 
             val ridingId = waveDetector.ridingId
+            val blob = if (scanBlob) markerColor?.let { converter.findMarkerBlob(it) } else null
             listener.onSnapshot(
                 AnalysisSnapshot(
                     boxes = tracks.filter { it.lastSeenUs == timestampUs }.map {
@@ -252,6 +261,9 @@ class AnalysisPipeline(
                     thumbnail = thumbnail,
                     clockOffsetMs = clockOffsetUs / 1_000,
                     timestampUs = timestampUs,
+                    blobX = blob?.first ?: -1f,
+                    blobY = blob?.second ?: -1f,
+                    blobCount = blob?.third ?: 0,
                 ),
             )
         } catch (t: Throwable) {

@@ -30,6 +30,7 @@ class OptionsStore(context: Context) {
             followGimbal = prefs.getBoolean("followGimbal", d.followGimbal),
             hdr = prefs.getBoolean("hdr", d.hdr),
             ledBlink = prefs.getBoolean("ledBlink", d.ledBlink),
+            searchWide = prefs.getBoolean("searchWide", d.searchWide),
             subject = if (prefs.getString("subject", null) == "ME") Subject.ME else Subject.EVERYONE,
             markerColor = com.surfcam.app.domain.detection.MarkerColor.fromName(prefs.getString("markerColor", null)),
         )
@@ -49,6 +50,7 @@ class OptionsStore(context: Context) {
             .putBoolean("followGimbal", o.followGimbal)
             .putBoolean("hdr", o.hdr)
             .putBoolean("ledBlink", o.ledBlink)
+            .putBoolean("searchWide", o.searchWide)
             .putString("subject", o.subject.name)
             .putString("markerColor", o.markerColor?.name)
             .apply()

@@ -31,6 +31,8 @@ data class SessionOptions(
     val hdr: Boolean = false,
     /** La LED du flash clignote brièvement toutes les 15 s pendant la session, pour voir de loin que ça filme. */
     val ledBlink: Boolean = true,
+    /** Quand l'appli ne te voit plus (manchon choisi), elle dézoome, repère ton manchon, te confirme en zoomant et reprend en ×5. */
+    val searchWide: Boolean = true,
     /** Qui filmer : tout le monde, ou seulement moi (repéré par la couleur de mon manchon, en ×5 optique). */
     val subject: Subject = Subject.EVERYONE,
     /** Couleur du manchon que l'utilisateur porte pour être repéré parmi les surfeurs ; null = aucune. */

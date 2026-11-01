@@ -88,6 +88,40 @@ class GimbalFollower(context: Context) {
     }
 
     private var lastSeenAtMs = 0L
+
+    /** Vrai pendant la recherche en zoom large : le gimbal n'exécute ni retour au pic, ni balayage, ni poursuite à l'aveugle. */
+    @Volatile
+    var passive = false
+
+    /** Depuis combien de millisecondes plus aucun surfeur n'est suivi ; 0 si on en suit un, ou si on n'en a encore jamais vu. */
+    val lostForMs: Long
+        get() = if (targetId != -1 || lastSeenAtMs == 0L) 0L else SystemClock.elapsedRealtime() - lastSeenAtMs
+
+    /**
+     * Recherche en zoom large : pivote le gimbal vers une tache de la couleur du manchon (position horizontale [xNorm],
+     * 0 à 1, dans une image de [hfovDeg] degrés de large). Renvoie vrai quand elle est assez centrée pour zoomer dessus.
+     */
+    fun centerOn(xNorm: Float, hfovDeg: Float): Boolean {
+        if (!started || !enabled || !link.state.value.connected) return false
+        val now = SystemClock.elapsedRealtime()
+        val error = (xNorm - 0.5f) * hfovDeg
+        if (abs(error) <= CENTERED_DEG) return true
+        if (now < nextStepAtMs) return false
+        val step = FollowController.clampToZone(yawCmdDeg, error.coerceIn(-12f, 12f), zoneDeg)
+        if (abs(step) < 0.5f) return abs(error) <= 2f * CENTERED_DEG
+        val seconds = (0.7f + abs(step) / 20f).coerceIn(0.7f, 1.6f)
+        sendRotate(if (invert) -step else step, seconds, "vers le manchon repéré")
+        yawCmdDeg += step
+        prevWorld = null
+        velocity = 0f
+        nextStepAtMs = now + ((seconds + 0.5f) * 1000).toLong()
+        return false
+    }
+
+    /** Remet le chrono « perdu » à zéro (après une recherche, pour ne pas relancer aussitôt la suivante). */
+    fun resetLost() {
+        lastSeenAtMs = SystemClock.elapsedRealtime()
+    }
     private var lastCommandAtMs = 0L
     private var nextStepAtMs = 0L
     /** Cap ordonné depuis la direction de départ, en degrés (positif vers la droite). */
@@ -185,6 +219,7 @@ class GimbalFollower(context: Context) {
         }
         if (target == null) {
             log("aucune cible (${boxes.size} personne(s) retenue(s)) · perdu depuis ${if (lastSeenAtMs > 0) (now - lastSeenAtMs) / 1000 else -1} s", 1000)
+            if (passive) return
             // Surfeur perdu un moment (écume, tube) : on continue sur sa lancée, avec une vitesse qui s'amortit vite,
             // pour que le gimbal s'arrête en douceur à l'endroit où il devrait ressortir. Au-delà, on oublie sa vitesse.
             val pw = prevWorld
@@ -314,6 +349,7 @@ class GimbalFollower(context: Context) {
         const val LOST_TIMEOUT_MS = 2_500L
         /** Poursuite à l'aveugle d'un surfeur caché : durée maximale et constante d'amortissement de sa vitesse (secondes). */
         const val COAST_SECONDS = 1.8f
+        const val CENTERED_DEG = 1.5f
         const val COAST_TAU = 0.6f
         const val HOME_AFTER_MS = 4_000L
         const val CLIP_END_DELAY_MS = 2_000L

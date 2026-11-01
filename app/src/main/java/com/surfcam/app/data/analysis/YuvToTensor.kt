@@ -83,6 +83,58 @@ class YuvToTensor {
         return matching to (x1 - x0) * (y1 - y0)
     }
 
+    /**
+     * Cherche dans toute la dernière image la tache la plus dense de la couleur du manchon (vue de loin, en zoom large, le
+     * manchon ne fait que quelques pixels : le détecteur de personnes ne le voit pas). Renvoie (x, y, nombre de pixels de la
+     * couleur dans la zone), x et y entre 0 et 1, ou null si rien d'assez dense.
+     */
+    fun findMarkerBlob(color: com.surfcam.app.domain.detection.MarkerColor): Triple<Float, Float, Int>? {
+        if (srcWidth == 0 || srcHeight == 0) return null
+        val cell = 20
+        val cols = (srcWidth + cell - 1) / cell
+        val rows = (srcHeight + cell - 1) / cell
+        val counts = IntArray(cols * rows)
+        if (tenBit) {
+            if (markerMask.size != srcWidth * srcHeight) return null
+            for (y in 0 until srcHeight) {
+                val base = y * srcWidth
+                val rowCell = (y / cell) * cols
+                for (x in 0 until srcWidth) if (markerMask[base + x].toInt() != 0) counts[rowCell + x / cell]++
+            }
+        } else {
+            for (y in 0 until srcHeight) {
+                val yBase = y * yRowStride
+                val uvBase = (y shr 1) * uvRowStride
+                val rowCell = (y / cell) * cols
+                for (x in 0 until srcWidth) {
+                    val yy = (yBytes[yBase + x * yPixelStride].toInt() and 0xFF).toFloat()
+                    val uvIndex = uvBase + (x shr 1) * uvPixelStride
+                    val u = (uBytes[uvIndex].toInt() and 0xFF) - 128f
+                    val v = (vBytes[uvIndex].toInt() and 0xFF) - 128f
+                    val r = clamp(yy + 1.402f * v).toInt()
+                    val g = clamp(yy - 0.344136f * u - 0.714136f * v).toInt()
+                    val b = clamp(yy + 1.772f * u).toInt()
+                    if (color.matches(r, g, b)) counts[rowCell + x / cell]++
+                }
+            }
+        }
+        // Le meilleur voisinage de 3×3 cellules, pour qu'une tache à cheval sur deux cellules compte en entier.
+        var best = 0
+        var bestCol = 0
+        var bestRow = 0
+        for (r in 0 until rows) for (c in 0 until cols) {
+            var sum = 0
+            for (dr in -1..1) for (dc in -1..1) {
+                val rr = r + dr
+                val cc = c + dc
+                if (rr in 0 until rows && cc in 0 until cols) sum += counts[rr * cols + cc]
+            }
+            if (sum > best) { best = sum; bestCol = c; bestRow = r }
+        }
+        if (best < 6) return null
+        return Triple((bestCol + 0.5f) * cell / srcWidth, (bestRow + 0.5f) * cell / srcHeight, best)
+    }
+
     private var loggedP010 = false
 
     /** Couleur du manchon à repérer pendant la conversion 10 bits (les plans ne sont pas gardés, on marque les pixels au passage). */
