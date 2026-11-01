@@ -35,7 +35,7 @@ object SessionLog {
         file = File(dir, name)
         t0 = SystemClock.elapsedRealtime()
         entries.clear()
-        header.clear()
+        this.header.clear()
         context.getSharedPreferences("rapport", Context.MODE_PRIVATE).edit().remove("files").remove("clipReports").apply()
         write("RAPPORT DE SESSION · ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}")
         write(header)
