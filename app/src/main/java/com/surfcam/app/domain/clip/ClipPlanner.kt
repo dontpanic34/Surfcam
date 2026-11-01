@@ -9,6 +9,15 @@ sealed interface ClipAction {
     /** Terminer le clip : plus aucune image après [atUs]. */
     data class Stop(val atUs: Long) : ClipAction
 
+    /**
+     * Fin de la marge après la vague : on cesse d'écrire dans le fichier (les images suivantes sont gardées en attente)
+     * mais on ne ferme pas encore le clip, au cas où le surfeur réapparaîtrait (suivi perdu dans l'écume).
+     */
+    data class Hold(val atUs: Long) : ClipAction
+
+    /** Le surfeur est reparti pendant l'attente : les images gardées en attente sont écrites, le clip continue. */
+    data object Resume : ClipAction
+
     /** Jeter le clip en cours : le mouvement détecté n'était pas une vague. */
     data object Discard : ClipAction
 }
@@ -22,7 +31,10 @@ sealed interface ClipAction {
 class ClipPlanner(
     private val preRollUs: Long = 5_000_000,
     private val postRollUs: Long = 3_000_000,
+    /** Temps d'attente, après la marge, avant de fermer vraiment le clip : une vague coupée en deux est recollée. */
+    private val holdGraceUs: Long = 5_000_000,
 ) {
+    private var holding = false
     private var open = false
     private var waveActive = false
     private var stopAtUs: Long? = null
@@ -38,7 +50,12 @@ class ClipPlanner(
                 stopAtBeforeExtension = stopAtUs
                 stopAtUs = null
                 openedByCurrentWave = false
-                emptyList()
+                if (holding) {
+                    holding = false
+                    listOf(ClipAction.Resume)
+                } else {
+                    emptyList()
+                }
             } else {
                 open = true
                 openedByCurrentWave = true
@@ -56,6 +73,7 @@ class ClipPlanner(
             waveActive = false
             if (open && openedByCurrentWave) {
                 open = false
+                holding = false
                 stopAtUs = null
                 listOf(ClipAction.Discard)
             } else {
@@ -70,8 +88,18 @@ class ClipPlanner(
     fun onTick(nowUs: Long): List<ClipAction> {
         val stopAt = stopAtUs ?: return emptyList()
         if (!open || waveActive || nowUs < stopAt) return emptyList()
+        if (!holding) {
+            holding = true
+            return if (nowUs >= stopAt + holdGraceUs) closeNow(stopAt, listOf(ClipAction.Hold(stopAt))) else listOf(ClipAction.Hold(stopAt))
+        }
+        if (nowUs < stopAt + holdGraceUs) return emptyList()
+        return closeNow(stopAt, emptyList())
+    }
+
+    private fun closeNow(stopAt: Long, before: List<ClipAction>): List<ClipAction> {
         open = false
+        holding = false
         stopAtUs = null
-        return listOf(ClipAction.Stop(stopAt))
+        return before + ClipAction.Stop(stopAt)
     }
 }

@@ -72,9 +72,11 @@ class SessionRecorder(
             }
             writer = null
             if (target.isExternal) {
-                // Carte retirée ou câble débranché : on continue sur le téléphone, au prochain segment.
-                target.fallBackToPhone("Stockage externe retiré : la session continue sur le téléphone")
-                onEvent(parts, "Stockage externe retiré : la session continue sur le téléphone")
+                // Carte retirée, câble débranché ou écriture trop lente : on continue sur le téléphone, au prochain segment.
+                val why = target.describeFailure(e)
+                SessionLog.ev("stockage", "écriture de la session interrompue : $why")
+                target.fallBackToPhone("$why : la session continue sur le téléphone")
+                onEvent(parts, "$why : la session continue sur le téléphone")
             } else {
                 failed = true
                 onEvent(parts, "Enregistrement complet interrompu : ${e.message}")

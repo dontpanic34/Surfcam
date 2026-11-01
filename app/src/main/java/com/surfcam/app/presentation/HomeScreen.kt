@@ -160,7 +160,22 @@ fun HomeScreen(
                 onDismissRequest = { sdDeclined = sdDeclined + sdOffer.name },
                 title = { Text("Carte SD détectée") },
                 text = { Text("Enregistrer les vidéos sur « ${sdOffer.label} »$free au lieu de la mémoire du téléphone ?") },
-                confirmButton = { androidx.compose.material3.TextButton(onClick = { sdDeclined = sdDeclined + sdOffer.name; onOptionsChange(options.copy(storage = sdOffer.name)) }) { Text("Oui, sur la carte") } },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        val chosen = sdOffer
+                        sdDeclined = sdDeclined + chosen.name
+                        onOptionsChange(options.copy(storage = chosen.name))
+                        notice = "Test de la vitesse d'écriture de « ${chosen.label} »…"
+                        scope.launch {
+                            val speed = withContext(Dispatchers.IO) { engine.storage.measureWriteSpeed(chosen.name) }
+                            notice = when {
+                                speed == null -> "Impossible de mesurer la vitesse de « ${chosen.label} »."
+                                speed < 25 -> "« ${chosen.label} » écrit à %.0f Mo/s : trop lent pour la 4K (il faut au moins 25 Mo/s avec la session complète). Les vidéos risquent de basculer sur le téléphone.".format(speed)
+                                else -> "« ${chosen.label} » écrit à %.0f Mo/s : suffisant.".format(speed)
+                            }
+                        }
+                    }) { Text("Oui, sur la carte") }
+                },
                 dismissButton = { androidx.compose.material3.TextButton(onClick = { sdDeclined = sdDeclined + sdOffer.name }) { Text("Non") } },
             )
         }

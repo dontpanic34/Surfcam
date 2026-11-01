@@ -47,6 +47,31 @@ class ClipRecorder(
     // Touché uniquement depuis le thread de l'exécuteur.
     private var writer: ClipWriter? = null
 
+    /** Images arrivées pendant l'attente de fin de clip : écrites si le surfeur repart, jetées sinon. */
+    private val held = ArrayList<EncodedSample>()
+
+    @Volatile
+    private var holdFromPtsUs = Long.MAX_VALUE
+
+    /** Cesse d'écrire après [fromPtsUs] sans fermer le clip : les images suivantes sont gardées en attente. */
+    fun hold(fromPtsUs: Long) {
+        holdFromPtsUs = fromPtsUs
+    }
+
+    /** Le surfeur est reparti : on écrit les images gardées en attente et on reprend l'écriture normale. */
+    fun resume() {
+        executor.execute {
+            try {
+                held.forEach { writer?.write(it) }
+            } catch (e: Exception) {
+                abort("Écriture du clip interrompue : ${e.message}")
+            } finally {
+                held.clear()
+                holdFromPtsUs = Long.MAX_VALUE
+            }
+        }
+    }
+
     /** Démarre un clip qui reprend les [preRollSec] dernières secondes du tampon (déclenchement manuel). */
     @Synchronized
     fun start(preRollSec: Int, waveNumber: Int): Boolean {
@@ -73,9 +98,10 @@ class ClipRecorder(
                 val w = try {
                     ClipWriter(context, fmt, orientationHint, baseName, target.volume)
                 } catch (e: Exception) {
+                    SessionLog.ev("stockage", "ouverture du clip impossible sur ${target.volume} : ${e.javaClass.simpleName} ${e.message}")
                     if (!target.isExternal) throw e
                     // Support externe indisponible : le clip est écrit sur le téléphone, rien n'est perdu.
-                    target.fallBackToPhone("Stockage externe indisponible : les vidéos sont enregistrées sur le téléphone")
+                    target.fallBackToPhone("${target.describeFailure(e)} : les vidéos sont enregistrées sur le téléphone")
                     ClipWriter(context, fmt, orientationHint, baseName, target.volume)
                 }
                 writer = w
@@ -94,8 +120,9 @@ class ClipRecorder(
         if (!active) return
         executor.execute {
             try {
-                writer?.write(sample)
+                if (sample.ptsUs > holdFromPtsUs) held.add(sample) else writer?.write(sample)
             } catch (e: Exception) {
+                SessionLog.ev("stockage", "écriture du clip interrompue sur ${target.volume} : ${e.javaClass.simpleName} ${e.message}")
                 abort("Écriture du clip interrompue : ${e.message}")
             }
         }
@@ -112,6 +139,8 @@ class ClipRecorder(
             val w = writer
             writer = null
             active = false
+            held.clear()
+            holdFromPtsUs = Long.MAX_VALUE
             if (w != null) {
                 try {
                     onResult(w.close(discard), null)

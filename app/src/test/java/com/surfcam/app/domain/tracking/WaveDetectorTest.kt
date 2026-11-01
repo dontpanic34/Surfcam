@@ -174,8 +174,8 @@ class WaveDetectorTest {
             if (id < 0) id = tracks.single().id
             assertEquals(id, tracks.single().id)
         }
-        // Absent plus de 2 s : le suivi est abandonné.
-        val tracks = tracker.update(emptyList(), 20 * frameUs + 3 * second)
+        // Absent plus de 4 s : le suivi est abandonné.
+        val tracks = tracker.update(emptyList(), 20 * frameUs + 5 * second)
         assertTrue(tracks.isEmpty())
     }
 

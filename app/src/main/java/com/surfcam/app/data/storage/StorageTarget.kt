@@ -53,10 +53,44 @@ class StorageTarget(context: Context) {
     /** Espace libre du volume courant ; null si inconnu. */
     fun freeBytes(): Long? = freeOf(manager.storageVolumes.firstOrNull { it.mediaStoreVolumeName == volume })
 
+    /** Le volume courant est-il toujours monté ? Faux = carte retirée ou câble débranché pour de bon. */
+    fun isVolumeMounted(): Boolean = manager.storageVolumes.any { it.mediaStoreVolumeName == volume && it.state == Environment.MEDIA_MOUNTED }
+
+    /** Texte exact de la panne : « retiré » seulement si le support a vraiment disparu, sinon l'erreur d'écriture. */
+    fun describeFailure(e: Exception?): String {
+        val detail = e?.let { "${it.javaClass.simpleName}: ${it.message}" } ?: "erreur inconnue"
+        return if (isVolumeMounted()) "Écriture impossible sur le support externe, toujours branché ($detail)" else "Support externe retiré ($detail)"
+    }
+
     fun fallBackToPhone(reason: String) {
         if (!isExternal) return
+        com.surfcam.app.data.engine.SessionLog.ev("stockage", "repli sur le téléphone : $reason")
         volume = PHONE
         onFallback?.invoke(reason)
+    }
+
+    /**
+     * Mesure la vitesse d'écriture soutenue du support [volumeName] (Mo/s) en y écrivant [megabytes] Mo puis en les
+     * effaçant ; null si on ne peut pas y écrire. L'enregistrement 4K demande environ 10 Mo/s par flux (clip et session
+     * en même temps : 20 Mo/s), avec de la marge.
+     */
+    fun measureWriteSpeed(volumeName: String, megabytes: Int = 96): Double? {
+        val root = manager.storageVolumes.firstOrNull { it.mediaStoreVolumeName == volumeName }?.directory?.path ?: return null
+        val dir = appContext.getExternalFilesDirs(null).filterNotNull().firstOrNull { it.path.startsWith(root) } ?: return null
+        val file = java.io.File(dir, "speedtest.tmp")
+        return try {
+            val chunk = ByteArray(1024 * 1024) { (it * 31).toByte() }
+            val start = System.nanoTime()
+            java.io.FileOutputStream(file).use { out ->
+                repeat(megabytes) { out.write(chunk) }
+                out.fd.sync()
+            }
+            megabytes / ((System.nanoTime() - start) / 1e9)
+        } catch (_: Exception) {
+            null
+        } finally {
+            file.delete()
+        }
     }
 
     private fun labelOf(v: StorageVolume): String =

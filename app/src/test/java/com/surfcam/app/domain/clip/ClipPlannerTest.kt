@@ -15,7 +15,10 @@ class ClipPlannerTest {
         assertEquals(listOf(ClipAction.Start(95 * s)), planner.onWave(WaveEvent.Started(100 * s, 1), 101 * s))
         assertTrue(planner.onWave(WaveEvent.Ended(100 * s, 110 * s, 1), 112 * s).isEmpty())
         assertTrue(planner.onTick(112 * s).isEmpty())
-        assertEquals(listOf(ClipAction.Stop(113 * s)), planner.onTick(113 * s))
+        assertEquals(listOf(ClipAction.Hold(113 * s)), planner.onTick(113 * s))
+        assertTrue(planner.isRecording) // en attente : pas encore fermé
+        assertTrue(planner.onTick(116 * s).isEmpty())
+        assertEquals(listOf(ClipAction.Stop(113 * s)), planner.onTick(118 * s))
         assertTrue(!planner.isRecording)
     }
 
@@ -28,7 +31,8 @@ class ClipPlannerTest {
         assertTrue(planner.onWave(WaveEvent.Started((105.6 * s).toLong(), 1), 106 * s).isEmpty())
         assertTrue(planner.onTick(108 * s).isEmpty()) // l'ancienne fin (107 s) ne doit plus couper le clip
         planner.onWave(WaveEvent.Ended(105 * s, 110 * s, 1), 111 * s)
-        assertEquals(listOf(ClipAction.Stop(113 * s)), planner.onTick(113 * s))
+        assertEquals(listOf(ClipAction.Hold(113 * s)), planner.onTick(113 * s))
+        assertEquals(listOf(ClipAction.Stop(113 * s)), planner.onTick(118 * s))
     }
 
     @Test
@@ -46,6 +50,7 @@ class ClipPlannerTest {
         planner.onWave(WaveEvent.Ended(100 * s, 110 * s, 1), 111 * s) // fin prévue à 113 s
         planner.onWave(WaveEvent.Started(111 * s, 2), 112 * s)
         assertTrue(planner.onWave(WaveEvent.Cancelled(111 * s, 2), (113.5 * s).toLong()).let { it.isNotEmpty() })
+        assertEquals(listOf(ClipAction.Stop(113 * s)), planner.onTick(119 * s))
         assertTrue(!planner.isRecording)
     }
 
@@ -55,7 +60,22 @@ class ClipPlannerTest {
         planner.onWave(WaveEvent.Started(100 * s, 1), 101 * s)
         planner.onWave(WaveEvent.Ended(100 * s, 106 * s, 1), 107 * s)
         planner.onTick(110 * s)
+        planner.onTick(120 * s)
         val second = planner.onWave(WaveEvent.Started(200 * s, 2), 201 * s)
         assertEquals(listOf(ClipAction.Start(195 * s)), second)
+    }
+
+    @Test
+    fun aWaveCutInTwoByALostTrackIsGluedBackTogether() {
+        val planner = ClipPlanner()
+        planner.onWave(WaveEvent.Started(100 * s, 1), 101 * s)
+        planner.onWave(WaveEvent.Ended(100 * s, 110 * s, 1), 111 * s) // fin prévue à 113 s
+        assertEquals(listOf(ClipAction.Hold(113 * s)), planner.onTick(113 * s))
+        // Le surfeur réapparaît 2 s après la marge : le même clip reprend, pas de second fichier.
+        assertEquals(listOf(ClipAction.Resume), planner.onWave(WaveEvent.Started(114 * s, 2), 115 * s))
+        assertTrue(planner.isRecording)
+        planner.onWave(WaveEvent.Ended(114 * s, 120 * s, 2), 121 * s)
+        planner.onTick(123 * s)
+        assertEquals(listOf(ClipAction.Stop(123 * s)), planner.onTick(128 * s))
     }
 }

@@ -12,7 +12,7 @@ data class WaveConfig(
     /** Durée sous la vitesse d'arrêt avant de déclarer la fin de la vague. */
     val endGraceUs: Long = 1_500_000,
     /** Disparition du suivi (chute, écume) tolérée avant de déclarer la fin. */
-    val lostGraceUs: Long = 2_000_000,
+    val lostGraceUs: Long = 4_000_000,
     /** Une vague plus courte que ça est annulée (surfeur qui rame vite, fausse alerte). */
     val minRideUs: Long = 3_000_000,
     /**

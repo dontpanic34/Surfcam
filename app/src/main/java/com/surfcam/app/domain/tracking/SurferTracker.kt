@@ -14,7 +14,7 @@ data class TrackerConfig(
     /** Lissage de la vitesse estimée, utilisée pour prédire la position suivante. */
     val velocitySmoothing: Float = 0.6f,
     /** Un suivi sans détection depuis plus longtemps que ça est abandonné. */
-    val maxMissingUs: Long = 2_000_000,
+    val maxMissingUs: Long = 4_000_000,
     /** Durée d'historique gardée par suivi, pour mesurer les vitesses. */
     val historyUs: Long = 3_000_000,
     /** Lissage de la boîte : 1 = brut, proche de 0 = très lissé. */

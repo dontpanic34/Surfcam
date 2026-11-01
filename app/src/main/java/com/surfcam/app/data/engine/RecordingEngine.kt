@@ -133,7 +133,7 @@ class RecordingEngine(private val context: Context) {
     val storage = StorageTarget(context).also { target ->
         target.onFallback = { message ->
             _state.update { it.copy(message = message) }
-            alert("SurfCam : stockage externe retiré", message)
+            alert("SurfCam : stockage externe indisponible", message)
         }
     }
 
@@ -424,7 +424,7 @@ class RecordingEngine(private val context: Context) {
     /** Démarre un clip : les [CaptureConfig.PRE_ROLL_SEC] dernières secondes sont reprises du tampon. */
     @Synchronized
     fun startClip() {
-        val started = recorder?.start(CaptureConfig.PRE_ROLL_SEC, ++waveCounter) == true
+        val started = recorder?.start(CaptureConfig.PRE_ROLL_SEC, clipsSaved + 1) == true
         if (started) {
             clipStartPtsUs = recorder?.lastStartPtsUs ?: -1L
             currentClipAuto = false
@@ -481,12 +481,14 @@ class RecordingEngine(private val context: Context) {
             override fun onClipAction(action: ClipAction) {
                 SessionLog.ev("clip", "décision auto : ${action::class.simpleName}")
                 when (action) {
-                    is ClipAction.Start -> if (clips.startFrom(action.fromUs, ++waveCounter)) {
+                    is ClipAction.Start -> if (clips.startFrom(action.fromUs, clipsSaved + 1)) {
                         clipStartPtsUs = clips.lastStartPtsUs
                         currentClipAuto = true
                         synchronized(rideStats) { rideStats.clear() }
                         _state.update { it.copy(clipActive = true, message = null) }
                     }
+                    is ClipAction.Hold -> clips.hold(action.atUs)
+                    ClipAction.Resume -> clips.resume()
                     is ClipAction.Stop -> clips.finish(0)
                     ClipAction.Discard -> {
                         synchronized(rideStats) { rideStats.clear() }

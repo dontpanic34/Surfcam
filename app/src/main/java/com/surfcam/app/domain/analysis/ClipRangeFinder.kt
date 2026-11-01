@@ -47,6 +47,7 @@ class ClipRangeFinder(
             null
         }
         is ClipAction.Stop -> openFromUs?.let { ClipRange(it, action.atUs) }.also { openFromUs = null }
+        is ClipAction.Hold, ClipAction.Resume -> null
         ClipAction.Discard -> {
             openFromUs = null
             null

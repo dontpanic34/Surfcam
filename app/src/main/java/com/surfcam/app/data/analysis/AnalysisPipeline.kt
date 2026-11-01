@@ -225,7 +225,13 @@ class AnalysisPipeline(
             val actions = (if (event != null) planner.onWave(event, timestampUs) else emptyList()) + planner.onTick(timestampUs)
             actions.forEach {
                 // Le début d'un clip est une date de l'horloge d'analyse : on la convertit dans celle de la vidéo.
-                listener.onClipAction(if (it is ClipAction.Start) ClipAction.Start(it.fromUs - clockOffsetUs) else it)
+                listener.onClipAction(
+                    when (it) {
+                        is ClipAction.Start -> ClipAction.Start(it.fromUs - clockOffsetUs)
+                        is ClipAction.Hold -> ClipAction.Hold(it.atUs - clockOffsetUs)
+                        else -> it
+                    },
+                )
             }
 
             val ridingId = waveDetector.ridingId
