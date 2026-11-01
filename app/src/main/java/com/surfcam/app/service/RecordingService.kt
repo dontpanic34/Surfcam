@@ -49,7 +49,6 @@ class RecordingService : Service() {
             hdr = intent?.getBooleanExtra(EXTRA_HDR, false) == true,
             ledBlink = intent?.getBooleanExtra(EXTRA_LED, true) != false,
             searchWide = intent?.getBooleanExtra(EXTRA_SEARCH_WIDE, true) != false,
-            ecoBattery = intent?.getBooleanExtra(EXTRA_ECO, false) == true,
             subject = if (intent?.getStringExtra(EXTRA_SUBJECT) == "ME") com.surfcam.app.data.engine.Subject.ME else com.surfcam.app.data.engine.Subject.EVERYONE,
             markerColor = com.surfcam.app.domain.detection.MarkerColor.fromName(intent?.getStringExtra(EXTRA_MARKER)),
         )
@@ -115,7 +114,6 @@ class RecordingService : Service() {
         const val EXTRA_HDR = "hdr"
         const val EXTRA_LED = "led"
         const val EXTRA_SEARCH_WIDE = "search_wide"
-        const val EXTRA_ECO = "eco_battery"
         const val EXTRA_SUBJECT = "subject"
         const val EXTRA_MARKER = "marker_color"
         private const val CHANNEL_ID = "session"

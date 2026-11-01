@@ -265,11 +265,6 @@ class RecordingEngine(private val context: Context) {
             }
             camera = source
             beginBatteryLog()
-            if (options.ecoBattery) {
-                thermalLevel = 0
-                applyThermalLevel(1)
-                SessionLog.ev("économie", "mode éco batterie : traitement d'image allégé, analyse deux fois moins fréquente, débit vidéo réduit d'un tiers")
-            }
             startSafetyChecks()
         } catch (e: Throwable) {
             source?.release()
@@ -809,7 +804,7 @@ class RecordingEngine(private val context: Context) {
             status >= PowerManager.THERMAL_STATUS_SEVERE -> 2
             status >= PowerManager.THERMAL_STATUS_MODERATE -> 1
             else -> 0
-        }.coerceAtLeast(if (lastOptions?.ecoBattery == true) 1 else 0)
+        }
         if (wanted > thermalLevel) {
             coolSinceMs = 0L
             applyThermalLevel(wanted)
