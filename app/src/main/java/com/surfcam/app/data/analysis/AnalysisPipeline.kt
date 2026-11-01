@@ -45,6 +45,8 @@ data class AnalysisSnapshot(
     val blobX: Float = -1f,
     val blobY: Float = -1f,
     val blobCount: Int = 0,
+    /** Plus grande vitesse, en longueurs de corps par seconde, d'une personne déjà vue à l'image précédente (0 si tout le monde est immobile). */
+    val maxSpeedBodyPerSec: Float = 0f,
 )
 
 /**
@@ -115,6 +117,9 @@ class AnalysisPipeline(
     /** Recherche de la tache de couleur du manchon dans toute l'image à chaque analyse (zoom large, pour se retrouver). */
     @Volatile
     var scanBlob = false
+
+    // Centres des personnes vues à l'image précédente, pour mesurer qui bouge (touché seulement par le fil d'analyse).
+    private var previousCenters = HashMap<Int, Triple<Float, Float, Long>>()
 
     /** En pause (téléphone trop chaud) : les images sont reçues puis jetées sans être analysées. */
     @Volatile
@@ -243,6 +248,20 @@ class AnalysisPipeline(
             }
 
             val ridingId = waveDetector.ridingId
+            val visibleTracks = tracks.filter { it.lastSeenUs == timestampUs }
+            var maxSpeed = 0f
+            val centers = HashMap<Int, Triple<Float, Float, Long>>()
+            for (t in visibleTracks) {
+                val prev = previousCenters[t.id]
+                val dt = if (prev != null) (timestampUs - prev.third) / 1_000_000f else 0f
+                val body = t.box.height
+                if (prev != null && dt > 0.05f && body > 1f) {
+                    val d = kotlin.math.hypot(t.box.centerX - prev.first, t.box.centerY - prev.second)
+                    maxSpeed = maxOf(maxSpeed, d / body / dt)
+                }
+                centers[t.id] = Triple(t.box.centerX, t.box.centerY, timestampUs)
+            }
+            previousCenters = centers
             val blob = if (scanBlob) markerColor?.let { converter.findMarkerBlob(it) } else null
             listener.onSnapshot(
                 AnalysisSnapshot(
@@ -264,6 +283,7 @@ class AnalysisPipeline(
                     blobX = blob?.first ?: -1f,
                     blobY = blob?.second ?: -1f,
                     blobCount = blob?.third ?: 0,
+                    maxSpeedBodyPerSec = maxSpeed,
                 ),
             )
         } catch (t: Throwable) {

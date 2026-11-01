@@ -833,12 +833,13 @@ class RecordingEngine(private val context: Context) {
 
     private fun updateDutyCycle(snapshot: AnalysisSnapshot) {
         val now = android.os.SystemClock.elapsedRealtime()
-        if (snapshot.personsInFrame > 0 || snapshot.riding || _state.value.clipActive || snapshot.boxes.isNotEmpty() || widePhase != WidePhase.OFF) lastBusyAtMs = now
+        // « Occupé » = quelqu'un bouge (ou une vague, un clip, une recherche) : des surfeurs qui attendent assis sur leur planche ne réveillent pas l'analyse.
+        if (snapshot.maxSpeedBodyPerSec >= BUSY_SPEED || snapshot.riding || _state.value.clipActive || widePhase != WidePhase.OFF) lastBusyAtMs = now
         val wantStandby = lastBusyAtMs != 0L && now - lastBusyAtMs > STANDBY_AFTER_MS || (lastBusyAtMs == 0L && snapshot.frames > 10)
         if (wantStandby != standby) {
             standby = wantStandby
             analysis?.setBaseIntervalMs(if (standby) STANDBY_INTERVAL_MS else activeIntervalMs)
-            SessionLog.ev("veille", if (standby) "personne en vue depuis ${STANDBY_AFTER_MS / 1000} s : analyse à 1 image/s" else "quelqu'un en vue : analyse à pleine cadence")
+            SessionLog.ev("veille", if (standby) "personne ne bouge depuis ${STANDBY_AFTER_MS / 1000} s : analyse à 1 image/s" else "quelqu'un bouge (%.1f longueurs de corps/s) : analyse à pleine cadence".format(snapshot.maxSpeedBodyPerSec))
         }
     }
 
@@ -1110,6 +1111,7 @@ class RecordingEngine(private val context: Context) {
         const val SEVERE_LIMIT_MS = 600_000L
         const val FOLLOW_ANALYSIS_INTERVAL_MS = 250L
         const val STANDBY_INTERVAL_MS = 1000L
+        const val BUSY_SPEED = 0.35f
         const val WIDE_ZOOM = 2f
         const val WIDE_AFTER_MS = 8_000L
         const val WIDE_COOLDOWN_MS = 25_000L
