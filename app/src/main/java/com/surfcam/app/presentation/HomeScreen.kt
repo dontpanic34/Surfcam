@@ -142,14 +142,13 @@ fun HomeScreen(
         }
     }
 
-    val preset = if (options.hd) "eco" else if (options.hdr) "max" else "eq"
     val who = when {
         options.subject == Subject.ME -> "me"
         options.markerColor != null -> "priority"
         else -> "all"
     }
     val firstColor = options.markerColor ?: MarkerColor.ORANGE
-    val qualityName = when (preset) { "max" -> "4K HDR"; "eco" -> "1080p"; else -> "4K" }
+    val qualityName = (if (options.hd) "1080p" else "4K") + " " + (if (options.fps60) "60" else "30") + " i/s" + if (options.hdr && !options.hd) " HDR" else ""
     val whoName = when (who) { "me" -> "seulement moi"; "priority" -> "moi d'abord"; else -> "tout le monde" }
     val gimbalName = if (gimbalState.connected) "gimbal connecté" else if (GimbalHub.hasSavedGimbal(context)) "gimbal éteint" else "sans gimbal"
 
@@ -291,20 +290,19 @@ fun HomeScreen(
                     notice?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
                 }
 
-                // Qualité d'un toucher.
-                Heading("Qualité")
+                // Définition et cadence.
+                Heading("Vidéo")
                 Segmented(
-                    listOf(Triple("eq", "Équilibré", "4K"), Triple("max", "Maximale", "4K HDR"), Triple("eco", "Longue durée", "1080p")),
-                    preset, enabled = !running,
-                ) { id ->
-                    val next = when (id) {
-                        "max" -> options.copy(hd = false, fps60 = false, hdr = true)
-                        "eco" -> options.copy(hd = true, fps60 = false, hdr = false)
-                        else -> options.copy(hd = false, fps60 = false, hdr = false)
-                    }
-                    if (next.hdr) context.getSharedPreferences("camera", android.content.Context.MODE_PRIVATE).edit().putBoolean("hdr_broken", false).apply()
-                    onOptionsChange(next)
-                }
+                    listOf(
+                        Triple("4k", "4K", "≈ ${options.copy(hd = false).gigabytesPerHour()} Go/h"),
+                        Triple("hd", "1080p", "≈ ${options.copy(hd = true).gigabytesPerHour()} Go/h"),
+                    ),
+                    if (options.hd) "hd" else "4k", enabled = !running,
+                ) { id -> onOptionsChange(options.copy(hd = id == "hd", hdr = if (id == "hd") false else options.hdr)) }
+                Segmented(
+                    listOf(Triple("30", "30 i/s", "zoom ×5 optique"), Triple("60", "60 i/s", "zoom limité à ×2")),
+                    if (options.fps60) "60" else "30", enabled = !running,
+                ) { id -> onOptionsChange(options.copy(fps60 = id == "60")) }
 
                 // Qui filmer.
                 Heading("Qui filmer")
