@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -346,6 +347,15 @@ fun HomeScreen(
                         Text(if (videoCount == 0) "Rien d'enregistré pour l'instant" else "$videoCount vidéo${if (videoCount > 1) "s" else ""} · vagues, sessions, films", color = SurfColors.Muted, fontSize = 13.sp)
                     }
                     Text("›", color = SurfColors.Aqua, fontSize = 26.sp)
+                }
+
+                if (!running && SessionShare.available(context)) {
+                    var shareNote by remember { mutableStateOf<String?>(null) }
+                    OutlinedButton(
+                        onClick = { shareNote = SessionShare.share(context, withSessionFiles = false) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Partager la dernière session (rapport + vagues)") }
+                    shareNote?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
                 }
 
                 Text(

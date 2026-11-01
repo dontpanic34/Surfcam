@@ -56,11 +56,9 @@ class SessionRecorder(
                     return
                 }
                 parts++
-                writer = ClipWriter(
-                    context, fmt, orientationHint,
-                    VideoNaming.sessionPartName(System.currentTimeMillis(), parts),
-                    target.volume,
-                )
+                val partName = VideoNaming.sessionPartName(System.currentTimeMillis(), parts)
+                writer = ClipWriter(context, fmt, orientationHint, partName, target.volume)
+                SessionLog.noteFile(context, partName)
                 segmentStartUs = sample.ptsUs
                 onEvent(parts, null)
             }

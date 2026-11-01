@@ -1066,6 +1066,10 @@ private fun GimbalLogSection() {
                 context.startActivity(android.content.Intent.createChooser(send, "Partager les notes vocales").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
             }) { Text("Partager les notes vocales (${notes.size})", fontSize = 12.sp) }
         }
+        if (SessionShare.available(context)) {
+            OutlinedButton(onClick = { SessionShare.share(context, withSessionFiles = false) }) { Text("Partager session : rapport + vagues", fontSize = 12.sp) }
+            OutlinedButton(onClick = { SessionShare.share(context, withSessionFiles = true) }) { Text("… avec les fichiers de session (gros)", fontSize = 12.sp) }
+        }
         if (exported != null) {
             OutlinedButton(onClick = {
                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {

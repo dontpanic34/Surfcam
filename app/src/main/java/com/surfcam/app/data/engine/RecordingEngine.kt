@@ -714,6 +714,7 @@ class RecordingEngine(private val context: Context) {
     }
 
     private fun onClipResult(saved: SavedClip?, error: String?) {
+        saved?.let { SessionLog.clipSaved(context, it.name, it.durationSec) }
         SessionLog.ev("clip", if (saved != null) "enregistré : ${saved.name} (%.1f s, ${saved.sizeBytes / (1024 * 1024)} Mo)".format(saved.durationSec) else "échec : ${error ?: "?"}")
         if (saved != null) clipsSaved++
         if (saved != null && reframeOn) savePath(saved.name)
