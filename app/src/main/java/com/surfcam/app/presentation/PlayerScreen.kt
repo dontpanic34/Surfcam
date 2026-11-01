@@ -58,6 +58,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,6 +94,8 @@ import com.surfcam.app.data.library.LibraryVideo
 import com.surfcam.app.data.library.VideoLibrary
 import com.surfcam.app.data.reframe.PathStore
 import com.surfcam.app.data.reframe.Reframer
+import com.surfcam.app.data.library.ClipCutter
+import com.surfcam.app.data.library.SessionPart
 import com.surfcam.app.domain.naming.VideoNaming
 import com.surfcam.app.presentation.theme.SurfCamTheme
 import com.surfcam.app.presentation.theme.SurfColors
@@ -189,6 +192,10 @@ fun PlayerScreen(
     val pathStore = remember { PathStore(context) }
     var reframeProgress by remember { mutableStateOf<Int?>(null) }
     var reframeMenu by remember { mutableStateOf(false) }
+    // Extraction à la main : on marque un début et une fin, la vague est découpée sans réencodage ; on peut le refaire.
+    var markIn by remember(currentKey) { mutableStateOf<Long?>(null) }
+    var extracting by remember { mutableStateOf(false) }
+    var extractedCount by remember(currentKey) { mutableIntStateOf(0) }
     val advance = remember { mutableStateOf<() -> Unit>({}) }
     // Zoom et déplacement de l'image à la main (pincement, double toucher, boutons) ; remis à zéro à chaque clip.
     var zoomScale by remember { mutableFloatStateOf(1f) }
@@ -317,6 +324,37 @@ fun PlayerScreen(
                         report = if (saved) "Clip recadré enregistré : ${VideoNaming.reframedName(video.name)}" else "Le clip recadré n'a pas pu être enregistré."
                     }
                 }
+            }
+        }
+    }
+
+    /** Découpe la vague marquée entre [markIn] et la position actuelle, sans réencoder, et l'ajoute à la bibliothèque. */
+    fun extractWave(startMs: Long, endMs: Long) {
+        if (extracting) return
+        if (endMs - startMs < 500) { report = "La fin doit être après le début (au moins une demi-seconde)."; return }
+        extracting = true
+        report = "Extraction en cours…"
+        val source = video
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val parsed = VideoNaming.parse(source.name)
+                val baseMs = parsed?.dateTime?.toInstant()?.toEpochMilli() ?: source.modifiedMs
+                val clipStartMs = baseMs + startMs
+                val taken = library.list().map { it.name.removeSuffix(".mp4") }.toSet()
+                var number = 1
+                while (VideoNaming.clipName(clipStartMs, number) in taken) number++
+                val name = VideoNaming.clipName(clipStartMs, number)
+                val total = if (source.durationMs > 0) source.durationMs else durationMs
+                val error = ClipCutter(context).cut(listOf(SessionPart(source.uri, total * 1000L)), startMs * 1000L, endMs * 1000L, "$name.mp4")
+                error to name
+            }
+            extracting = false
+            if (result.first == null) {
+                extractedCount++
+                markIn = null
+                report = "Vague extraite : ${result.second} (${formatClock(startMs)} → ${formatClock(endMs)}). Tu peux en marquer une autre."
+            } else {
+                report = "Extraction impossible : ${result.first}"
             }
         }
     }
@@ -487,6 +525,21 @@ fun PlayerScreen(
         }
         RoundButton(PlayerIcon.FRAME_NEXT, 40.dp) { step(1) }
         RoundButton(PlayerIcon.NEXT, 40.dp) { goTo(index + 1); touched() }
+        if (!extracting) {
+            val start = markIn
+            if (start == null) {
+                SpeedChip("[ Début" + if (extractedCount > 0) " ($extractedCount ✓)" else "", false) {
+                    markIn = positionMs
+                    report = "Début marqué à ${formatClock(positionMs)} : va jusqu'à la fin de la vague puis touche « Fin ]»."
+                    touched()
+                }
+            } else {
+                SpeedChip("Fin ] (début ${formatClock(start)})", true) { extractWave(start, positionMs); touched() }
+                SpeedChip("✕", false) { markIn = null; report = null; touched() }
+            }
+        } else {
+            SpeedChip("Extraction…", true) {}
+        }
         Box {
             SpeedChip("×" + (if (speed == speed.toInt().toFloat()) speed.toInt().toString() else speed.toString().replace('.', ',')) + " ▾", speed != 1f) { speedMenu = true }
             DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
