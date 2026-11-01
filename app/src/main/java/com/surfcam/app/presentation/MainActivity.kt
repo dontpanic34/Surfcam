@@ -155,6 +155,7 @@ class MainActivity : ComponentActivity() {
             .putExtra(RecordingService.EXTRA_HDR, options.hdr)
             .putExtra(RecordingService.EXTRA_LED, options.ledBlink)
             .putExtra(RecordingService.EXTRA_SEARCH_WIDE, options.searchWide)
+            .putExtra(RecordingService.EXTRA_ECO, options.ecoBattery)
             .putExtra(RecordingService.EXTRA_SUBJECT, options.subject.name)
             .putExtra(RecordingService.EXTRA_MARKER, options.markerColor?.name)
         ContextCompat.startForegroundService(this, intent)

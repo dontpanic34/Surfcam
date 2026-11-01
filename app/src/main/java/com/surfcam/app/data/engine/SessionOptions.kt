@@ -33,6 +33,8 @@ data class SessionOptions(
     val ledBlink: Boolean = true,
     /** Quand l'appli ne te voit plus (manchon choisi), elle dézoome, repère ton manchon, te confirme en zoomant et reprend en ×5. */
     val searchWide: Boolean = true,
+    /** Éco batterie : traitement d'image allégé, analyse deux fois moins fréquente et débit vidéo réduit d'un tiers pour tenir plus longtemps. */
+    val ecoBattery: Boolean = false,
     /** Qui filmer : tout le monde, ou seulement moi (repéré par la couleur de mon manchon, en ×5 optique). */
     val subject: Subject = Subject.EVERYONE,
     /** Couleur du manchon que l'utilisateur porte pour être repéré parmi les surfeurs ; null = aucune. */

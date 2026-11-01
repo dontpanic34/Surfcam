@@ -265,6 +265,11 @@ class RecordingEngine(private val context: Context) {
             }
             camera = source
             beginBatteryLog()
+            if (options.ecoBattery) {
+                thermalLevel = 0
+                applyThermalLevel(1)
+                SessionLog.ev("économie", "mode éco batterie : traitement d'image allégé, analyse deux fois moins fréquente, débit vidéo réduit d'un tiers")
+            }
             startSafetyChecks()
         } catch (e: Throwable) {
             source?.release()
@@ -804,7 +809,7 @@ class RecordingEngine(private val context: Context) {
             status >= PowerManager.THERMAL_STATUS_SEVERE -> 2
             status >= PowerManager.THERMAL_STATUS_MODERATE -> 1
             else -> 0
-        }
+        }.coerceAtLeast(if (lastOptions?.ecoBattery == true) 1 else 0)
         if (wanted > thermalLevel) {
             coolSinceMs = 0L
             applyThermalLevel(wanted)
@@ -953,7 +958,7 @@ class RecordingEngine(private val context: Context) {
             val b = batteryPercent()
             SessionLog.ev(
                 "état",
-                "batterie=${b?.first ?: "?"}%${if (b?.second == true) " (charge)" else ""} · chaleur niveau ${st.thermalLevel} · ${st.captureInfo ?: "-"} · ${st.gimbalStatus ?: "sans gimbal"} · vagues=${st.waves} · clip actif=${st.clipActive}",
+                "batterie=${b?.first ?: "?"}%${if (b?.second == true) " (charge)" else ""} · courant≈${currentMilliamps()} mA · chaleur niveau ${st.thermalLevel} · ${st.captureInfo ?: "-"} · ${st.gimbalStatus ?: "sans gimbal"} · vagues=${st.waves} · clip actif=${st.clipActive}",
             )
         }
     }
@@ -998,6 +1003,13 @@ class RecordingEngine(private val context: Context) {
         val manager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val v = manager.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
         return if (v > 0) v else -1L
+    }
+
+    /** Courant instantané tiré de la batterie, en mA (signe ignoré : il varie selon les téléphones) ; -1 si inconnu. */
+    private fun currentMilliamps(): Int {
+        val manager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val micro = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+        return if (micro == Int.MIN_VALUE || micro == 0) -1 else kotlin.math.abs(micro) / 1000
     }
 
     private fun beginBatteryLog() {
