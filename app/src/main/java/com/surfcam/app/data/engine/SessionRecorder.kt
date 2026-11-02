@@ -30,6 +30,8 @@ class SessionRecorder(
     private var segmentStartUs = -1L
     private var parts = 0
     private var failed = false
+    private var retries = 0
+    private var retryAfterUs = Long.MIN_VALUE
 
     fun onSample(sample: EncodedSample) {
         executor.execute { write(sample) }
@@ -43,6 +45,7 @@ class SessionRecorder(
     private fun write(sample: EncodedSample) {
         if (failed) return
         val fmt = format ?: return
+        if (sample.ptsUs < retryAfterUs) return
         try {
             val dueForNewSegment = writer == null ||
                 (sample.isKeyFrame && sample.ptsUs - segmentStartUs >= segmentSec * 1_000_000L)
@@ -55,11 +58,15 @@ class SessionRecorder(
                     onEvent(parts, "Espace insuffisant : l'enregistrement complet est arrêté (les clips continuent)")
                     return
                 }
+                if (target.isExternal && !target.awaitVolumeReady()) {
+                    SessionLog.ev("stockage", "le volume ${target.volume} n'est pas connu de MediaStore après 5 s (lecteur USB en réinitialisation ?)")
+                }
                 parts++
                 val partName = VideoNaming.sessionPartName(System.currentTimeMillis(), parts)
                 writer = ClipWriter(context, fmt, orientationHint, partName, target.volume)
                 SessionLog.noteFile(context, partName)
                 segmentStartUs = sample.ptsUs
+                retries = 0
                 onEvent(parts, null)
             }
             writer?.write(sample)
@@ -69,6 +76,13 @@ class SessionRecorder(
             } catch (_: Exception) {
             }
             writer = null
+            if (target.isExternal && target.isVolumeMounted() && retries < MAX_RETRIES) {
+                // Panne passagère (lecteur USB qui se réinitialise) : on réessaie au prochain segment plutôt que d'abandonner la carte.
+                retries++
+                retryAfterUs = sample.ptsUs + RETRY_DELAY_US
+                SessionLog.ev("stockage", "écriture de la session impossible (${e.javaClass.simpleName}: ${e.message}) : nouvel essai $retries/$MAX_RETRIES dans 3 s")
+                return
+            }
             if (target.isExternal) {
                 // Carte retirée, câble débranché ou écriture trop lente : on continue sur le téléphone, au prochain segment.
                 val why = target.describeFailure(e)
@@ -88,6 +102,8 @@ class SessionRecorder(
     }
 
     private companion object {
+        const val MAX_RETRIES = 4
+        const val RETRY_DELAY_US = 3_000_000L
         // En dessous de 900 Mo libres, on n'ouvre pas de nouveau segment (le garde-fou du moteur coupe à 800 Mo).
         const val MIN_FREE_BYTES = 900L * 1024 * 1024
     }

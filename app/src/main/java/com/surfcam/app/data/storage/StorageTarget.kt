@@ -62,6 +62,24 @@ class StorageTarget(context: Context) {
         return if (isVolumeMounted()) "Écriture impossible sur le support externe, toujours branché ($detail)" else "Support externe retiré ($detail)"
     }
 
+    /** MediaStore connaît-il ce volume pour l'instant ? (Un support peut être « monté » pour Android mais pas encore pour MediaStore.) */
+    fun isKnownToMediaStore(volumeName: String = volume): Boolean =
+        volumeName == PHONE || MediaStore.getExternalVolumeNames(appContext).contains(volumeName)
+
+    /**
+     * Attend (jusqu'à [timeoutMs]) que le volume courant soit prêt pour MediaStore. Le message « Volume … not found »
+     * apparaît quand un lecteur USB vient de se (re)connecter ou de se réinitialiser (appel de courant de la caméra).
+     */
+    fun awaitVolumeReady(timeoutMs: Long = 5_000L): Boolean {
+        if (!isExternal) return true
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            if (isKnownToMediaStore()) return true
+            if (System.currentTimeMillis() >= deadline) return false
+            try { Thread.sleep(250) } catch (_: InterruptedException) { return false }
+        }
+    }
+
     fun fallBackToPhone(reason: String) {
         if (!isExternal) return
         com.surfcam.app.data.engine.SessionLog.ev("stockage", "repli sur le téléphone : $reason")

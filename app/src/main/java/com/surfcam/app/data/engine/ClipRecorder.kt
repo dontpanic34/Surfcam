@@ -95,6 +95,7 @@ class ClipRecorder(
         active = true
         executor.execute {
             try {
+                if (target.isExternal) target.awaitVolumeReady()
                 val w = try {
                     ClipWriter(context, fmt, orientationHint, baseName, target.volume)
                 } catch (e: Exception) {
