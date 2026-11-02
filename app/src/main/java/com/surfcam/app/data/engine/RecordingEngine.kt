@@ -384,7 +384,7 @@ class RecordingEngine(private val context: Context) {
         val s = _state.value
         var clamped = ratio.coerceIn(s.minZoom, s.maxZoom)
         // Entre ×4,2 et ×5 on colle sur le téléobjectif : un zoom hésitant juste en dessous serait numérique, donc flou.
-        if (s.maxZoom >= 4.95f && clamped >= 4.2f) clamped = 5f
+        if (s.maxZoom >= 4.95f && clamped >= 4.2f && clamped < 5.4f) clamped = 5f
         desiredZoom = clamped
         _state.update { it.copy(zoom = clamped) }
         camera?.setZoom(clamped)

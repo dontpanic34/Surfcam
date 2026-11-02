@@ -170,6 +170,8 @@ class GimbalFollower(context: Context) {
         val address = prefs.getString("address", null) ?: return "Aucun gimbal enregistré : fais d'abord l'essai dans « Tête motorisée »"
         invert = prefs.getBoolean("invert", false)
         savedAddress = address
+        // Une fois : le style « Centré » devient celui par défaut (le surfeur doit rester au centre de la vidéo) ; modifiable ensuite.
+        if (!prefs.getBoolean("centerV1", false)) prefs.edit().putString("followStyle", FollowController.FollowStyle.CENTER.name).putBoolean("centerV1", true).apply()
         style = FollowController.FollowStyle.fromName(prefs.getString("followStyle", null))
         zoneDeg = prefs.getFloat("zoneDeg", 45f)
         yawCmdDeg = 0f

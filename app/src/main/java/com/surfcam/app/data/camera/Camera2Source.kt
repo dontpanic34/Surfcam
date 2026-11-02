@@ -268,7 +268,8 @@ class Camera2Source(context: Context) {
             fpsRange = range,
             sensorOrientation = sizeChars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
             minZoom = maxOf(1f, zoomRange?.lower ?: 1f),
-            maxZoom = minOf(zoomRange?.upper ?: 1f, MAX_ZOOM),
+            // En 1080p le téléobjectif (≈ 12 Mpx utiles) permet un recadrage ×10 qui garde le détail natif ; en 4K il serait agrandi.
+            maxZoom = minOf(zoomRange?.upper ?: 1f, if (hd) MAX_ZOOM_HD else MAX_ZOOM),
             hdrText = hdrText,
             focalPx1x = equivFocal(chars) / 36f * CaptureConfig.ANALYSIS_WIDTH,
         )
@@ -718,6 +719,7 @@ class Camera2Source(context: Context) {
         // Zoom maximal proposé (au-delà, l'image n'est plus que du recadrage numérique) et seuil du téléobjectif.
         // ×5 = le téléobjectif optique : au-delà, ce ne serait que du zoom numérique (image molle et pixelisée).
         const val MAX_ZOOM = 5f
+        const val MAX_ZOOM_HD = 10f
         const val TELEPHOTO_SWITCH = 5f
         const val TELEPHOTO_RELEASE = 4.6f
         const val MIN_SWITCH_GAP_MS = 1_500L

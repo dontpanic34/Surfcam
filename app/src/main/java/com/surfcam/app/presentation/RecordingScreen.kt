@@ -731,7 +731,15 @@ private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: 
                 modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
             )
         }
-        if (!state.opticalZoom && state.zoom > 1.05f) {
+        if (!state.opticalZoom && state.zoom > 5.05f && (state.config?.width ?: 9999) <= 1920) {
+            Text(
+                "Recadrage ×%.0f en 1080p : détail du téléobjectif conservé".format(state.zoom),
+                color = SurfColors.Foam,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        } else if (!state.opticalZoom && state.zoom > 1.05f) {
             Text(
                 "Zoom numérique : image moins nette",
                 color = SurfColors.Warn,

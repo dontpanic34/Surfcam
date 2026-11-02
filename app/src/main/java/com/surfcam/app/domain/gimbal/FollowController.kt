@@ -116,6 +116,8 @@ object FollowController {
     ) {
         SMOOTH("Doux", StepConfig(deadbandDeg = 3.5f, gain = 0.6f, maxStepDeg = 10f), 0.3f, 1.2f, 1.3f, 0.16f),
         NORMAL("Normal", StepConfig(), 0.25f, 1.3f, 1.0f, 0.12f),
+        /** Le surfeur reste au centre de l'image : zone libre minuscule, petits pas fréquents (utile en ×10 où le champ n'est que de 8–9°). */
+        CENTER("Centré", StepConfig(deadbandDeg = 1f, gain = 0.9f, maxStepDeg = 8f), 0.15f, 1.2f, 1.0f, 0.06f),
         REACTIVE("Réactif", StepConfig(deadbandDeg = 1.5f, gain = 1.0f, maxStepDeg = 25f), 0.2f, 1.5f, 0.75f, 0.08f),
         ;
 
