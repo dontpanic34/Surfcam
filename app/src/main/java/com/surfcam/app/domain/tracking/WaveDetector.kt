@@ -4,9 +4,9 @@ data class WaveConfig(
     /** Fenêtre de mesure de la vitesse. */
     val speedWindowUs: Long = 800_000,
     /** Vitesse (longueurs de corps/s) à dépasser pour considérer qu'une vague démarre. */
-    val startSpeed: Float = 1.0f,
+    val startSpeed: Float = 1.5f,
     /** Vitesse en dessous de laquelle le surfeur est considéré à l'arrêt (hystérésis : plus bas que le départ). */
-    val stopSpeed: Float = 0.5f,
+    val stopSpeed: Float = 0.8f,
     /** La vitesse de départ doit durer au moins ça avant de déclencher. */
     val confirmUs: Long = 600_000,
     /** Durée sous la vitesse d'arrêt avant de déclarer la fin de la vague. */
@@ -22,6 +22,11 @@ data class WaveConfig(
     val minStandingAspect: Float = 0.9f,
     /** Confiance minimale du détecteur pour déclencher (0 = pas d'exigence) ; relevée par l'apprentissage si besoin. */
     val minTriggerConfidence: Float = 0f,
+    /**
+     * Part horizontale du déplacement pour déclencher : une vague se surfe le long de la vague, alors qu'un surfeur assis qui
+     * monte et descend sur la houle bouge presque seulement à la verticale.
+     */
+    val minHorizontalShare: Float = 0.6f,
 )
 
 /**
@@ -42,7 +47,16 @@ data class RideStats(
 
 sealed interface WaveEvent {
     /** Une vague est en cours depuis [takeoffUs] : le clip doit démarrer à ce moment moins la marge avant. */
-    data class Started(val takeoffUs: Long, val trackId: Int) : WaveEvent
+    data class Started(
+        val takeoffUs: Long,
+        val trackId: Int,
+        /** Mesures au déclenchement (pour le rapport) : vitesse en longueurs de corps/s, part horizontale, rapport h/l, confiance, hauteur de boîte. */
+        val speed: Float = 0f,
+        val horizontalShare: Float = 0f,
+        val aspect: Float = 0f,
+        val confidence: Float = 0f,
+        val boxHeight: Float = 0f,
+    ) : WaveEvent
 
     data class Ended(val takeoffUs: Long, val endUs: Long, val trackId: Int, val stats: RideStats? = null) : WaveEvent
 
@@ -93,6 +107,11 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
         for (track in tracks) {
             val speed = track.speedBodyLengthsPerSec(config.speedWindowUs)
             val aspect = track.meanAspect(config.speedWindowUs)
+            val share = track.horizontalShare(config.speedWindowUs) ?: 0f
+            if (share < config.minHorizontalShare) {
+                movingSince.remove(track.id)
+                continue
+            }
             if (speed == null || speed < config.startSpeed || aspect == null || aspect < config.minStandingAspect ||
                 track.confidence < config.minTriggerConfidence
             ) {
@@ -112,7 +131,7 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
                 heightSum = 0f
                 samples = 0
                 movingSince.clear()
-                return WaveEvent.Started(takeoffUs, track.id)
+                return WaveEvent.Started(takeoffUs, track.id, speed, share, aspect, track.confidence, track.box.height)
             }
         }
         return null

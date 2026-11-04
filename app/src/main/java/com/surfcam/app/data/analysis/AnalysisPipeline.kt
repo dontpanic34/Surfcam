@@ -94,6 +94,7 @@ class AnalysisPipeline(
     private val converter = YuvToTensor().also { it.tenBit = tenBit }
     private val input = FloatArray(3 * OnnxPersonDetector.MODEL_WIDTH * OnnxPersonDetector.MODEL_HEIGHT)
     private val tracker = SurferTracker(TrackerConfig(frameHeight = HEIGHT))
+    private val waveConfigInUse = waveConfig
     private val waveDetector = WaveDetector(waveConfig)
     private val planner = ClipPlanner(
         preRollUs = CaptureConfig.PRE_ROLL_SEC * 1_000_000L,
@@ -235,6 +236,14 @@ class AnalysisPipeline(
             val tracks = tracker.update(detections, timestampUs)
             val event = waveDetector.onFrame(if (onlyMarked) tracks.filter { it.isMarked } else tracks, timestampUs)
             if (event is WaveEvent.Ended) event.stats?.let(listener::onRide)
+            if (event is WaveEvent.Started) {
+                com.surfcam.app.data.engine.SessionLog.ev(
+                    "vague",
+                    "déclenchement piste #${event.trackId} : vitesse %.1f longueurs de corps/s (seuil %.1f) · part horizontale %.0f %% · rapport h/l %.2f · confiance %.2f · hauteur de la boîte %.0f px".format(
+                        event.speed, waveConfigInUse.startSpeed, event.horizontalShare * 100f, event.aspect, event.confidence, event.boxHeight,
+                    ),
+                )
+            }
             val actions = (if (event != null) planner.onWave(event, timestampUs) else emptyList()) + planner.onTick(timestampUs)
             actions.forEach {
                 // Le début d'un clip est une date de l'horloge d'analyse : on la convertit dans celle de la vidéo.

@@ -196,4 +196,20 @@ class WaveDetectorTest {
         assertNotNull(ids.firstOrNull())
         assertNull(null)
     }
+
+    @Test
+    fun seatedSurferBobbingOnTheSwellNeverTriggers() {
+        // Monte et descend à la verticale (houle) à 3 corps/s : presque aucun mouvement horizontal, donc pas une vague.
+        val tracker = SurferTracker()
+        val detector = WaveDetector()
+        var started = false
+        var t = 0L
+        while (t <= 10 * second) {
+            val y = 300f + 60f * kotlin.math.sin(t / second.toFloat() * 2f)
+            val x = 400f + (t / second.toFloat()) * 4f
+            if (detector.onFrame(tracker.update(listOf(surfer(x, y = y, height = 60f, width = 40f, tsUs = t)), t), t) is WaveEvent.Started) started = true
+            t += frameUs
+        }
+        assertTrue(!started)
+    }
 }

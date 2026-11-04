@@ -76,7 +76,8 @@ class LearningRepository(context: Context) {
         val base = WaveConfig()
         if (!prefs.contains(KEY_SPEED)) return base
         return base.copy(
-            startSpeed = prefs.getFloat(KEY_SPEED, base.startSpeed),
+            // Plancher : à ×5 les surfeurs assis qui montent et descendent sur la houle bougent déjà à ~1 longueur de corps/s.
+            startSpeed = prefs.getFloat(KEY_SPEED, base.startSpeed).coerceAtLeast(base.startSpeed),
             minStandingAspect = prefs.getFloat(KEY_ASPECT, base.minStandingAspect),
             minRideUs = prefs.getLong(KEY_DURATION, base.minRideUs),
             minTriggerConfidence = prefs.getFloat(KEY_CONFIDENCE, base.minTriggerConfidence),

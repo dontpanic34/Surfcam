@@ -218,6 +218,7 @@ class RecordingEngine(private val context: Context) {
                 "qui=${options.subject}/${options.markerColor ?: "-"} stockage=${options.storage} recadrage=${options.reframe} " +
                 "expo verrouillée=${options.lockExposure} LED=${options.ledBlink}",
         )
+        learning.currentConfig().let { SessionLog.ev("réglages", "détection de vague : vitesse de départ ${it.startSpeed} longueurs de corps/s, arrêt sous ${it.stopSpeed}, part horizontale ≥ ${it.minHorizontalShare}, rapport h/l ≥ ${it.minStandingAspect}, durée minimale ${it.minRideUs / 1_000_000f} s, confiance ≥ ${it.minTriggerConfidence}") }
         Trail.mark("DEMARRAGE hdr=${options.hdr} tele=${options.tele} fps60=${options.fps60} 4K=${!options.hd}")
         clipsSaved = 0
         waveCounter = 0

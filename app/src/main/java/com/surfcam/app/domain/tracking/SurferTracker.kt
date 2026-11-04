@@ -90,6 +90,15 @@ class Track(val id: Int, first: Detection, private val historyUs: Long) {
         return hypot(last.x - first.x, last.y - first.y) / meanLength / dt
     }
 
+    /** Part horizontale (0 à 1) du déplacement sur les [windowUs] dernières microsecondes ; null si trop court ou immobile. */
+    fun horizontalShare(windowUs: Long): Float? {
+        val last = points.lastOrNull() ?: return null
+        val first = points.firstOrNull { last.timestampUs - it.timestampUs <= windowUs } ?: return null
+        val dx = kotlin.math.abs(last.x - first.x)
+        val d = hypot(last.x - first.x, last.y - first.y)
+        return if (d < 1e-6f) null else dx / d
+    }
+
     /**
      * Rapport hauteur/largeur moyen de la boîte sur les [windowUs] dernières microsecondes :
      * environ 1,5 et plus pour quelqu'un de debout, moins de 0,8 pour quelqu'un d'allongé sur sa planche.
