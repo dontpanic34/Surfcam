@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Size
 import com.surfcam.app.data.storage.StorageTarget
+import com.surfcam.app.domain.naming.VideoNaming
 
 /** Une vidéo enregistrée par l'app. [pending] : le fichier est encore en cours d'écriture ou de finalisation. */
 data class LibraryVideo(
@@ -39,7 +40,12 @@ class VideoLibrary(context: Context) {
     private val resolver = appContext.contentResolver
     private val storage = StorageTarget(appContext)
 
-    fun list(): List<LibraryVideo> {
+    fun list(): List<LibraryVideo> = listAll().filter { !VideoNaming.isReject(it.name) }
+
+    /** Les clips que l'appli a rejetés (fausses alertes) mais gardés à part, du plus récent au plus ancien. */
+    fun listRejected(): List<LibraryVideo> = listAll().filter { VideoNaming.isReject(it.name) }
+
+    private fun listAll(): List<LibraryVideo> {
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.DISPLAY_NAME,
@@ -152,6 +158,33 @@ class VideoLibrary(context: Context) {
         } catch (_: Exception) {
             resolver.delete(target, null, null)
             false
+        }
+    }
+
+    /** Récupère un clip rejeté : il devient une vague normale (nom et dossier habituels). Renvoie le nouveau nom, ou null. */
+    fun promoteRejected(video: LibraryVideo): String? {
+        val start = VideoNaming.rejectStart(video.name)?.toInstant()?.toEpochMilli() ?: video.modifiedMs
+        val taken = list().map { it.name.removeSuffix(".mp4") }.toSet()
+        var number = 1
+        while (VideoNaming.clipName(start, number) in taken) number++
+        val name = VideoNaming.clipName(start, number)
+        return try {
+            val values = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, "$name.mp4")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SurfCam")
+            }
+            if (resolver.update(video.uri, values, null, null) > 0) name else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Garde les clips rejetés les plus récents jusqu'à [maxBytes] au total ; supprime le reste. */
+    fun purgeRejected(maxBytes: Long) {
+        var total = 0L
+        for (v in listRejected()) {
+            total += v.sizeBytes
+            if (total > maxBytes) delete(v)
         }
     }
 }

@@ -75,7 +75,7 @@ class ClipWriter(
     }
 
     /** Termine le fichier ; renvoie null (et supprime le fichier) si rien n'a pu être écrit, ou si [discard]. */
-    fun close(discard: Boolean = false): SavedClip? {
+    fun close(discard: Boolean = false, rejectedAs: String? = null): SavedClip? {
         val ok = try {
             muxer.stop()
             true
@@ -84,6 +84,22 @@ class ClipWriter(
         }
         muxer.release()
         descriptor.close()
+        if (rejectedAs != null && ok && written > 0) {
+            // Clip rejeté mais gardé : rangé à part sous un autre nom, que l'utilisateur pourra récupérer.
+            val moved = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, "$rejectedAs.mp4")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SurfCam/Rejets")
+                put(MediaStore.Video.Media.IS_PENDING, 0)
+            }
+            return try {
+                resolver.update(uri, moved, null, null)
+                val size = resolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
+                SavedClip(rejectedAs, lastUs / 1_000_000f, size)
+            } catch (_: Exception) {
+                resolver.delete(uri, null, null)
+                null
+            }
+        }
         if (discard || !ok || written == 0) {
             resolver.delete(uri, null, null)
             return null

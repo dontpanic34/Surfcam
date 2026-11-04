@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
             // L'accueil (portrait) est l'écran de départ ; on va directement à la caméra si une session tourne déjà.
             var showCamera by rememberSaveable { mutableStateOf(engine.state.value.phase == Phase.RUNNING || engine.state.value.phase == Phase.STARTING) }
             var showGimbal by rememberSaveable { mutableStateOf(false) }
+            var showRejects by rememberSaveable { mutableStateOf(false) }
             val library = remember { VideoLibrary(applicationContext) }
             BackHandler(enabled = showLibrary) { showLibrary = false }
             val enginePhase by engine.state.collectAsStateWithLifecycle()
@@ -66,11 +67,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
             // La bibliothèque et le lecteur suivent l'orientation du téléphone ; l'écran caméra reste en paysage (trépied).
-            LaunchedEffect(showLibrary, showGimbal, showCamera) {
-                requestedOrientation = if (showLibrary || showGimbal || !showCamera) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            LaunchedEffect(showLibrary, showGimbal, showCamera, showRejects) {
+                requestedOrientation = if (showLibrary || showGimbal || showRejects || !showCamera) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             }
             if (showGimbal) {
                 GimbalScreen(onBack = { showGimbal = false })
+                return@setContent
+            }
+            if (showRejects) {
+                RejectsScreen(library = library, learning = engine.learning, onBack = { showRejects = false })
                 return@setContent
             }
             if (showLibrary) {
@@ -100,6 +105,7 @@ class MainActivity : ComponentActivity() {
                     onOpenCamera = { showCamera = true },
                     onOpenLibrary = { showLibrary = true },
                     onOpenGimbal = { showGimbal = true },
+                    onOpenRejects = { showRejects = true },
                 )
                 return@setContent
             }

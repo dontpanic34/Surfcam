@@ -22,6 +22,8 @@ class ClipRecorder(
     private val orientationHint: Int,
     private val target: StorageTarget,
     private val onResult: (SavedClip?, String?) -> Unit,
+    /** Un clip rejeté (fausse alerte) a été gardé à part. */
+    private val onRejected: (SavedClip) -> Unit = {},
 ) {
     private val executor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "clip-writer")
@@ -46,6 +48,12 @@ class ClipRecorder(
 
     // Touché uniquement depuis le thread de l'exécuteur.
     private var writer: ClipWriter? = null
+    private var currentStartedAtMs = 0L
+    private var rejectCounter = 0
+
+    /** Garder à part les clips rejetés au lieu de les supprimer. */
+    @Volatile
+    var keepRejected = true
 
     /** Images arrivées pendant l'attente de fin de clip : écrites si le surfeur repart, jetées sinon. */
     private val held = ArrayList<EncodedSample>()
@@ -92,6 +100,7 @@ class ClipRecorder(
         // Heure réelle du début du clip : maintenant, moins ce que le tampon remonte dans le passé.
         val startedAtMs = System.currentTimeMillis() - ((newest - snapshot.first().ptsUs) / 1_000L)
         val baseName = VideoNaming.clipName(startedAtMs, waveNumber)
+        currentStartedAtMs = startedAtMs
         active = true
         executor.execute {
             try {
@@ -144,7 +153,13 @@ class ClipRecorder(
             holdFromPtsUs = Long.MAX_VALUE
             if (w != null) {
                 try {
-                    onResult(w.close(discard), null)
+                    if (discard && keepRejected) {
+                        val kept = w.close(true, VideoNaming.rejectName(currentStartedAtMs, ++rejectCounter))
+                        if (kept != null) onRejected(kept)
+                        onResult(null, null)
+                    } else {
+                        onResult(w.close(discard), null)
+                    }
                 } catch (e: Exception) {
                     onResult(null, "Clip non finalisé : ${e.message}")
                 }

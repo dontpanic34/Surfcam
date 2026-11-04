@@ -231,9 +231,11 @@ class RecordingEngine(private val context: Context) {
         // Le support choisi doit être branché ; sinon on enregistre sur le téléphone, en le disant.
         val storageMessage = if (options.storage == StorageTarget.PHONE || storage.available().any { it.name == options.storage }) {
             storage.select(options.storage)
+            SessionLog.ev("stockage", "support choisi : ${options.storage} (${storage.labelOf(options.storage)}) · supports montés : ${storage.available().joinToString { it.name + " = " + it.label }}")
             null
         } else {
             storage.select(StorageTarget.PHONE)
+            SessionLog.ev("stockage", "SUPPORT CHOISI ABSENT (${options.storage}) : enregistrement sur le téléphone · supports montés : ${storage.available().joinToString { it.name + " = " + it.label }}")
             "Le support choisi n'est pas branché : enregistrement sur le téléphone"
         }
         _state.value = EngineState(
@@ -289,6 +291,7 @@ class RecordingEngine(private val context: Context) {
         val batteryLine = endBatteryLog()
         val summary = buildSummary() + (batteryLine?.let { "\n$it" } ?: "")
         Trail.mark("FIN")
+        Thread({ try { com.surfcam.app.data.library.VideoLibrary(context).purgeRejected(REJECTS_MAX_BYTES) } catch (_: Exception) {} }, "purge-rejets").start()
         SessionLog.ev("bilan", summary.replace("\n", " | "))
         SessionLog.end(context)
         _state.update { it.copy(phase = Phase.IDLE, lastSummary = summary, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, sessionPart = 0, message = null) }
@@ -464,7 +467,7 @@ class RecordingEngine(private val context: Context) {
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.
         val hint = (probe.sensorOrientation - rotationDegrees + 360) % 360
-        val clips = ClipRecorder(context, buffer, hint, storage) { saved, error -> onClipResult(saved, error) }
+        val clips = ClipRecorder(context, buffer, hint, storage, { saved, error -> onClipResult(saved, error) }, { kept -> SessionLog.ev("clip", "rejeté (fausse alerte) mais gardé dans « Vagues rejetées » : ${kept.name} (%.1f s, ${kept.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(kept.durationSec)) })
         ring = buffer
         recorder = clips
         sampleCount = 0
@@ -720,7 +723,7 @@ class RecordingEngine(private val context: Context) {
 
     private fun onClipResult(saved: SavedClip?, error: String?) {
         saved?.let { SessionLog.clipSaved(context, it.name, it.durationSec) }
-        SessionLog.ev("clip", if (saved != null) "enregistré : ${saved.name} (%.1f s, ${saved.sizeBytes / (1024 * 1024)} Mo)".format(saved.durationSec) else "échec : ${error ?: "?"}")
+        SessionLog.ev("clip", if (saved != null) "enregistré : ${saved.name} (%.1f s, ${saved.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(saved.durationSec) else if (error != null) "échec : $error" else "clip rejeté (fausse alerte)")
         if (saved != null) clipsSaved++
         if (saved != null && reframeOn) savePath(saved.name)
         // Un clip automatique réussi est mémorisé avec ses caractéristiques : l'utilisateur pourra le juger.
@@ -1112,6 +1115,7 @@ class RecordingEngine(private val context: Context) {
         const val SEVERE_LIMIT_MS = 600_000L
         const val FOLLOW_ANALYSIS_INTERVAL_MS = 250L
         const val STANDBY_INTERVAL_MS = 1000L
+        const val REJECTS_MAX_BYTES = 1_500_000_000L
         const val BUSY_SPEED = 0.35f
         const val WIDE_ZOOM = 2f
         const val WIDE_AFTER_MS = 8_000L

@@ -37,6 +37,21 @@ object VideoNaming {
     fun sessionPartName(startedAtMs: Long, part: Int, zone: ZoneId = ZoneId.systemDefault()): String =
         "${stamp(startedAtMs, zone)} - Session - partie ${"%02d".format(part)}"
 
+    /** Nom d'un clip que l'appli a rejeté (fausse alerte) mais gardé à part pour que l'utilisateur puisse le récupérer. */
+    fun rejectName(startedAtMs: Long, number: Int, zone: ZoneId = ZoneId.systemDefault()): String =
+        "${stamp(startedAtMs, zone)} - Rejet $number"
+
+    private val rejectPattern = Regex("""^(\d{4})-(\d{2})-(\d{2}) (\d{2})h(\d{2}) - Rejet (\d+)$""")
+
+    fun isReject(fileName: String): Boolean = rejectPattern.matches(fileName.removeSuffix(".mp4"))
+
+    /** Heure de début d'un clip rejeté d'après son nom, ou null. */
+    fun rejectStart(fileName: String, zone: ZoneId = ZoneId.systemDefault()): ZonedDateTime? {
+        val m = rejectPattern.matchEntire(fileName.removeSuffix(".mp4")) ?: return null
+        val (y, mo, d, h, mi) = m.groupValues.drop(1).take(5).map { it.toInt() }
+        return ZonedDateTime.of(y, mo, d, h, mi, 0, 0, zone)
+    }
+
     /** Nom sans extension ; renvoie null pour un fichier d'une ancienne version ou d'une autre origine. */
     fun parse(fileName: String, zone: ZoneId = ZoneId.systemDefault()): ParsedVideoName? {
         val m = pattern.matchEntire(fileName.removeSuffix(".mp4")) ?: return null

@@ -84,6 +84,7 @@ fun HomeScreen(
     onOpenCamera: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenGimbal: () -> Unit,
+    onOpenRejects: () -> Unit = {},
 ) {
     val state by engine.state.collectAsStateWithLifecycle()
     val running = state.phase == Phase.RUNNING || state.phase == Phase.STARTING
@@ -110,6 +111,7 @@ fun HomeScreen(
     }
     var sdDeclined by remember { mutableStateOf(setOf<String>()) }
     val sdOffer = if (running) null else storages.firstOrNull { it.removable && it.name != options.storage && it.name !in sdDeclined }
+    val rejectCount by produceState(0, running) { value = withContext(Dispatchers.IO) { VideoLibrary(context).listRejected().size } }
     val videoCount by produceState(0, running) { value = withContext(Dispatchers.IO) { VideoLibrary(context).list().count { !it.pending } } }
     var leveling by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -347,6 +349,11 @@ fun HomeScreen(
                     Text("›", color = SurfColors.Aqua, fontSize = 26.sp)
                 }
 
+                if (!running && rejectCount > 0) {
+                    OutlinedButton(onClick = onOpenRejects, modifier = Modifier.fillMaxWidth()) {
+                        Text("Vagues rejetées ($rejectCount) : récupérer les bonnes")
+                    }
+                }
                 if (!running && SessionShare.available(context)) {
                     var shareNote by remember { mutableStateOf<String?>(null) }
                     OutlinedButton(
