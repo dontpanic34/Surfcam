@@ -82,8 +82,23 @@ fun RejectsScreen(library: VideoLibrary, learning: LearningRepository, onBack: (
             startIndex = current.coerceIn(0, videos.lastIndex),
             library = library,
             learning = learning,
+            onKeepReject = { video ->
+                scope.launch {
+                    val name = withContext(Dispatchers.IO) {
+                        library.promoteRejected(video)?.also {
+                            learning.markRecovered(video.name, it)
+                            com.surfcam.app.data.engine.SessionLog.recoveredReport(context, video.name, it, video.durationMs / 1000f)
+                        }
+                    }
+                    message = if (name != null) "Récupérée : $name" else "Impossible de récupérer ce clip."
+                    videos = withContext(Dispatchers.IO) { library.listRejected() }
+                    playIndex = if (videos.isEmpty()) null else current.coerceIn(0, videos.lastIndex)
+                }
+            },
             onDelete = { video ->
                 scope.launch {
+                    // Rejeter = c'était bien une fausse alerte : on le retient (exemple négatif) avant de supprimer.
+                    withContext(Dispatchers.IO) { learning.setJudgement(video.name.removeSuffix(".mp4"), false) }
                     withContext(Dispatchers.IO) { library.delete(video) }
                     videos = withContext(Dispatchers.IO) { library.listRejected() }
                     playIndex = if (videos.isEmpty()) null else current.coerceIn(0, videos.lastIndex)

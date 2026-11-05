@@ -153,6 +153,8 @@ fun PlayerScreen(
     autoAdvance: Boolean = false,
     /** Chapitres du film : instants (ms depuis le début) des vagues, marqués sur la barre de défilement. */
     chapters: List<Long> = emptyList(),
+    /** Pour les clips rejetés par l'appli : « Garder » les récupère comme vague ; « Rejeter » (onDelete) les supprime. */
+    onKeepReject: ((LibraryVideo) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var currentKey by remember { mutableStateOf(videos[startIndex.coerceIn(0, videos.lastIndex)].key) }
@@ -559,9 +561,17 @@ fun PlayerScreen(
       }
     }
 
+    val isReject = VideoNaming.isReject(video.name) && onKeepReject != null
     val judgement: @Composable (Boolean) -> Unit = { horizontal ->
         val record = feedback
-        if (record != null) {
+        if (isReject) {
+            val buttons: @Composable () -> Unit = {
+                JudgeButton("Garder : c'est une vague", false, SurfColors.Ok) { onKeepReject?.invoke(video) }
+                JudgeButton("Rejeter : fausse alerte", false, SurfColors.Alert) { onDelete(video) }
+            }
+            if (horizontal) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { buttons() }
+            else Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { buttons() }
+        } else if (record != null) {
             val buttons: @Composable () -> Unit = {
                 JudgeButton("Bonne vague", record.good == true, SurfColors.Ok) { judge(true) }
                 JudgeButton("Fausse alerte", record.good == false, SurfColors.Alert) { judge(false) }
@@ -651,7 +661,7 @@ fun PlayerScreen(
                     }
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { transport() }
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { judgement(true) }
-                    if (feedback == null) {
+                    if (feedback == null && !isReject) {
                         Text("Clip manuel ou session : pas de jugement à donner.", color = SurfColors.Muted, fontSize = 12.sp)
                     }
                     report?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
