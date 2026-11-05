@@ -43,6 +43,21 @@ class WaveDetectorTest {
     }
 
     @Test
+    fun missedDetectionDuringTakeoffDoesNotRestartConfirmation() {
+        // Départ à 2 corps/s dès 3 s, avec une détection manquée juste après le début : la confirmation (0,6 s) doit quand même aboutir tôt.
+        val events = replay(10f) { t ->
+            when {
+                t < 3f -> 100f
+                t in 3.5f..3.8f -> null
+                else -> 100f + (t - 3f) * 120f
+            }
+        }
+        val started = events.firstOrNull { it.second is WaveEvent.Started }
+        assertNotNull(started)
+        assertTrue("départ confirmé trop tard : ${started!!.first}", started.first < 5 * second)
+    }
+
+    @Test
     fun waveIsDetectedWhenSurferTakesOff() {
         // Attend 3 s, puis file à 2 corps/s (120 px/s pour un surfeur de 60 px) pendant 5 s, puis s'arrête.
         val events = replay(14f) { t ->

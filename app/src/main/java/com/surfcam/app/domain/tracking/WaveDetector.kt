@@ -15,6 +15,8 @@ data class WaveConfig(
     val lostGraceUs: Long = 4_000_000,
     /** Une vague plus courte que ça est annulée (surfeur qui rame vite, fausse alerte). */
     val minRideUs: Long = 2_000_000,
+    /** Une preuve de départ (vitesse, posture…) n'est pas effacée par une image sans détection plus courte que cela. */
+    val startGapUs: Long = 1_000_000,
     /**
      * Rapport hauteur/largeur minimal pour être « debout » : un surfeur allongé qui rame (0,45 à 0,8 mesuré) ne
      * déclenche pas. Un surfeur en manœuvre est presque aussi large que haut (0,9 à 1,0), d'où un seuil à 0,9.
@@ -84,6 +86,7 @@ sealed interface WaveEvent {
 class WaveDetector(private val config: WaveConfig = WaveConfig()) {
 
     private val movingSince = HashMap<Int, Long>()
+    private val lastEvidence = HashMap<Int, Long>()
 
     private var ridingTrackId: Int? = null
     private var takeoffUs = 0L
@@ -111,12 +114,15 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
 
     fun reset() {
         movingSince.clear()
+        lastEvidence.clear()
         ridingTrackId = null
     }
 
     private fun lookForStart(tracks: List<Track>, now: Long): WaveEvent? {
         val alive = tracks.map { it.id }.toSet()
-        movingSince.keys.retainAll(alive)
+        // Une piste non visible garde sa préparation de départ pendant startGapUs (une détection manquée ne repart pas de zéro).
+        movingSince.keys.retainAll { it in alive || now - (lastEvidence[it] ?: 0L) <= config.startGapUs }
+        lastEvidence.keys.retainAll(movingSince.keys)
         for (track in tracks) {
             val speed = track.speedBodyLengthsPerSec(config.speedWindowUs)
             val aspect = track.meanAspect(config.speedWindowUs)
@@ -131,6 +137,7 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
                 movingSince.remove(track.id)
                 continue
             }
+            lastEvidence[track.id] = now
             val since = movingSince.getOrPut(track.id) { now }
             if (now - since >= config.confirmUs) {
                 ridingTrackId = track.id
@@ -144,6 +151,7 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
                 heightSum = 0f
                 samples = 0
                 movingSince.clear()
+                lastEvidence.clear()
                 return WaveEvent.Started(takeoffUs, track.id, speed, share, aspect, track.confidence, track.box.height)
             }
         }
