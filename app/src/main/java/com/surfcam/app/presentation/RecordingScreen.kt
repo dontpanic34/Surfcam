@@ -330,6 +330,14 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                     },
             )
         }
+        if (state.phase == Phase.PREVIEW && com.surfcam.app.data.gimbal.GimbalHub.hasSavedGimbal(LocalContext.current)) {
+            // Avant de démarrer : le pic est la direction où le gimbal est tourné au moment du démarrage.
+            InfoChip(
+                "📍 Le pic = ce cadre : oriente le gimbal, puis démarre",
+                SurfColors.Ok,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp, top = 84.dp),
+            )
+        }
         // La mise au point automatique est le cas normal : la pastille n'apparaît que si elle a été changée (toucher l'image).
         if ((state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) && state.focusMode != com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO) {
             val label = when (state.focusMode) {
