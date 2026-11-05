@@ -161,6 +161,8 @@ class RecordingEngine(private val context: Context) {
     private var waveCounter = 0
     private var currentClipAuto = false
     private val rideStats = mutableListOf<RideStats>()
+    @Volatile
+    private var pendingRejectStats: RideStats? = null
     private val safetyHandler = Handler(Looper.getMainLooper())
     private val ledHandler = Handler(Looper.getMainLooper())
     private var ledEnabled = false
@@ -474,7 +476,7 @@ class RecordingEngine(private val context: Context) {
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.
         val hint = (probe.sensorOrientation - rotationDegrees + 360) % 360
-        val clips = ClipRecorder(context, buffer, hint, storage, { saved, error -> onClipResult(saved, error) }, { kept -> SessionLog.ev("clip", "rejeté (fausse alerte) mais gardé dans « Vagues rejetées » : ${kept.name} (%.1f s, ${kept.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(kept.durationSec)) })
+        val clips = ClipRecorder(context, buffer, hint, storage, { saved, error -> onClipResult(saved, error) }, { kept -> pendingRejectStats?.let { learning.recordRejected(kept.name, it) }; pendingRejectStats = null; SessionLog.ev("clip", "rejeté (fausse alerte) mais gardé dans « Vagues rejetées » : ${kept.name} (%.1f s, ${kept.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(kept.durationSec)) })
         ring = buffer
         recorder = clips
         sampleCount = 0
@@ -509,6 +511,10 @@ class RecordingEngine(private val context: Context) {
                         clips.discard()
                     }
                 }
+            }
+
+            override fun onRejectStats(stats: RideStats?) {
+                pendingRejectStats = stats
             }
 
             override fun onSnapshot(snapshot: AnalysisSnapshot) {

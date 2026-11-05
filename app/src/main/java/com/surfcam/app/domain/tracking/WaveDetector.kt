@@ -27,6 +27,13 @@ data class WaveConfig(
      * monte et descend sur la houle bouge presque seulement à la verticale.
      */
     val minHorizontalShare: Float = 0.6f,
+    /**
+     * Un surfeur qui disparaît en plein mouvement (il sort de l'image à ×5, il est avalé par l'écume) a surfé une vague même si
+     * on ne l'a suivi que peu de temps : la durée minimale tombe à [minRideLeavingUs] s'il bougeait encore moins de
+     * [leaveGraceUs] avant de disparaître.
+     */
+    val minRideLeavingUs: Long = 1_200_000,
+    val leaveGraceUs: Long = 800_000,
 )
 
 /**
@@ -61,7 +68,13 @@ sealed interface WaveEvent {
     data class Ended(val takeoffUs: Long, val endUs: Long, val trackId: Int, val stats: RideStats? = null) : WaveEvent
 
     /** Le mouvement détecté était trop court pour être une vague : le clip en cours est à jeter. */
-    data class Cancelled(val takeoffUs: Long, val trackId: Int, val stats: RideStats? = null) : WaveEvent
+    data class Cancelled(
+        val takeoffUs: Long,
+        val trackId: Int,
+        val stats: RideStats? = null,
+        /** Le suivi s'est arrêté parce que le surfeur a disparu (et non parce qu'il a ralenti). */
+        val endedByLoss: Boolean = false,
+    ) : WaveEvent
 }
 
 /**
@@ -147,7 +160,8 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
             val speed = track.speedBodyLengthsPerSec(config.speedWindowUs)
             if (speed != null && speed >= config.stopSpeed) lastMovingUs = now
         }
-        val stopped = now - lastMovingUs >= config.endGraceUs
+        // Un surfeur qu'on ne voit plus n'est pas « arrêté » : sa fin se décide à la disparition (lostGraceUs), pas au ralentissement.
+        val stopped = track != null && now - lastMovingUs >= config.endGraceUs
         val lost = now - lastSeenUs >= config.lostGraceUs
         if (!stopped && !lost) return null
 
@@ -160,10 +174,13 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
             meanConfidence = if (samples > 0) confidenceSum / samples else 0f,
             meanHeightPx = if (samples > 0) heightSum / samples else 0f,
         )
-        return if (end - takeoffUs >= config.minRideUs) {
+        val duration = end - takeoffUs
+        val leftWhileMoving = lost && !stopped && lastSeenUs - lastMovingUs <= config.leaveGraceUs
+        val longEnough = duration >= config.minRideUs || (leftWhileMoving && duration >= config.minRideLeavingUs)
+        return if (longEnough) {
             WaveEvent.Ended(takeoffUs, end, id, stats)
         } else {
-            WaveEvent.Cancelled(takeoffUs, id, stats)
+            WaveEvent.Cancelled(takeoffUs, id, stats, endedByLoss = lost && !stopped)
         }
     }
 }

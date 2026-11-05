@@ -66,6 +66,9 @@ class AnalysisPipeline(
         fun onClipAction(action: ClipAction)
         fun onSnapshot(snapshot: AnalysisSnapshot)
 
+        /** Un clip va être rejeté : les mesures de la vague qui n'en était peut-être pas une (pour pouvoir la récupérer et apprendre). */
+        fun onRejectStats(stats: RideStats?) {}
+
         /** Message sur l'état de l'analyse ; null quand tout va bien. */
         fun onStatus(message: String?)
 
@@ -245,6 +248,15 @@ class AnalysisPipeline(
                 )
             }
             val actions = (if (event != null) planner.onWave(event, timestampUs) else emptyList()) + planner.onTick(timestampUs)
+            if (event is WaveEvent.Cancelled && actions.any { it is ClipAction.Discard }) {
+                listener.onRejectStats(event.stats)
+                com.surfcam.app.data.engine.SessionLog.ev(
+                    "vague",
+                    "rejetée : mouvement suivi pendant %.1f s (minimum %.1f s) · fin par ${if (event.endedByLoss) "disparition du surfeur" else "ralentissement"} · vitesse au départ %.1f · rapport h/l %.2f".format(
+                        (event.stats?.durationUs ?: 0L) / 1_000_000f, waveConfigInUse.minRideUs / 1_000_000f, event.stats?.triggerSpeed ?: 0f, event.stats?.triggerAspect ?: 0f,
+                    ),
+                )
+            }
             actions.forEach {
                 // Le début d'un clip est une date de l'horloge d'analyse : on la convertit dans celle de la vidéo.
                 listener.onClipAction(

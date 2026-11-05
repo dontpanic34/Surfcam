@@ -212,4 +212,18 @@ class WaveDetectorTest {
         }
         assertTrue(!started)
     }
+
+    @Test
+    fun surferLeavingTheFrameWhileMovingCountsEvenIfShortlyTracked() {
+        // Part à 3 corps/s pendant ~2,2 s puis sort de l'image (plus de détection) : une vague, pas une fausse alerte.
+        val events = replay(14f) { t ->
+            when {
+                t < 3f -> 100f
+                t < 5.2f -> 100f + (t - 3f) * 180f
+                else -> null
+            }
+        }
+        assertTrue(events.any { it.second is WaveEvent.Ended })
+        assertTrue(events.none { it.second is WaveEvent.Cancelled })
+    }
 }

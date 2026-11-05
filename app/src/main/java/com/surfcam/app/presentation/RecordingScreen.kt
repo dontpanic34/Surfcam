@@ -1143,7 +1143,7 @@ private fun LearningSection(engine: RecordingEngine) {
     val bad = records.count { it.good == false }
     Section("Apprentissage") {
         Text(
-            "${records.size} clip(s) automatique(s) suivis · $good bonne(s) vague(s) · $bad fausse(s) alerte(s) signalée(s).",
+            "${records.count { it.source != "rejet" }} clip(s) automatique(s) suivis · $good bonne(s) vague(s) · $bad fausse(s) alerte(s) signalée(s).",
             color = SurfColors.Foam,
             fontSize = 12.sp,
         )

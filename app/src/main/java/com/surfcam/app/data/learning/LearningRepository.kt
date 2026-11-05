@@ -16,6 +16,8 @@ data class FeedbackRecord(
     val stats: RideStats,
     /** true = bonne vague, false = fausse alerte, null = pas encore jugé. */
     val good: Boolean?,
+    /** "auto" : clip gardé par l'appli ; "rejet" : clip rejeté mais conservé à part ; "récupéré" : rejet que l'utilisateur a gardé. */
+    val source: String = "auto",
 )
 
 /**
@@ -44,6 +46,7 @@ class LearningRepository(context: Context) {
                         meanHeightPx = o.getDouble("height").toFloat(),
                     ),
                     good = if (o.isNull("good")) null else o.getBoolean("good"),
+                    source = o.optString("source", "auto"),
                 )
             }
         } catch (_: Exception) {
@@ -56,6 +59,27 @@ class LearningRepository(context: Context) {
     fun record(clipName: String, stats: RideStats) {
         write(records().filter { it.clipName != clipName } + FeedbackRecord(clipName, stats, null))
     }
+
+    /** Mémorise un clip rejeté par l'appli (gardé à part) avec ses mesures : s'il est récupéré, ce sera un exemple de vraie vague. */
+    @Synchronized
+    fun recordRejected(clipName: String, stats: RideStats) {
+        val all = records().filter { it.clipName != clipName } + FeedbackRecord(clipName, stats, null, "rejet")
+        // On borne la mémoire : au plus 300 rejets non jugés.
+        val rejects = all.filter { it.source == "rejet" && it.good == null }
+        write(if (rejects.size > 300) all.filter { it !in rejects.take(rejects.size - 300) } else all)
+    }
+
+    /** L'utilisateur a récupéré un rejet : il devient une vraie vague connue (exemple positif), sous son nouveau nom. */
+    @Synchronized
+    fun markRecovered(rejectName: String, newName: String) {
+        val all = records()
+        val r = all.firstOrNull { it.clipName == rejectName.removeSuffix(".mp4") || it.clipName == rejectName } ?: return
+        write(all.filter { it !== r } + FeedbackRecord(newName, r.stats, true, "récupéré"))
+    }
+
+    /** Les mesures d'un rejet (pour les afficher à côté du clip). */
+    @Synchronized
+    fun statsOf(clipName: String): RideStats? = records().firstOrNull { it.clipName == clipName.removeSuffix(".mp4") }?.stats
 
     /** Enregistre le jugement de l'utilisateur sur un clip (null = retirer le jugement). */
     @Synchronized
@@ -126,7 +150,8 @@ class LearningRepository(context: Context) {
                     .put("aspect", r.stats.triggerAspect.toDouble())
                     .put("confidence", r.stats.meanConfidence.toDouble())
                     .put("height", r.stats.meanHeightPx.toDouble())
-                    .put("good", r.good ?: JSONObject.NULL),
+                    .put("good", r.good ?: JSONObject.NULL)
+                    .put("source", r.source),
             )
         }
         file.writeText(array.toString())

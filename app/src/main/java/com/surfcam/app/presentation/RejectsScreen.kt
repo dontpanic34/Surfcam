@@ -127,13 +127,19 @@ fun RejectsScreen(library: VideoLibrary, learning: LearningRepository, onBack: (
                             }
                             Column(Modifier.weight(1f)) {
                                 Text(title, color = SurfColors.Foam, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                val st = learning.statsOf(v.name)
+                                Text(
+                                    if (st != null) "Rejeté : mouvement suivi %.1f s (minimum 3 s) · vitesse %.1f".format(st.durationUs / 1_000_000f, st.triggerSpeed) else "Rejeté (mesures non gardées)",
+                                    color = SurfColors.Muted, fontSize = 11.sp,
+                                )
                                 Text(v.volumeLabel, color = SurfColors.Muted, fontSize = 11.sp)
                             }
                             OutlinedButton(onClick = { playIndex = i }) { Text("Voir", fontSize = 12.sp) }
                             Button(onClick = {
                                 scope.launch {
                                     val name = withContext(Dispatchers.IO) { library.promoteRejected(v) }
-                                    message = if (name != null) "Récupérée : $name (dans Mes vidéos)" else "Impossible de récupérer ce clip."
+                                    if (name != null) withContext(Dispatchers.IO) { learning.markRecovered(v.name, name) }
+                                    message = if (name != null) "Récupérée : $name (dans Mes vidéos). L'appli retient que c'était une vraie vague pour mieux détecter les suivantes." else "Impossible de récupérer ce clip."
                                     reload()
                                 }
                             }) { Text("Garder", fontSize = 12.sp) }
