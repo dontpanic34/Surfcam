@@ -6,6 +6,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import com.surfcam.app.domain.gimbal.GyroMath
+import com.surfcam.core.heading.HeadingTimeline
 
 /**
  * Rotation réelle du téléphone autour de la verticale, mesurée au gyroscope (horodatage monotone du capteur) : sert
@@ -31,9 +32,16 @@ class GyroYaw(context: Context) : SensorEventListener {
 
     val available: Boolean get() = gyro != null && gravitySensor != null
 
+    /**
+     * Historique du cap cumulé, horodaté à l'horloge du capteur (microsecondes, même base que elapsedRealtimeNanos) : permet de
+     * connaître le cap à l'heure où une image a été prise, et non à l'heure où elle est traitée. Environ 40 s à 200 Hz.
+     */
+    val timeline = HeadingTimeline(8192)
+
     fun start() {
         if (!available) return
         lastTs = 0L
+        timeline.clear()
         manager.registerListener(this, gyro, SensorManager.SENSOR_DELAY_GAME)
         manager.registerListener(this, gravitySensor, SensorManager.SENSOR_DELAY_GAME)
     }
@@ -59,6 +67,7 @@ class GyroYaw(context: Context) : SensorEventListener {
                         val panRight = -Math.toDegrees(up.toDouble()).toFloat()
                         rateDegPerSec = panRight
                         cumulativeDeg += panRight * dt
+                        timeline.add(ts / 1000L, cumulativeDeg.toDouble())
                     }
                 }
                 lastTs = ts

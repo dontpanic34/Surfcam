@@ -22,8 +22,13 @@
 - 41 des 44 rejets : déclenchement → pas de gimbal immédiat (médiane 4,4°) → piste perdue ~1 s après → rejet (seuil appris 4,8 s).
 - HDR coupé, chaleur toujours niveau 0, seuils appris actifs (4,8 s, confiance 0,44), surfeurs 47 px en médiane.
 
+## Appli (début d'intégration)
+- `applicationId = com.surfcam.app2`, nom « SurfCam 2 », dépend de `:core` ; l'APK se compile (moteur encore l'ancien).
+- `GyroYaw.timeline` : historique horodaté du cap (µs, horloge capteur) pour le cap à l'heure de chaque image.
+
 ## Reste à faire
-1. Brancher `:core` dans l'appli (cap gyroscope horodaté par image,
+1. Brancher `:core` dans l'appli : remplacer SurferTracker/WaveDetector/ClipPlanner/GimbalFollower par SurfBrain dans
+   AnalysisPipeline + RecordingEngine (cap via GyroYaw.timeline.at(horodatage image), vérifier la base de temps caméra),
    journal de capteurs par session, stockage téléphone puis copie SD silencieuse), nouvelle interface, CI « SurfCam 2 ».
 2. Récupérer le banc de l'ancienne session (demande envoyée : branche `banc-2026-11-05`) et rejouer le 05/11.
 3. Test réel : deux objectifs dans la même session (Pixel 10 Pro), détection du manchon en vue large.
