@@ -116,6 +116,9 @@ class Director(
      * @param ridingTrackId piste en train de surfer (détecteur de vagues), null sinon
      * @param clipActive un clip est en cours (vague ou marges) : zoom verrouillé
      */
+    /** Piste candidate à un départ (votes en cours), fournie par le détecteur de vagues. */
+    var candidateTrackId: Int? = null
+
     fun onFrame(frame: Frame, tracks: List<Track>, currentHeadingDeg: Double, ridingTrackId: Int?, clipActive: Boolean): Command {
         val now = frame.timeUs
         if (startUs == Long.MIN_VALUE) {
@@ -156,6 +159,12 @@ class Director(
                 enter(DirectorState.FOLLOW, now)
                 return aimAtTrack(frame, t, heading, GimbalStyle.RIDE, "vague de #${t.id}")
             }
+        }
+        // Départ possible, pas encore confirmé : on commence déjà à tourner vers lui, sinon un surfeur qui part près du bord
+        // sort du téléobjectif avant la fin de la confirmation.
+        candidateTrackId?.let { id -> tracks.firstOrNull { it.id == id && it.isVisibleAt(now) } }?.let { c ->
+            lastRideEndUs = now
+            return aimAtTrack(frame, c, heading, GimbalStyle.RIDE, "départ possible de #${c.id}")
         }
         // Après une vague : on reste un moment là où elle s'est finie (le surfeur peut repartir), puis retour au pic.
         if (state == DirectorState.FOLLOW && now - lastRideEndUs < config.returnToPeakAfterUs) {

@@ -76,6 +76,9 @@ class Simulator(val scenario: Scenario) {
     data class TrueRide(val surferId: Int, val isUser: Boolean, val startSec: Double, var endSec: Double) {
         /** Au départ, le surfeur était dans le champ et aucun clip ne tournait : la vague était filmable. */
         var filmable: Boolean = false
+        /** Position au départ dans le champ (fraction du demi-champ, signée) et sens de la vague (+1 droite, -1 gauche). */
+        var startOffset: Double = 0.0
+        var direction: Double = 0.0
     }
 
     data class Result(
@@ -158,6 +161,8 @@ class Simulator(val scenario: Scenario) {
             for (r in openRides.values) if (r.startSec == t) {
                 val sf = surfers.first { it.id == r.surferId }
                 r.filmable = abs(sf.az - heading) < camera(zoom).hfovDeg / 2 * 0.9 && clipStart == null && t >= lensGapUntil
+                r.startOffset = (sf.az - heading) / (camera(zoom).hfovDeg / 2)
+                r.direction = sign(sf.vaz)
             }
             // --- Gimbal ---
             heading = if (t >= orderEnd) orderTo else orderFrom + (orderTo - orderFrom) * ((t - orderStart) / (orderEnd - orderStart))
@@ -254,7 +259,8 @@ class Simulator(val scenario: Scenario) {
             val st = states.lastOrNull { it.first <= r.startSec + 1.5 }?.second ?: "?"
             val ev = events.filter { it.first in (r.startSec - 2)..(r.endSec + 5) && (s.subject == Subject.ME || !it.second.startsWith("détecté")) }.joinToString(" | ") { "%.1f %s".format(it.first, it.second) }
             val c = framed[r]
-            "surfeur ${r.surferId} vague %.1f→%.1f s, cadrée %s · au départ : %s · événements : %s".format(r.startSec, r.endSec, c?.let { "%.0f %%".format(100.0 * it[0] / it[1].coerceAtLeast(1)) } ?: "?", st, ev.ifEmpty { "aucun" })
+            val near = clips.filter { it.second > r.startSec - 20 && it.first < r.endSec + 20 }.joinToString { "[%.1f–%.1f]".format(it.first, it.second) }
+            "clips proches ${near.ifEmpty { "aucun" }} · surfeur ${r.surferId} part à %+.2f du centre vers ${if (r.direction > 0) "la droite" else "la gauche"} · vague %.1f→%.1f s, cadrée %s · au départ : %s · événements : %s".format(r.startOffset, r.startSec, r.endSec, c?.let { "%.0f %%".format(100.0 * it[0] / it[1].coerceAtLeast(1)) } ?: "?", st, ev.ifEmpty { "aucun" })
         }
         return result.copy(missedUserRides = missed)
     }

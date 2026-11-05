@@ -96,6 +96,13 @@ class RideDetector(val config: RideConfig = RideConfig()) {
 
     val isRiding: Boolean get() = ridingTrackId != null
 
+    /**
+     * Piste qui commence peut-être une vague (au moins un vote favorable récent), sans confirmation encore : le pilote peut
+     * déjà tourner la caméra vers elle pour ne pas la laisser sortir du champ pendant la confirmation.
+     */
+    var candidateTrackId: Int? = null
+        private set
+
     /** Dernières mesures par piste (pour le rapport et le diagnostic) : vitesse, part horizontale, posture, votes. */
     val lastMeasures = HashMap<Int, String>()
 
@@ -131,7 +138,10 @@ class RideDetector(val config: RideConfig = RideConfig()) {
                 if (best == null || firstYes < best.second) best = t to firstYes
             }
         }
+        candidateTrackId = votes.entries.filter { (id, q) -> q.any { it.ok } && tracks.any { it.id == id } }
+            .maxByOrNull { (_, q) -> q.count { it.ok } * 10_000_000L + q.last { it.ok }.timeUs / 1_000_000 }?.key
         val (track, firstYes) = best ?: return null
+        candidateTrackId = null
         val m = measure(windowOf(track, now))!!
         ridingTrackId = track.id
         // La vitesse est mesurée sur une fenêtre : le vrai départ est environ une demi-fenêtre avant le premier vote favorable.

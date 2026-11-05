@@ -15,16 +15,15 @@
 
 ## Résultats du simulateur (5 sessions de 30 min)
 - Mode moi : ≥ 70 % des vagues de l'utilisateur filmées, toujours retrouvé, 0 zoom pendant un clip. ✅
-- Mode tout le monde : précision 98 %, mais 73/113 vagues « filmables » seulement → test `everyoneFilmsRides` EN ÉCHEC (porte 80 %).
-  Diagnostic : souvent le départ est détecté, la vague est gardée, mais le clip ne recouvre pas assez la vague (départ détecté
-  1–2,5 s après le take-off, vague courte) ; parfois aucun déclenchement. À creuser en premier.
+- Mode tout le monde : 86/99 vagues « filmables » filmées (87 %), précision 98 %. ✅ Correction : le pilote tourne déjà vers
+  une piste qui a un vote de départ (avant confirmation), sinon un surfeur parti près du bord sortait du téléobjectif.
 
 ## Constat sur la session réelle du 05/11 (rapport complet lu)
 - 41 des 44 rejets : déclenchement → pas de gimbal immédiat (médiane 4,4°) → piste perdue ~1 s après → rejet (seuil appris 4,8 s).
 - HDR coupé, chaleur toujours niveau 0, seuils appris actifs (4,8 s, confiance 0,44), surfeurs 47 px en médiane.
 
 ## Reste à faire
-1. Corriger le mode tout le monde (voir diagnostic), puis brancher `:core` dans l'appli (cap gyroscope horodaté par image,
+1. Brancher `:core` dans l'appli (cap gyroscope horodaté par image,
    journal de capteurs par session, stockage téléphone puis copie SD silencieuse), nouvelle interface, CI « SurfCam 2 ».
 2. Récupérer le banc de l'ancienne session (demande envoyée : branche `banc-2026-11-05`) et rejouer le 05/11.
 3. Test réel : deux objectifs dans la même session (Pixel 10 Pro), détection du manchon en vue large.

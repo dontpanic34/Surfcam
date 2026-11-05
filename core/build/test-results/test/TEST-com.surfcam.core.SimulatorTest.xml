@@ -1,88 +1,75 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.surfcam.core.SimulatorTest" tests="1" skipped="0" failures="1" errors="0" timestamp="2026-11-05T21:07:58.052Z" hostname="vm" time="1.242">
+<testsuite name="com.surfcam.core.SimulatorTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-11-05T22:43:24.517Z" hostname="vm" time="2.161">
   <properties/>
-  <testcase name="everyoneFilmsRides" classname="com.surfcam.core.SimulatorTest" time="1.238">
-    <failure message="java.lang.AssertionError: au moins 80 % des vagues filmables filmées (73/113)" type="java.lang.AssertionError">java.lang.AssertionError: au moins 80 % des vagues filmables filmées (73/113)
-	at org.junit.Assert.fail(Assert.java:89)
-	at org.junit.Assert.assertTrue(Assert.java:42)
-	at com.surfcam.core.SimulatorTest.everyoneFilmsRides(SimulatorTest.kt:61)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
-	at org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)
-	at org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)
-	at org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)
-	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:413)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:115)
-	at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.runRequest(JUnitTestExecutor.java:175)
-	at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.accept(JUnitTestExecutor.java:84)
-	at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.accept(JUnitTestExecutor.java:47)
-	at org.gradle.api.internal.tasks.testing.junit.AbstractJUnitTestDefinitionProcessor.processTestDefinition(AbstractJUnitTestDefinitionProcessor.java:65)
-	at org.gradle.api.internal.tasks.testing.SuiteTestDefinitionProcessor.processTestDefinition(SuiteTestDefinitionProcessor.java:53)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at org.gradle.internal.dispatch.MethodInvocation.invokeOn(MethodInvocation.java:77)
-	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:28)
-	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:19)
-	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
-	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:88)
-	at jdk.proxy1/jdk.proxy1.$Proxy4.processTestDefinition(Unknown Source)
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker$2.run(TestWorker.java:178)
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:126)
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103)
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63)
-	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
-	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:122)
-	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:72)
-	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
-	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
-</failure>
-  </testcase>
+  <testcase name="everyoneFilmsRides" classname="com.surfcam.core.SimulatorTest" time="1.603"/>
+  <testcase name="meFindsAndFollowsTheUser" classname="com.surfcam.core.SimulatorTest" time="0.506"/>
+  <testcase name="meWithoutMarkerKeepsSearchingWithoutFilmingOthers" classname="com.surfcam.core.SimulatorTest" time="0.046"/>
   <system-out><![CDATA[== tout le monde, graine 1
-   vagues de l'utilisateur filmées : 6 / 8 · cadré pendant ses vagues : 66 %
-   toutes vagues filmées : 21 / 60 · clips : 22 · rejetés : 0
+   vagues de l'utilisateur filmées : 2 / 8 · cadré pendant ses vagues : 31 %
+   toutes vagues filmées : 23 / 58 · clips : 23 · rejetés : 1
    premier accrochage : jamais · zooms pendant un clip : 0
-   temps par état : Attente au pic 1414 s, Suivi 302 s
-   RATÉE surfeur 2 vague 438.6→445.9 s, cadrée ? · au départ : Attente au pic/×5 cap 0.6 utilisateur -14.7 · piste « moi » aucune · pistes près de lui : aucune · événements : 440.9 départ #52 (take-off 439.5 s) | 447.2 fin #52 gardée : vague (5.8 s, 16.7 corps)
-   RATÉE surfeur 0 vague 1011.6→1020.5 s, cadrée 21 % · au départ : Attente au pic/×5 cap 0.1 utilisateur -4.7 · piste « moi » #110 az -4.7 · pistes près de lui : #110(odds 6.0 vu il y a 0.0s) · événements : aucun
-   RATÉE surfeur 6 vague 1109.3→1120.0 s, cadrée ? · au départ : Attente au pic/×5 cap 0.0 utilisateur -10.6 · piste « moi » aucune · pistes près de lui : aucune · événements : aucun
-   RATÉE surfeur 2 vague 1155.4→1164.1 s, cadrée ? · au départ : Attente au pic/×5 cap 0.0 utilisateur -9.6 · piste « moi » aucune · pistes près de lui : aucune · événements : aucun
-   RATÉE surfeur 4 vague 1510.7→1520.9 s, cadrée ? · au départ : Attente au pic/×5 cap 0.1 utilisateur 15.0 · piste « moi » aucune · pistes près de lui : aucune · événements : 1513.2 départ #156 (take-off 1511.8 s) | 1523.5 fin #156 gardée : vague (10.1 s, 43.1 corps)
-   RATÉE surfeur 5 vague 1734.7→1747.6 s, cadrée ? · au départ : Attente au pic/×5 cap -0.1 utilisateur -7.6 · piste « moi » #183 az -7.6 · pistes près de lui : #183(odds 5.4 vu il y a 0.0s) · événements : 1737.4 départ #181 (take-off 1735.4 s) | 1740.5 fin #181 gardée : vague (2.0 s, 9.1 corps)
-   RATÉE surfeur 3 vague 1776.0→1786.1 s, cadrée ? · au départ : Attente au pic/×5 cap 0.4 utilisateur -6.7 · piste « moi » #188 az -6.7 · pistes près de lui : #188(odds 6.0 vu il y a 0.0s),#191(odds -4.0 vu il y a 0.0s) · événements : aucun
+   temps par état : Attente au pic 1390 s, Suivi 325 s
+   RATÉE clips proches aucun · surfeur 3 part à +0.41 du centre vers la droite · vague 305.1→315.2 s, cadrée ? · au départ : Attente au pic/×5 cap -0.0 utilisateur 16.4 · piste « moi » aucune · pistes près de lui : aucune · événements : aucun
+   RATÉE clips proches [977.7–993.6], [1034.5–1047.3] · surfeur 0 part à +0.11 du centre vers la gauche · vague 1013.5→1021.7 s, cadrée 56 % · au départ : Attente au pic/×5 cap 0.5 utilisateur -1.0 · piste « moi » #139 az -1.0 · pistes près de lui : #139(odds 2.1 vu il y a 0.0s) · événements : aucun
 == tout le monde, graine 2
-   vagues de l'utilisateur filmées : 8 / 8 · cadré pendant ses vagues : 81 %
-   toutes vagues filmées : 26 / 61 · clips : 27 · rejetés : 1
+   vagues de l'utilisateur filmées : 3 / 8 · cadré pendant ses vagues : 22 %
+   toutes vagues filmées : 29 / 61 · clips : 29 · rejetés : 1
    premier accrochage : jamais · zooms pendant un clip : 0
-   temps par état : Attente au pic 1346 s, Suivi 368 s
+   temps par état : Attente au pic 1319 s, Suivi 403 s
 == tout le monde, graine 3
-   vagues de l'utilisateur filmées : 2 / 9 · cadré pendant ses vagues : 28 %
-   toutes vagues filmées : 24 / 65 · clips : 24 · rejetés : 1
+   vagues de l'utilisateur filmées : 6 / 8 · cadré pendant ses vagues : 45 %
+   toutes vagues filmées : 27 / 60 · clips : 27 · rejetés : 0
    premier accrochage : jamais · zooms pendant un clip : 0
-   temps par état : Attente au pic 1398 s, Suivi 318 s
+   temps par état : Attente au pic 1332 s, Suivi 385 s
 == tout le monde, graine 4
-   vagues de l'utilisateur filmées : 6 / 8 · cadré pendant ses vagues : 37 %
-   toutes vagues filmées : 20 / 61 · clips : 20 · rejetés : 1
+   vagues de l'utilisateur filmées : 7 / 9 · cadré pendant ses vagues : 38 %
+   toutes vagues filmées : 26 / 64 · clips : 27 · rejetés : 1
    premier accrochage : jamais · zooms pendant un clip : 0
-   temps par état : Attente au pic 1419 s, Suivi 298 s
+   temps par état : Attente au pic 1313 s, Suivi 395 s
 == tout le monde, graine 5
-   vagues de l'utilisateur filmées : 5 / 9 · cadré pendant ses vagues : 32 %
-   toutes vagues filmées : 26 / 61 · clips : 26 · rejetés : 0
+   vagues de l'utilisateur filmées : 4 / 8 · cadré pendant ses vagues : 25 %
+   toutes vagues filmées : 27 / 58 · clips : 29 · rejetés : 1
    premier accrochage : jamais · zooms pendant un clip : 0
-   temps par état : Attente au pic 1357 s, Suivi 363 s
-TOTAL tout le monde : 117 / 308 vagues filmées ; filmables (départ dans le champ, caméra libre) : 73 / 113 ; 119 clips
+   temps par état : Attente au pic 1308 s, Suivi 406 s
+TOTAL tout le monde : 132 / 301 vagues filmées ; filmables (départ dans le champ, caméra libre) : 86 / 99 ; 135 clips
+== moi, graine 1
+   vagues de l'utilisateur filmées : 7 / 9 · cadré pendant ses vagues : 84 %
+   toutes vagues filmées : 7 / 57 · clips : 7 · rejetés : 0
+   premier accrochage : 1 s · zooms pendant un clip : 0
+   temps par état : Attente au pic 41 s, Recherche large 22 s, Accrochage 43 s, Suivi 1587 s, Cible perdue 4 s
+   RATÉE clips proches aucun · surfeur 0 part à +0.10 du centre vers la droite · vague 191.6→201.3 s, cadrée 36 % · au départ : Attente au pic/×5 cap -4.2 utilisateur -1.2 · piste « moi » aucune · pistes près de lui : #1(odds -1.2 vu il y a 0.0s),#3(odds -4.0 vu il y a 0.0s) · événements : 191.8 détecté=true → piste #1(odds -1.8) · « moi » 6 v 0.1 h 99% a 1.05 votes 0/4 | 192.3 détecté=true → piste #1(odds -2.4) · « moi » 6 v 0.3 h 54% a 1.09 votes 0/4 | 192.8 détecté=true → piste #1(odds -1.2) · « moi » null  | 193.2 détecté=true → piste #12(odds -4.0) · « moi » null  | 193.7 détecté=true → piste #1(odds 0.0) · « moi » null  | 194.2 détecté=true → piste #1(odds -0.6) · « moi » null  | 194.7 détecté=true → piste #1(odds 0.6) · « moi » null  | 195.2 détecté=true → piste #1(odds 1.8) · « moi » null  | 195.7 détecté=false → piste - · « moi » null  | 196.3 détecté=false → piste - · « moi » null  | 196.7 détecté=false → piste - · « moi » null  | 197.2 détecté=false → piste - · « moi » null  | 197.8 détecté=false → piste - · « moi » null  | 198.2 détecté=false → piste - · « moi » null  | 198.7 détecté=false → piste - · « moi » null  | 199.2 détecté=false → piste - · « moi » null  | 199.8 détecté=false → piste - · « moi » null  | 200.3 détecté=false → piste - · « moi » null 
+   RATÉE clips proches aucun · surfeur 0 part à +1.21 du centre vers la droite · vague 581.5→589.0 s, cadrée 54 % · au départ : Recherche large/×5 cap -0.1 utilisateur 9.6 · piste « moi » aucune · pistes près de lui : aucune · événements : 581.7 détecté=false → piste - · « moi » null  | 583.4 détecté=true → piste #47(odds 1.2) · « moi » null  | 583.9 détecté=true → piste #47(odds 2.4) · « moi » null  | 585.5 détecté=true → piste #47(odds 1.8) · « moi » null  | 586.1 détecté=false → piste - · « moi » null  | 586.6 détecté=true → piste #47(odds 1.2) · « moi » null  | 587.2 détecté=false → piste - · « moi » null  | 587.7 détecté=true → piste #47(odds 0.6) · « moi » null  | 588.2 détecté=true → piste #47(odds 1.8) · « moi » null  | 588.7 détecté=true → piste #47(odds 1.2) · « moi » null 
+== moi, graine 2
+   vagues de l'utilisateur filmées : 8 / 9 · cadré pendant ses vagues : 89 %
+   toutes vagues filmées : 8 / 58 · clips : 9 · rejetés : 0
+   premier accrochage : 3 s · zooms pendant un clip : 0
+   temps par état : Attente au pic 47 s, Recherche large 31 s, Accrochage 53 s, Suivi 1548 s, Cible perdue 11 s
+   RATÉE clips proches aucun · surfeur 0 part à +1.01 du centre vers la gauche · vague 1575.4→1587.2 s, cadrée 16 % · au départ : Attente au pic/×5 cap 0.0 utilisateur 6.4 · piste « moi » aucune · pistes près de lui : #123(odds -2.2 vu il y a 0.5s),#125(odds -2.8 vu il y a 0.0s) · événements : 1575.5 détecté=false → piste - · « moi » null  | 1575.9 détecté=true → piste #125(odds -4.0) · « moi » null  | 1576.4 détecté=true → piste #125(odds -2.8) · « moi » null  | 1577.0 détecté=true → piste #125(odds -1.6) · « moi » null  | 1578.5 détecté=true → piste #125(odds -0.4) · « moi » null  | 1579.1 détecté=true → piste #125(odds 0.8) · « moi » null  | 1580.7 détecté=false → piste - · « moi » null  | 1581.2 détecté=false → piste - · « moi » null  | 1581.8 détecté=false → piste - · « moi » null  | 1582.3 détecté=false → piste - · « moi » null  | 1582.8 détecté=false → piste - · « moi » null  | 1583.3 détecté=false → piste - · « moi » null  | 1583.9 détecté=false → piste - · « moi » null  | 1584.5 détecté=false → piste - · « moi » null  | 1585.1 détecté=false → piste - · « moi » null  | 1585.5 détecté=false → piste - · « moi » null  | 1586.1 détecté=false → piste - · « moi » null  | 1586.7 détecté=false → piste - · « moi » null 
+== moi, graine 3
+   vagues de l'utilisateur filmées : 8 / 9 · cadré pendant ses vagues : 87 %
+   toutes vagues filmées : 8 / 60 · clips : 8 · rejetés : 0
+   premier accrochage : 3 s · zooms pendant un clip : 0
+   temps par état : Attente au pic 93 s, Recherche large 132 s, Accrochage 146 s, Suivi 1271 s, Cible perdue 11 s
+   RATÉE clips proches aucun · surfeur 0 part à +1.75 du centre vers la droite · vague 987.5→997.6 s, cadrée 15 % · au départ : Recherche large/×5 cap -0.1 utilisateur 15.2 · piste « moi » aucune · pistes près de lui : aucune · événements : 987.9 détecté=false → piste - · « moi » null  | 988.4 détecté=false → piste - · « moi » null  | 990.0 détecté=true → piste #116(odds 1.2) · « moi » null  | 990.5 détecté=true → piste #116(odds 0.9) · « moi » null  | 991.0 détecté=true → piste #116(odds 2.1) · « moi » null  | 992.7 détecté=false → piste - · « moi » null  | 993.2 détecté=false → piste - · « moi » null  | 993.8 détecté=true → piste #118(odds 1.2) · « moi » null  | 994.3 détecté=true → piste #118(odds 0.6) · « moi » null  | 994.9 détecté=false → piste - · « moi » null  | 995.4 détecté=false → piste - · « moi » null  | 995.9 détecté=false → piste - · « moi » null  | 996.4 détecté=false → piste - · « moi » null  | 997.0 détecté=false → piste - · « moi » null  | 997.5 détecté=false → piste - · « moi » null 
+== moi, graine 4
+   vagues de l'utilisateur filmées : 6 / 8 · cadré pendant ses vagues : 73 %
+   toutes vagues filmées : 6 / 61 · clips : 6 · rejetés : 1
+   premier accrochage : 7 s · zooms pendant un clip : 0
+   temps par état : Attente au pic 71 s, Recherche large 110 s, Accrochage 142 s, Suivi 1341 s, Cible perdue 3 s
+   RATÉE clips proches aucun · surfeur 0 part à -0.04 du centre vers la gauche · vague 1064.2→1074.3 s, cadrée 28 % · au départ : Suivi/×5 cap 2.0 utilisateur -0.4 · piste « moi » #113 az 1.7 · pistes près de lui : #114(odds -4.0 vu il y a 0.0s) · événements : 1064.8 détecté=true → piste #114(odds -4.0) · « moi » 113 v 0.2 h 77% a 1.14 votes 0/4 | 1065.4 détecté=true → piste #114(odds -4.0) · « moi » 113 v 0.4 h 98% a 1.12 votes 0/4 | 1066.0 détecté=true → piste #114(odds -4.0) · « moi » 113 v 0.5 h 2% a 1.06 votes 0/4 | 1066.6 détecté=true → piste #114(odds -2.8) · « moi » 113 v 0.3 h 2% a 1.02 votes 0/4 | 1067.2 détecté=true → piste #114(odds -1.6) · « moi » 113 v 0.2 h 24% a 1.18 votes 0/4 | 1067.7 détecté=false → piste - · « moi » 113 v 0.3 h 22% a 1.21 votes 0/4 | 1068.3 détecté=false → piste - · « moi » 113 v 0.6 h 7% a 1.29 votes 0/4 | 1068.9 détecté=false → piste - · « moi » null  | 1069.4 détecté=false → piste - · « moi » null  | 1070.0 détecté=false → piste - · « moi » null  | 1070.6 détecté=false → piste - · « moi » null  | 1071.0 détecté=false → piste - · « moi » null  | 1071.6 détecté=false → piste - · « moi » null  | 1072.2 détecté=false → piste - · « moi » null  | 1072.7 détecté=false → piste - · « moi » null  | 1073.2 détecté=false → piste - · « moi » null  | 1073.8 détecté=false → piste - · « moi » null 
+   RATÉE clips proches aucun · surfeur 0 part à -1.02 du centre vers la gauche · vague 1276.2→1283.6 s, cadrée 2 % · au départ : Attente au pic/×5 cap -0.2 utilisateur -9.9 · piste « moi » aucune · pistes près de lui : aucune · événements : 1276.5 détecté=false → piste - · « moi » null  | 1277.0 détecté=false → piste - · « moi » null  | 1277.6 détecté=false → piste - · « moi » null  | 1278.1 détecté=false → piste - · « moi » null  | 1278.6 détecté=false → piste - · « moi » null  | 1279.1 détecté=false → piste - · « moi » null  | 1279.6 détecté=false → piste - · « moi » null  | 1280.2 détecté=false → piste - · « moi » null  | 1280.7 détecté=false → piste - · « moi » null  | 1281.3 détecté=false → piste - · « moi » null  | 1281.8 détecté=false → piste - · « moi » null  | 1283.2 détecté=false → piste - · « moi » null 
+== moi, graine 5
+   vagues de l'utilisateur filmées : 9 / 10 · cadré pendant ses vagues : 95 %
+   toutes vagues filmées : 9 / 61 · clips : 9 · rejetés : 0
+   premier accrochage : 4 s · zooms pendant un clip : 0
+   temps par état : Attente au pic 81 s, Recherche large 26 s, Accrochage 111 s, Suivi 1452 s, Cible perdue 6 s
+   RATÉE clips proches aucun · surfeur 0 part à +0.25 du centre vers la droite · vague 670.0→679.9 s, cadrée 70 % · au départ : Suivi/×5 cap -13.0 utilisateur -9.4 · piste « moi » #72 az -9.4 · pistes près de lui : #72(odds 5.4 vu il y a 0.0s) · événements : 670.4 détecté=true → piste #72(odds 6.0) · « moi » 72 v 0.6 h 91% a 1.32 votes 0/3 | 670.8 détecté=false → piste - · « moi » 72 v 0.6 h 91% a 1.32 votes 0/3 | 671.4 détecté=true → piste #72(odds 5.4) · « moi » 72 v 2.3 h 100% a 1.31 votes 1/3 | 671.9 détecté=false → piste - · « moi » 72 v 16.8 h 100% a 1.22 votes 2/3 | 672.5 détecté=false → piste - · « moi » 72 v 16.8 h 100% a 1.22 votes 2/3 | 673.0 détecté=true → piste #79(odds 1.2) · « moi » 72 v 7.3 h 100% a 0.84 votes 2/3 | 673.5 détecté=true → piste #79(odds 0.6) · « moi » 72 v 0.0 h 88% a 0.50 votes 1/3 | 674.0 détecté=true → piste #79(odds 1.8) · « moi » 72 v 0.2 h 100% a 0.45 votes 0/3 | 674.5 détecté=true → piste #79(odds 1.2) · « moi » 72 v 0.1 h 78% a 0.48 votes 0/4 | 675.0 détecté=true → piste #79(odds 0.6) · « moi » 72 v 0.3 h 94% a 0.56 votes 0/5 | 675.5 détecté=true → piste #79(odds -0.0) · « moi » 72 v 0.1 h 75% a 0.57 votes 0/5 | 676.0 détecté=true → piste #79(odds 1.2) · « moi » 72 v 0.2 h 50% a 0.51 votes 0/5 | 676.5 détecté=true → piste #79(odds 2.4) · « moi » 72 v 0.4 h 20% a 0.86 votes 0/4 | 677.0 détecté=false → piste - · « moi » 72 v 0.4 h 74% a 0.85 votes 0/5 | 677.5 détecté=false → piste - · « moi » 72 v 0.2 h 100% a 0.46 votes 0/5 | 678.1 détecté=false → piste - · « moi » 72 v 0.0 h 15% a 0.50 votes 0/4 | 678.5 détecté=false → piste - · « moi » 72 v 0.0 h 15% a 0.50 votes 0/4 | 679.0 détecté=false → piste - · « moi » 72 v 0.2 h 60% a 0.78 votes 0/4 | 679.6 détecté=false → piste - · « moi » 72 v 0.5 h 20% a 1.22 votes 0/3
+TOTAL moi : 38 / 45 vagues de l'utilisateur filmées
+== moi sans manchon
+   vagues de l'utilisateur filmées : 0 / 4 · cadré pendant ses vagues : 44 %
+   toutes vagues filmées : 0 / 28 · clips : 0 · rejetés : 0
+   premier accrochage : jamais · zooms pendant un clip : 0
+   temps par état : Attente au pic 5 s, Recherche large 736 s, Accrochage 91 s
 ]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

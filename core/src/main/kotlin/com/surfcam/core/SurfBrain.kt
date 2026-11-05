@@ -63,6 +63,7 @@ class SurfBrain(
             }
         }
         actions += clips.onTick(now)
+        director.candidateTrackId = rides.candidateTrackId
         val command = director.onFrame(frame, tracks, currentHeadingDeg, rides.ridingTrackId, clips.isRecording)
         return BrainOutput(tracks, event, actions, command, rides.ridingTrackId)
     }
