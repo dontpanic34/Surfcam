@@ -52,7 +52,7 @@ class Exporter(context: Context) {
     }
 
     /** Copie les vagues [videos] et leurs rapports dans le dossier d'export. Renvoie un message de bilan. */
-    fun export(videos: List<LibraryVideo>, onProgress: (Int, Int) -> Unit): String {
+    fun export(videos: List<LibraryVideo>, deleteAfter: Boolean = false, onProgress: (Int, Int) -> Unit): String {
         val tree = folder() ?: return "Choisis d'abord le dossier d'export."
         val parent = try {
             DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
@@ -62,17 +62,23 @@ class Exporter(context: Context) {
         var copied = 0
         var reports = 0
         var failure: String? = null
+        var deleted = 0
+        val library = VideoLibrary(appContext)
         for ((i, v) in videos.withIndex()) {
             onProgress(i, videos.size)
             try {
-                copy(v.uri, parent, v.name.removeSuffix(".mp4") + ".mp4", "video/mp4")
+                val target = copy(v.uri, parent, v.name.removeSuffix(".mp4") + ".mp4", "video/mp4")
                 markDone(v.name.removeSuffix(".mp4"))
                 copied++
+                // Suppression du téléphone seulement si la copie fait exactement la taille de l'original.
+                val sourceSize = resolver.openFileDescriptor(v.uri, "r")?.use { it.statSize } ?: -1L
+                val verified = sourceSize > 0 && sizeOf(target) == sourceSize
                 val report = findDownload(v.name.removeSuffix(".mp4") + " - rapport.txt")
                 if (report != null) {
                     copy(report, parent, v.name.removeSuffix(".mp4") + " - rapport.txt", "text/plain")
                     reports++
                 }
+                if (deleteAfter && verified && library.delete(v)) deleted++
             } catch (e: Exception) {
                 failure = "${e.javaClass.simpleName} : ${e.message}"
             }
@@ -90,16 +96,24 @@ class Exporter(context: Context) {
         onProgress(videos.size, videos.size)
         return buildString {
             append("$copied vague(s) exportée(s) avec $reports rapport(s)")
+            if (deleteAfter) append(", $deleted supprimée(s) du téléphone après vérification de la copie")
             if (failure != null) append(". Un fichier n'a pas pu être copié ($failure)")
             append(".")
         }
     }
 
-    private fun copy(source: Uri, parent: Uri, displayName: String, mime: String) {
+    private fun sizeOf(uri: Uri): Long = try {
+        resolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_SIZE), null, null, null)?.use { if (it.moveToFirst()) it.getLong(0) else -1L } ?: -1L
+    } catch (_: Exception) {
+        -1L
+    }
+
+    private fun copy(source: Uri, parent: Uri, displayName: String, mime: String): Uri {
         val target = DocumentsContract.createDocument(resolver, parent, mime, displayName) ?: throw IllegalStateException("création impossible : $displayName")
         resolver.openInputStream(source)?.use { input ->
             resolver.openOutputStream(target, "w")?.use { output -> input.copyTo(output) } ?: throw IllegalStateException("écriture impossible : $displayName")
         } ?: throw IllegalStateException("lecture impossible : $displayName")
+        return target
     }
 
     private fun findDownload(displayName: String): Uri? = try {
