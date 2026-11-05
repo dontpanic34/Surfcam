@@ -8,9 +8,9 @@ data class TrackerConfig(
     /** Confiance minimale pour ouvrir un nouveau suivi. */
     val minConfidence: Float = 0.25f,
     /** Distance maximale d'association, en longueurs de corps, entre deux images consécutives. */
-    val maxJumpInBodyLengths: Float = 1.2f,
+    val maxJumpInBodyLengths: Float = 3.6f,
     /** Tolérance supplémentaire par seconde écoulée depuis la dernière détection (image ratée, surfeur masqué). */
-    val extraJumpPerSecond: Float = 2.0f,
+    val extraJumpPerSecond: Float = 6.0f,
     /** Lissage de la vitesse estimée, utilisée pour prédire la position suivante. */
     val velocitySmoothing: Float = 0.6f,
     /** Un suivi sans détection depuis plus longtemps que ça est abandonné. */

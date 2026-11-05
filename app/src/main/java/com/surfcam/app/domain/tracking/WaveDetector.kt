@@ -14,7 +14,7 @@ data class WaveConfig(
     /** Disparition du suivi (chute, écume) tolérée avant de déclarer la fin. */
     val lostGraceUs: Long = 4_000_000,
     /** Une vague plus courte que ça est annulée (surfeur qui rame vite, fausse alerte). */
-    val minRideUs: Long = 3_000_000,
+    val minRideUs: Long = 2_000_000,
     /**
      * Rapport hauteur/largeur minimal pour être « debout » : un surfeur allongé qui rame (0,45 à 0,8 mesuré) ne
      * déclenche pas. Un surfeur en manœuvre est presque aussi large que haut (0,9 à 1,0), d'où un seuil à 0,9.
