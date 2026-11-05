@@ -17,4 +17,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "SurfCam"
+include(":core")
 include(":app")
