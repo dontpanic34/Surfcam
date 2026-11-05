@@ -104,7 +104,7 @@ class StorageTarget(context: Context) {
      * Attend (jusqu'à [timeoutMs]) que le volume courant soit prêt pour MediaStore. Le message « Volume … not found »
      * apparaît quand un lecteur USB vient de se (re)connecter ou de se réinitialiser (appel de courant de la caméra).
      */
-    fun awaitVolumeReady(timeoutMs: Long = 5_000L): Boolean {
+    fun awaitVolumeReady(timeoutMs: Long = 8_000L): Boolean {
         if (!isExternal) return true
         val deadline = System.currentTimeMillis() + timeoutMs
         while (true) {

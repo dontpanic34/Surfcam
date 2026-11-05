@@ -76,8 +76,8 @@ class SessionRecorder(
             } catch (_: Exception) {
             }
             writer = null
-            if (target.isExternal && target.isVolumeMounted() && retries < MAX_RETRIES) {
-                // Panne passagère (lecteur USB qui se réinitialise) : on réessaie au prochain segment plutôt que d'abandonner la carte.
+            if (target.isExternal && retries < MAX_RETRIES) {
+                // Panne passagère (lecteur USB qui se réinitialise et se remonte quelques secondes plus tard) : on attend et on réessaie plutôt que d'abandonner la carte.
                 retries++
                 retryAfterUs = sample.ptsUs + RETRY_DELAY_US
                 SessionLog.ev("stockage", "écriture de la session impossible (${e.javaClass.simpleName}: ${e.message}) : nouvel essai $retries/$MAX_RETRIES dans 3 s")
@@ -102,7 +102,7 @@ class SessionRecorder(
     }
 
     private companion object {
-        const val MAX_RETRIES = 4
+        const val MAX_RETRIES = 6
         const val RETRY_DELAY_US = 3_000_000L
         // En dessous de 900 Mo libres, on n'ouvre pas de nouveau segment (le garde-fou du moteur coupe à 800 Mo).
         const val MIN_FREE_BYTES = 900L * 1024 * 1024
