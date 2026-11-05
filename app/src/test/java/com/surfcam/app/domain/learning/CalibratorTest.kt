@@ -40,11 +40,12 @@ class CalibratorTest {
     }
 
     @Test
-    fun shortFalseAlarmsRaiseTheMinimumDuration() {
+    fun theMinimumDurationNeverGoesAboveThreeSeconds() {
+        // L'apprentissage ne voit que des clips déjà acceptés : il ne doit pas relever la durée minimale sans fin (elle écartait de vraies vagues).
         val goods = listOf(7f, 9f, 6f, 8f).map { ride(2f, 1.5f, seconds = it, good = true) }
         val bads = listOf(3.1f, 3.4f, 3.6f).map { ride(2f, 1.5f, seconds = it, good = false) }
         val r = Calibrator.calibrate(WaveConfig(), goods + bads)
-        assertTrue("durée = ${r.config.minRideUs}", r.config.minRideUs > 3_000_000L)
+        assertTrue("durée = ${r.config.minRideUs}", r.config.minRideUs <= 3_000_000L)
         assertTrue(goods.all { Calibrator.passes(r.config, it.stats) })
     }
 

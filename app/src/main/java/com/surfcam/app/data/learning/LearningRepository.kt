@@ -101,10 +101,12 @@ class LearningRepository(context: Context) {
         if (!prefs.contains(KEY_SPEED)) return base
         return base.copy(
             // Plancher : à ×5 les surfeurs assis qui montent et descendent sur la houle bougent déjà à ~1 longueur de corps/s.
-            startSpeed = prefs.getFloat(KEY_SPEED, base.startSpeed).coerceAtLeast(base.startSpeed),
-            minStandingAspect = prefs.getFloat(KEY_ASPECT, base.minStandingAspect),
-            minRideUs = prefs.getLong(KEY_DURATION, base.minRideUs),
-            minTriggerConfidence = prefs.getFloat(KEY_CONFIDENCE, base.minTriggerConfidence),
+            startSpeed = prefs.getFloat(KEY_SPEED, base.startSpeed).coerceIn(base.startSpeed, 2.2f),
+            minStandingAspect = prefs.getFloat(KEY_ASPECT, base.minStandingAspect).coerceAtMost(base.minStandingAspect),
+            // Plafonds : l'apprentissage ne voit que les clips déjà acceptés (jamais ceux que la détection a écartés) ; livré à lui-même,
+            // il relevait sans cesse les seuils (durée 4,8 s, confiance 0,44 le 05/11) et écartait de vraies vagues.
+            minRideUs = prefs.getLong(KEY_DURATION, base.minRideUs).coerceIn(1_500_000L, base.minRideUs),
+            minTriggerConfidence = prefs.getFloat(KEY_CONFIDENCE, base.minTriggerConfidence).coerceAtMost(0.35f),
         )
     }
 
