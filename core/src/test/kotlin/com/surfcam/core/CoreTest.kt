@@ -137,3 +137,20 @@ class CoreTest {
         assertTrue(e.single() is ClipAction.Discard)
     }
 }
+
+class JournalTest {
+    @Test
+    fun roundTrip() {
+        val f = Frame(123_456, 2.5, -0.3, CameraModel(1280, 720, 16.4), 5.0,
+            listOf(Detection(Box(10.0, 20.0, 30.0, 70.0), 0.81, 0.01)), listOf(com.surfcam.core.model.MarkerBlob(15.0, 30.0, 9)))
+        val sw = java.io.StringWriter()
+        com.surfcam.core.journal.FrameJournal.writeFrame(sw, f)
+        com.surfcam.core.journal.FrameJournal.writeEvent(sw, 200_000, "gimbal", "ordre +4,6° en 1,6 s")
+        val entries = com.surfcam.core.journal.FrameJournal.read(java.io.BufferedReader(java.io.StringReader(sw.toString()))).toList()
+        val g = (entries[0] as com.surfcam.core.journal.FrameJournal.Entry.FrameEntry).frame
+        assertEquals(f.timeUs, g.timeUs)
+        assertEquals(0.81, g.detections[0].confidence, 1e-3)
+        assertEquals(9, g.blobs[0].pixels)
+        assertEquals("ordre +4,6° en 1,6 s", (entries[1] as com.surfcam.core.journal.FrameJournal.Entry.Event).text)
+    }
+}

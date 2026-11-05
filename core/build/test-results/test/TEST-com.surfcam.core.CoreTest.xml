@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.surfcam.core.CoreTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-11-05T22:43:26.681Z" hostname="vm" time="0.006">
+<testsuite name="com.surfcam.core.CoreTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-11-05T22:52:19.393Z" hostname="vm" time="0.061">
   <properties/>
-  <testcase name="hungarianFindsGlobalOptimum" classname="com.surfcam.core.CoreTest" time="0.0"/>
-  <testcase name="sizeMismatchBlocksIdentitySwap" classname="com.surfcam.core.CoreTest" time="0.001"/>
-  <testcase name="sittingSurferDoesNotTriggerAndRiderDoes" classname="com.surfcam.core.CoreTest" time="0.003"/>
-  <testcase name="gimbalStepDoesNotBreakTheTrack" classname="com.surfcam.core.CoreTest" time="0.0"/>
+  <testcase name="hungarianFindsGlobalOptimum" classname="com.surfcam.core.CoreTest" time="0.002"/>
+  <testcase name="sizeMismatchBlocksIdentitySwap" classname="com.surfcam.core.CoreTest" time="0.016"/>
+  <testcase name="sittingSurferDoesNotTriggerAndRiderDoes" classname="com.surfcam.core.CoreTest" time="0.035"/>
+  <testcase name="gimbalStepDoesNotBreakTheTrack" classname="com.surfcam.core.CoreTest" time="0.001"/>
   <testcase name="headingInterpolatesAndReconstructs" classname="com.surfcam.core.CoreTest" time="0.002"/>
-  <testcase name="clipPlannerDiscardsRejectedRide" classname="com.surfcam.core.CoreTest" time="0.0"/>
-  <testcase name="cameraRoundTrip" classname="com.surfcam.core.CoreTest" time="0.0"/>
+  <testcase name="clipPlannerDiscardsRejectedRide" classname="com.surfcam.core.CoreTest" time="0.001"/>
+  <testcase name="cameraRoundTrip" classname="com.surfcam.core.CoreTest" time="0.001"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

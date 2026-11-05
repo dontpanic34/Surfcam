@@ -26,6 +26,11 @@ enum class DirectorState(val label: String) {
 data class DirectorConfig(
     /** Zoom de suivi et de tournage (téléobjectif). */
     val followZoom: Double = 5.0,
+    /**
+     * Mode tout le monde, comme un caméraman : on regarde tout le line-up à ce zoom, puis on zoome au zoom de suivi quand une
+     * vague part (le clip commence large et se resserre sur le surfeur). 0 = rester au zoom de suivi.
+     */
+    val watchZoom: Double = 2.0,
     /** Zoom de recherche : assez large pour couvrir le line-up, assez serré pour voir le manchon. */
     val searchZoom: Double = 2.0,
     /** Mode moi : sans voir l'utilisateur depuis ce délai, on part le chercher (si aucun clip ne tourne). */
@@ -149,8 +154,10 @@ class Director(
 
     private fun everyone(frame: Frame, tracks: List<Track>, heading: Double, ridingId: Int?, zoomLocked: Boolean): Command {
         val now = frame.timeUs
-        if (!zoomLocked) zoom = config.followZoom
+        val idleZoom = if (config.watchZoom > 0) config.watchZoom else config.followZoom
         if (ridingId != null) {
+            // Une vague part : on zoome sur le surfeur (seul changement de zoom permis pendant un clip : le resserrement).
+            zoom = config.followZoom
             val t = tracks.firstOrNull { it.id == ridingId }
             if (t != null) {
                 targetId = t.id
@@ -171,7 +178,10 @@ class Director(
             return hold(heading, "fin de vague, on attend avant de revenir au pic")
         }
         targetId = null
-        if (!zoomLocked) peak.update(now)
+        if (!zoomLocked) {
+            peak.update(now)
+            zoom = idleZoom
+        }
         enter(DirectorState.WAIT_AT_PEAK, now)
         return aimAt(now, heading, peak.peakDeg, 0.0, frame.camera.hfovDeg, GimbalStyle.REPOSITION, null, "attente au pic")
     }

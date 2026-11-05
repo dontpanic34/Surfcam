@@ -16,12 +16,20 @@ data class GimbalStyle(
     val maxStepDeg: Double,
     /** Durée minimale d'un ordre (un ordre trop court donne un à-coup). */
     val minDurationSec: Double = 0.5,
+    /**
+     * Mouvement continu, comme un caméraman : au lieu de pas espacés, des ordres courts enchaînés sans pause, dont la vitesse
+     * suit celle de la cible plus une correction proportionnelle à l'écart. Le panoramique est fluide, sans à-coups.
+     */
+    val continuous: Boolean = false,
+    /** Mouvement continu : gain de rattrapage de l'écart (1/s) et durée de chaque ordre. */
+    val catchUpGainPerSec: Double = 1.2,
+    val periodSec: Double = 0.6,
 ) {
     companion object {
         /** Suivi au téléobjectif : on laisse le surfeur vivre dans le cadre, on recadre par pas doux. */
         val FOLLOW = GimbalStyle(deadZoneFraction = 0.30, leadSec = 0.8, maxRateDegPerSec = 8.0, maxStepDeg = 12.0)
         /** Pendant une vague : anticipation plus forte, rotation plus franche. */
-        val RIDE = GimbalStyle(deadZoneFraction = 0.25, leadSec = 1.0, maxRateDegPerSec = 12.0, maxStepDeg = 15.0)
+        val RIDE = GimbalStyle(deadZoneFraction = 0.05, leadSec = 0.0, maxRateDegPerSec = 14.0, maxStepDeg = 15.0, continuous = true)
         /** Déplacements sans enjeu d'image (recherche, retour au pic). */
         val REPOSITION = GimbalStyle(deadZoneFraction = 0.10, leadSec = 0.0, maxRateDegPerSec = 25.0, maxStepDeg = 45.0)
     }
@@ -48,6 +56,19 @@ class GimbalPlanner(
     fun plan(nowUs: Long, currentHeadingDeg: Double, targetDeg: Double, targetRateDegPerSec: Double, hfovDeg: Double, style: GimbalStyle): GimbalOrder? {
         if (nowUs < busyUntilUs) return null
         val error = targetDeg - currentHeadingDeg
+        if (style.continuous) {
+            val dead = style.deadZoneFraction * hfovDeg / 2.0
+            if (abs(error) <= dead && abs(targetRateDegPerSec) < 0.3) return null
+            val rate = (targetRateDegPerSec + style.catchUpGainPerSec * error).coerceIn(-style.maxRateDegPerSec, style.maxRateDegPerSec)
+            var step = rate * style.periodSec
+            val wanted = (currentHeadingDeg + step).coerceIn(-limitDeg, limitDeg)
+            step = wanted - currentHeadingDeg
+            if (abs(step) < 0.1) return null
+            val durUs = (style.periodSec * 1e6).toLong()
+            // Pas de pause de stabilisation : l'ordre suivant part à la fin de celui-ci, le mouvement ne s'arrête pas.
+            busyUntilUs = nowUs + durUs - 50_000
+            return GimbalOrder(nowUs, step, durUs)
+        }
         val dead = style.deadZoneFraction * hfovDeg / 2.0
         if (abs(error) <= dead) return null
         // On vise un peu au-delà de la cible dans son sens de déplacement, sans dépasser le pas maximal.

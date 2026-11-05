@@ -223,7 +223,7 @@ class Simulator(val scenario: Scenario) {
                     }
                     if (abs(cmd.zoom - zoom) > 0.01) {
                         val switchesLens = (zoom >= 5.0) != (cmd.zoom >= 5.0)
-                        if (clipStart != null) zoomChangesDuringClips++
+                        if (clipStart != null && cmd.zoom < zoom) zoomChangesDuringClips++ // resserrer au départ est voulu, dézoomer non
                         zoom = cmd.zoom
                         if (switchesLens) lensGapUntil = decisionT + s.lensSwitchGapSec
                     }

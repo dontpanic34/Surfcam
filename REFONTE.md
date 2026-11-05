@@ -22,6 +22,21 @@
 - 41 des 44 rejets : déclenchement → pas de gimbal immédiat (médiane 4,4°) → piste perdue ~1 s après → rejet (seuil appris 4,8 s).
 - HDR coupé, chaleur toujours niveau 0, seuils appris actifs (4,8 s, confiance 0,44), surfeurs 47 px en médiane.
 
+## Mode caméraman (demandé le 05/11 au soir)
+- Mode tout le monde : regarde le line-up au zoom large (`watchZoom` ×2), tourne dès un départ possible, zoome à ×5 quand la
+  vague part (le clip commence large et se resserre), suit par panoramique continu (`GimbalStyle.RIDE`, ordres courts enchaînés).
+- Simulateur : 120/139 vagues filmables (86 %), 164/299 vagues filmées, précision 88 % (était 98 % : à surveiller).
+- Limite : le passage ×2 → ×5 change d'objectif (coupure ~0,5–1 s au début du clip). Piste : rester sur l'objectif principal
+  jusqu'à ×4 numérique, ou deux objectifs dans la même session (à tester sur le Pixel).
+
+## Outils de mesure
+- `journal/FrameJournal` : journal de capteurs par session (chaque image : cap, champ, zoom, détections, taches ; événements).
+  À écrire par l'appli à chaque session puis à rejouer dans le banc — c'est l'outil principal pour améliorer l'appli.
+
+## Demandes utilisateur en attente
+- Refonte du rendu de l'appli (toutes les pages). Mise à niveau du téléphone (roulis). Batterie : 80-90 % en 1h20, à réduire
+  après avoir obtenu le meilleur suivi/déclenchement.
+
 ## Appli (début d'intégration)
 - `applicationId = com.surfcam.app2`, nom « SurfCam 2 », dépend de `:core` ; l'APK se compile (moteur encore l'ancien).
 - `GyroYaw.timeline` : historique horodaté du cap (µs, horloge capteur) pour le cap à l'heure de chaque image.
