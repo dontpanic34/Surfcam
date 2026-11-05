@@ -885,7 +885,7 @@ class RecordingEngine(private val context: Context) {
         when (widePhase) {
             WidePhase.OFF -> {
                 if (!enabled || f == null || st.clipActive) return
-                if (f.lostForMs > WIDE_AFTER_MS && now - wideEndedAtMs > WIDE_COOLDOWN_MS && st.zoom >= 4f) {
+                if (f.markedSeenRecently && f.lostForMs > WIDE_AFTER_MS && now - wideEndedAtMs > WIDE_COOLDOWN_MS && st.zoom >= 4f) {
                     zoomBeforeWide = st.zoom
                     widePhase = WidePhase.WIDE
                     wideSinceMs = now

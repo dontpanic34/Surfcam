@@ -88,6 +88,15 @@ class GimbalFollower(context: Context) {
     }
 
     private var lastSeenAtMs = 0L
+    private var lastMarkedSeenAtMs = 0L
+
+    /** Le gimbal n'attend que le pic tant qu'aucune vague ne part et que l'utilisateur n'est pas reconnu (réglage « Attendre au pic »). */
+    @Volatile
+    var waitAtPeak = true
+
+    /** L'utilisateur (manchon) a été reconnu il y a moins de 90 s : seulement alors, le chercher a un sens (il vient de disparaître). */
+    val markedSeenRecently: Boolean
+        get() = lastMarkedSeenAtMs > 0 && SystemClock.elapsedRealtime() - lastMarkedSeenAtMs < SEARCH_WINDOW_MS
 
     /** Vrai pendant la recherche en zoom large : le gimbal n'exécute ni retour au pic, ni balayage, ni poursuite à l'aveugle. */
     @Volatile
@@ -172,6 +181,7 @@ class GimbalFollower(context: Context) {
         savedAddress = address
         // Une fois : le style « Centré » devient celui par défaut (le surfeur doit rester au centre de la vidéo) ; modifiable ensuite.
         if (!prefs.getBoolean("centerV1", false)) prefs.edit().putString("followStyle", FollowController.FollowStyle.CENTER.name).putBoolean("centerV1", true).apply()
+        waitAtPeak = prefs.getBoolean("waitAtPeak", true)
         style = FollowController.FollowStyle.fromName(prefs.getString("followStyle", null))
         zoneDeg = prefs.getFloat("zoneDeg", 45f)
         yawCmdDeg = 0f
@@ -181,7 +191,7 @@ class GimbalFollower(context: Context) {
         nextStepAtMs = 0L
         searchPhase = 0
         sweeps = 0
-        GimbalLog.start(appContext, "Début du suivi (le pic = direction de départ) · style ${style.label} (zone libre ${(style.edgeFraction * 200).toInt()} % du champ) · zone ±${zoneDeg.toInt()}° · recherche ${if (searchEnabled) "oui" else "non"}")
+        GimbalLog.start(appContext, "Début du suivi (le pic = direction de départ) · attente au pic ${if (waitAtPeak) "oui : ne bouge que pour une vague ou pour moi" else "non : suit tout le monde"} · style ${style.label} (zone libre ${(style.edgeFraction * 200).toInt()} % du champ) · zone ±${zoneDeg.toInt()}° · recherche ${if (searchEnabled) "oui" else "non"}")
         if (!link.state.value.connected && !link.state.value.connecting) link.connect(address)
         gyro = GyroYaw(appContext).also { it.start() }
         if (gyro?.available != true) log("gyroscope indisponible : pas de mesure de rotation réelle")
@@ -207,7 +217,11 @@ class GimbalFollower(context: Context) {
     fun onFrame(boxes: List<FollowBox>, hfovDeg: Float) {
         if (!started || !enabled || !link.state.value.connected) return
         val now = SystemClock.elapsedRealtime()
-        val target = FollowController.chooseTarget(boxes, lastX)
+        // « Attendre au pic » : le gimbal ne bouge que pour une vague (surfeur en vague) ou pour l'utilisateur (manchon reconnu) ;
+        // des surfeurs qui attendent dans l'eau, eux, ne le font pas pivoter.
+        val pool = if (waitAtPeak) boxes.filter { it.marked || it.riding } else boxes
+        if (pool.any { it.marked }) lastMarkedSeenAtMs = now
+        val target = FollowController.chooseTarget(pool, lastX)
         targetId = target?.id ?: -1
         if (target != null) {
             if (lastTargetIdLogged != -1 && target.id != lastTargetIdLogged) {
@@ -220,7 +234,8 @@ class GimbalFollower(context: Context) {
             lastTargetIdLogged = target.id
         }
         if (target == null) {
-            log("aucune cible (${boxes.size} personne(s) retenue(s)) · perdu depuis ${if (lastSeenAtMs > 0) (now - lastSeenAtMs) / 1000 else -1} s", 1000)
+            if (waitAtPeak && boxes.isNotEmpty()) log("attente au pic : ${boxes.size} personne(s) en vue, aucune ne surfe et aucun manchon reconnu : je ne bouge pas", 5000)
+            else log("aucune cible (${boxes.size} personne(s) retenue(s)) · perdu depuis ${if (lastSeenAtMs > 0) (now - lastSeenAtMs) / 1000 else -1} s", 1000)
             if (passive) return
             // Surfeur perdu un moment (écume, tube) : on continue sur sa lancée, avec une vitesse qui s'amortit vite,
             // pour que le gimbal s'arrête en douceur à l'endroit où il devrait ressortir. Au-delà, on oublie sa vitesse.
@@ -246,7 +261,7 @@ class GimbalFollower(context: Context) {
                 velocity = 0f
             }
             // Plus de surfeur depuis un moment : retour à la direction de départ, face à la zone de surf.
-            if (searchEnabled && lastSeenAtMs > 0 && now - lastSeenAtMs > SEARCH_AFTER_MS && sweeps < MAX_SWEEPS && now >= nextStepAtMs) {
+            if (searchEnabled && markedSeenRecently && lastSeenAtMs > 0 && now - lastSeenAtMs > SEARCH_AFTER_MS && sweeps < MAX_SWEEPS && now >= nextStepAtMs) {
                 searchStep(now, hfovDeg)
             } else if (lastSeenAtMs > 0 && now - lastSeenAtMs > HOME_AFTER_MS && !clipActive && now - clipEndedAtMs > CLIP_END_DELAY_MS &&
                 abs(yawCmdDeg - peakYawDeg) > 3f && now >= nextStepAtMs
@@ -352,6 +367,7 @@ class GimbalFollower(context: Context) {
         /** Poursuite à l'aveugle d'un surfeur caché : durée maximale et constante d'amortissement de sa vitesse (secondes). */
         const val COAST_SECONDS = 1.8f
         const val CENTERED_DEG = 1.5f
+        const val SEARCH_WINDOW_MS = 90_000L
         const val COAST_TAU = 0.6f
         const val HOME_AFTER_MS = 4_000L
         const val CLIP_END_DELAY_MS = 2_000L

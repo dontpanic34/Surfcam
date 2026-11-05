@@ -164,6 +164,14 @@ fun GimbalCard() {
             }
             Text("Place le téléphone en paysage dans le gimbal, puis touche « Redresser » (ou règle à la main).", color = SurfColors.Muted, fontSize = 12.sp)
         }
+        var waitAtPeak by remember { mutableStateOf(prefs.getBoolean("waitAtPeak", true)) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Attendre au pic", color = SurfColors.Foam, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("Le gimbal reste au pic et ne bouge que pour une vague ou pour moi (manchon), pas pour les surfeurs qui attendent.", color = SurfColors.Muted, fontSize = 11.sp)
+            }
+            androidx.compose.material3.Switch(checked = waitAtPeak, onCheckedChange = { waitAtPeak = it; prefs.edit().putBoolean("waitAtPeak", it).apply() })
+        }
         Text("Vitesse du suivi", color = SurfColors.Foam, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (st in com.surfcam.app.domain.gimbal.FollowController.FollowStyle.entries) {
