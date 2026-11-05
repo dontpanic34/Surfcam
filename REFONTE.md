@@ -41,6 +41,16 @@
 - `applicationId = com.surfcam.app2`, nom « SurfCam 2 », dépend de `:core` ; l'APK se compile (moteur encore l'ancien).
 - `GyroYaw.timeline` : historique horodaté du cap (µs, horloge capteur) pour le cap à l'heure de chaque image.
 
+## Branché dans l'appli (05/11, 23h)
+- Zoom sans coupure : `Camera2Source.SEAMLESS_ZOOM` (rapport de zoom sur la caméra logique, plus de recréation de session).
+  À VÉRIFIER à l'eau : l'objectif actif écrit dans le rapport doit passer au télé à ×5 sans coupure.
+- `AnalysisPipeline.brain` : SurfBrain remplace l'ancien suivi/détection/planificateur ; cap = `GyroYaw.timeline` à l'heure
+  de l'image ; ordres de gimbal via `GimbalFollower.executeOrder` (`externalControl`), zoom via `zoomTo`.
+- Ancienne veille 1 image/s et ancienne recherche au manchon coupées quand le cerveau pilote. Mode moi : objectif principal.
+- Journal de capteurs par session → Téléchargements/SurfCam/Journaux (à déposer dans le Drive avec le rapport).
+- CI `build-surfcam2.yml` : APK « SurfCam 2 » dans la release `surfcam2-latest` à chaque envoi sur la branche.
+- Pas encore : nouvelle interface, mise à niveau (roulis), batterie, rejeu banc d'un journal réel.
+
 ## Reste à faire
 1. Brancher `:core` dans l'appli : remplacer SurferTracker/WaveDetector/ClipPlanner/GimbalFollower par SurfBrain dans
    AnalysisPipeline + RecordingEngine (cap via GyroYaw.timeline.at(horodatage image), vérifier la base de temps caméra),

@@ -291,7 +291,10 @@ class Camera2Source(context: Context) {
         this.fpsRange = probe.fpsRange
         this.physicalId = probe.physicalId
         this.telePhysicalId = probe.telePhysicalId
-        this.teleSwitchAllowed = probe.telePhysicalId != null && probe.physicalId == null && probe.fpsRange.upper <= 30
+        // Zoom sans coupure : on ne recrée plus la session pour basculer sur le téléobjectif. Le rapport de zoom est posé sur la
+        // caméra logique et c'est le téléphone qui passe lui-même d'un objectif à l'autre, sans couper l'image (comme l'appli
+        // Appareil photo). L'objectif réellement actif reste écrit dans le rapport pour le vérifier.
+        this.teleSwitchAllowed = SEAMLESS_ZOOM.not() && probe.telePhysicalId != null && probe.physicalId == null && probe.fpsRange.upper <= 30
         this.teleActive = false
         this.useStreamUseCases = probe.videoStreamUseCases
         this.retriedWithoutUseCases = false
@@ -720,6 +723,8 @@ class Camera2Source(context: Context) {
         // ×5 = le téléobjectif optique : au-delà, ce ne serait que du zoom numérique (image molle et pixelisée).
         const val MAX_ZOOM = 5f
         const val MAX_ZOOM_HD = 10f
+        /** Vrai : zoom continu sur la caméra logique (pas de recréation de session, donc pas de coupure). */
+        const val SEAMLESS_ZOOM = true
         const val TELEPHOTO_SWITCH = 5f
         const val TELEPHOTO_RELEASE = 4.6f
         const val MIN_SWITCH_GAP_MS = 1_500L

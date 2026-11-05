@@ -80,7 +80,26 @@ class AnalysisPipeline(
 
         /** Une vague vient de se terminer : ses caractéristiques, pour l'apprentissage. */
         fun onRide(stats: RideStats)
+
+        /** Décision du nouveau cerveau pour cette image (ordre de gimbal, zoom, état du pilote). */
+        fun onBrain(output: com.surfcam.core.BrainOutput) {}
     }
+
+    /** Nouveau cerveau (:core). Quand il est présent, il remplace l'ancien suivi, la détection de vague et le planificateur. */
+    @Volatile
+    var brain: com.surfcam.core.SurfBrain? = null
+
+    /** Cap de la caméra (degrés) à un instant donné de l'horloge des images (µs) : gyroscope horodaté. */
+    @Volatile
+    var headingAt: ((Long) -> Double?)? = null
+
+    /** Champ horizontal (degrés) et zoom de l'image analysée en ce moment. */
+    @Volatile
+    var opticsProvider: (() -> Pair<Double, Double>?)? = null
+
+    /** Journal de capteurs de la session (une ligne par image analysée) ; null = pas de journal. */
+    @Volatile
+    var journal: java.io.Writer? = null
 
     // Deux fils distincts : l'un ne fait que prélever et rendre les images de la caméra (rapide, quelques ms), l'autre
     // exécute le modèle (lent, environ 0,3 s). Garder une image pendant l'analyse bloquerait la caméra entière.
@@ -236,6 +255,11 @@ class AnalysisPipeline(
             frames++
             if (frames == 1) com.surfcam.app.data.engine.Trail.mark("première détection terminée")
             if (frames % THUMBNAIL_EVERY == 1) thumbnail = makeThumbnail()
+            val b = brain
+            if (b != null) {
+                analyseWithBrain(b, detections, timestampUs, started)
+                return
+            }
             val tracks = tracker.update(detections, timestampUs)
             val event = waveDetector.onFrame(if (onlyMarked) tracks.filter { it.isMarked } else tracks, timestampUs)
             if (event is WaveEvent.Ended) event.stats?.let(listener::onRide)
@@ -312,6 +336,80 @@ class AnalysisPipeline(
         } finally {
             busy.set(false)
         }
+    }
+
+    /** Chemin du nouveau cerveau : repère fixe (cap à l'heure de l'image), pisteur, détection du surf, pilote. */
+    private fun analyseWithBrain(b: com.surfcam.core.SurfBrain, detections: List<com.surfcam.app.domain.tracking.Detection>, timestampUs: Long, startedMs: Long) {
+        val (hfov, zoom) = opticsProvider?.invoke() ?: return
+        val heading = headingAt?.invoke(timestampUs) ?: 0.0
+        val cam = com.surfcam.core.geometry.CameraModel(WIDTH, HEIGHT, hfov)
+        val blob = markerColor?.let { converter.findMarkerBlob(it) }
+        val frame = com.surfcam.core.model.Frame(
+            timeUs = timestampUs,
+            headingDeg = heading,
+            camera = cam,
+            zoom = zoom,
+            detections = detections.map {
+                com.surfcam.core.model.Detection(
+                    com.surfcam.core.model.Box(it.box.left.toDouble(), it.box.top.toDouble(), it.box.right.toDouble(), it.box.bottom.toDouble()),
+                    it.confidence.toDouble(),
+                    if (it.wearsMarker) 0.01 else 0.0,
+                )
+            },
+            blobs = blob?.let { listOf(com.surfcam.core.model.MarkerBlob(it.first * WIDTH.toDouble(), it.second * HEIGHT.toDouble(), it.third)) } ?: emptyList(),
+        )
+        journal?.let { w -> synchronized(w) { com.surfcam.core.journal.FrameJournal.writeFrame(w, frame) } }
+        val nowHeading = headingAt?.invoke(SystemClock.elapsedRealtimeNanos() / 1_000) ?: heading
+        val out = b.onFrame(frame, nowHeading)
+        out.rideEvent?.let { e ->
+            val text = when (e) {
+                is com.surfcam.core.ride.RideEvent.Started -> "départ piste #${e.trackId} : vitesse %.1f corps/s, rapport h/l %.2f".format(e.triggerSpeed, e.triggerAspect)
+                is com.surfcam.core.ride.RideEvent.Ended -> "fin piste #${e.trackId} : ${if (e.kept) "gardée" else "rejetée"} · ${e.reason} · debout %.0f %%".format(100 * e.features.standingShare)
+            }
+            com.surfcam.app.data.engine.SessionLog.ev("vague", text)
+            journal?.let { w -> synchronized(w) { com.surfcam.core.journal.FrameJournal.writeEvent(w, timestampUs, "vague", text) } }
+        }
+        for (a in out.clipActions) {
+            listener.onClipAction(
+                when (a) {
+                    is com.surfcam.core.clip.ClipAction.Start -> ClipAction.Start(a.fromUs - clockOffsetUs)
+                    is com.surfcam.core.clip.ClipAction.Hold -> ClipAction.Hold(a.atUs - clockOffsetUs)
+                    is com.surfcam.core.clip.ClipAction.Stop -> ClipAction.Stop(a.atUs - clockOffsetUs)
+                    com.surfcam.core.clip.ClipAction.Resume -> ClipAction.Resume
+                    is com.surfcam.core.clip.ClipAction.Discard -> {
+                        listener.onRejectStats(null)
+                        ClipAction.Discard
+                    }
+                },
+            )
+        }
+        listener.onBrain(out)
+        val boxes = out.tracks.filter { it.isVisibleAt(timestampUs) }.mapNotNull { t ->
+            val p = t.points.lastOrNull() ?: return@mapNotNull null
+            val cx = cam.xForAzimuthOffset(p.azimuthDeg - heading)
+            val cy = cam.yForElevationOffset(p.elevationDeg)
+            val w = cam.degToPx(p.widthDeg) / 2
+            val h = cam.degToPx(p.heightDeg) / 2
+            OverlayBox(((cx - w) / WIDTH).toFloat(), ((cy - h) / HEIGHT).toFloat(), ((cx + w) / WIDTH).toFloat(), ((cy + h) / HEIGHT).toFloat(), t.id, t.id == out.ridingTrackId, t.isUser)
+        }
+        listener.onSnapshot(
+            AnalysisSnapshot(
+                boxes = boxes,
+                inferenceMs = SystemClock.elapsedRealtime() - startedMs,
+                riding = out.ridingTrackId != null,
+                recording = b.clips.isRecording,
+                frames = frames,
+                personsInFrame = detections.size,
+                bestConfidence = detections.maxOfOrNull { it.confidence } ?: 0f,
+                thumbnail = thumbnail,
+                clockOffsetMs = clockOffsetUs / 1_000,
+                timestampUs = timestampUs,
+                blobX = blob?.first ?: -1f,
+                blobY = blob?.second ?: -1f,
+                blobCount = blob?.third ?: 0,
+                maxSpeedBodyPerSec = out.tracks.filter { it.isVisibleAt(timestampUs) }.maxOfOrNull { it.speedBodyPerSec.toFloat() } ?: 0f,
+            ),
+        )
     }
 
     private fun fail(stage: String, t: Throwable) {

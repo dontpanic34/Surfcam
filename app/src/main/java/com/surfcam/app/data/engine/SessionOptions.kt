@@ -38,7 +38,8 @@ data class SessionOptions(
     /** Couleur du manchon que l'utilisateur porte pour être repéré parmi les surfeurs ; null = aucune. */
     val markerColor: com.surfcam.app.domain.detection.MarkerColor? = null,
 ) {
-    val lens: Lens get() = if (tele || subject == Subject.ME) Lens.TELE else Lens.MAIN
+    // Objectif principal (caméra logique) par défaut : le nouveau pilote dézoome pour chercher puis zoome sans coupure.
+    val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
 
     /** Place approximative prise par une heure de session complète, en Go (débit vidéo × 3600 s). */
     fun gigabytesPerHour(): Int {
