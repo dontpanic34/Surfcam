@@ -51,6 +51,9 @@ class StorageTarget(context: Context) {
         manager.storageVolumes.firstOrNull { it.mediaStoreVolumeName == volumeName }?.let(::labelOf) ?: "Support retiré"
 
     /** Espace libre du volume courant ; null si inconnu. */
+    /** Espace libre du téléphone, où les fichiers sont d'abord écrits avant d'être envoyés sur la carte ; null si inconnu. */
+    fun phoneFreeBytes(): Long? = freeOf(manager.storageVolumes.firstOrNull { it.isPrimary })
+
     fun freeBytes(): Long? = freeOf(manager.storageVolumes.firstOrNull { it.mediaStoreVolumeName == volume })
 
     /** Le volume courant est-il toujours monté ? Faux = carte retirée ou câble débranché pour de bon. */

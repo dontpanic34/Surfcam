@@ -111,6 +111,7 @@ class RecordingEngine(private val context: Context) {
 
     init {
         com.surfcam.app.data.storage.StorageDiag.init(context)
+        com.surfcam.app.data.storage.SdMover.resume(context)
     }
 
     private val _state = MutableStateFlow(EngineState())
@@ -238,9 +239,10 @@ class RecordingEngine(private val context: Context) {
             SessionLog.ev("stockage", "support choisi : ${options.storage} (${storage.labelOf(options.storage)}) · supports montés : ${storage.available().joinToString { it.name + " = " + it.label }}")
             null
         } else {
-            storage.select(StorageTarget.PHONE)
-            SessionLog.ev("stockage", "SUPPORT CHOISI ABSENT (${options.storage}) : enregistrement sur le téléphone · supports montés : ${storage.available().joinToString { it.name + " = " + it.label }}")
-            "Le support choisi n'est pas branché : enregistrement sur le téléphone"
+            // La carte n'est pas prête : on filme quand même, les fichiers attendent sur le téléphone puis partent sur la carte (SdMover).
+            storage.select(options.storage)
+            SessionLog.ev("stockage", "SUPPORT CHOISI PAS PRÊT (${options.storage}) : les fichiers seront écrits sur le téléphone puis envoyés sur la carte dès qu'elle sera là · supports montés : ${storage.available().joinToString { it.name + " = " + it.label }}")
+            "La carte n'est pas prête : les vidéos sont gardées sur le téléphone puis envoyées sur la carte dès qu'elle revient"
         }
         _state.value = EngineState(
             phase = Phase.STARTING,
@@ -752,7 +754,7 @@ class RecordingEngine(private val context: Context) {
     // ------------------------------------------------------------------------------------------
 
     // Espace libre du support d'enregistrement ; s'il est inconnu, on ne bloque pas (une erreur d'écriture le dira).
-    private fun freeBytes(): Long = storage.freeBytes() ?: Long.MAX_VALUE
+    private fun freeBytes(): Long = (if (storage.isExternal) storage.phoneFreeBytes() else storage.freeBytes()) ?: Long.MAX_VALUE
 
     private fun startSafetyChecks() {
         safetyRunning = true

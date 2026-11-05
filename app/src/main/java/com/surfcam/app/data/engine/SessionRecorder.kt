@@ -3,6 +3,7 @@ package com.surfcam.app.data.engine
 import android.content.Context
 import android.media.MediaFormat
 import com.surfcam.app.data.storage.ClipWriter
+import com.surfcam.app.data.storage.SdMover
 import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.model.EncodedSample
 import com.surfcam.app.domain.naming.VideoNaming
@@ -31,6 +32,8 @@ class SessionRecorder(
     private var parts = 0
     private var failed = false
     private var retries = 0
+    private var currentPartName = ""
+    private var currentFinalVolume = StorageTarget.PHONE
     private var retryAfterUs = Long.MIN_VALUE
 
     fun onSample(sample: EncodedSample) {
@@ -52,18 +55,17 @@ class SessionRecorder(
             if (dueForNewSegment) {
                 if (!sample.isKeyFrame) return
                 closeWriter()
-                val free = target.freeBytes()
+                val free = target.phoneFreeBytes()
                 if (free != null && free < MIN_FREE_BYTES) {
                     failed = true
                     onEvent(parts, "Espace insuffisant : l'enregistrement complet est arrêté (les clips continuent)")
                     return
                 }
-                if (target.isExternal && !target.awaitVolumeReady()) {
-                    SessionLog.ev("stockage", "le volume ${target.volume} n'est pas connu de MediaStore après 5 s (lecteur USB en réinitialisation ?)")
-                }
                 parts++
                 val partName = VideoNaming.sessionPartName(System.currentTimeMillis(), parts)
-                writer = ClipWriter(context, fmt, orientationHint, partName, target.volume)
+                writer = ClipWriter(context, fmt, orientationHint, partName, StorageTarget.PHONE)
+                currentPartName = partName
+                currentFinalVolume = target.volume
                 SessionLog.noteFile(context, partName)
                 segmentStartUs = sample.ptsUs
                 retries = 0
@@ -76,29 +78,17 @@ class SessionRecorder(
             } catch (_: Exception) {
             }
             writer = null
-            if (target.isExternal && retries < MAX_RETRIES) {
-                // Panne passagère (lecteur USB qui se réinitialise et se remonte quelques secondes plus tard) : on attend et on réessaie plutôt que d'abandonner la carte.
-                retries++
-                retryAfterUs = sample.ptsUs + RETRY_DELAY_US
-                SessionLog.ev("stockage", "écriture de la session impossible (${e.javaClass.simpleName}: ${e.message}) : nouvel essai $retries/$MAX_RETRIES dans 3 s")
-                return
-            }
-            if (target.isExternal) {
-                // Carte retirée, câble débranché ou écriture trop lente : on continue sur le téléphone, au prochain segment.
-                val why = target.describeFailure(e)
-                SessionLog.ev("stockage", "écriture de la session interrompue : $why")
-                target.fallBackToPhone("$why : la session continue sur le téléphone")
-                onEvent(parts, "$why : la session continue sur le téléphone")
-            } else {
-                failed = true
-                onEvent(parts, "Enregistrement complet interrompu : ${e.message}")
-            }
+            // L'écriture se fait sur le téléphone (la copie vers la carte est faite à part par SdMover) : une erreur ici est locale.
+            SessionLog.ev("stockage", "écriture de la session interrompue : ${e.javaClass.simpleName} ${e.message}")
+            failed = true
+            onEvent(parts, "Enregistrement complet interrompu : ${e.message}")
         }
     }
 
     private fun closeWriter() {
-        writer?.close()
+        val saved = writer?.close()
         writer = null
+        if (saved != null) SdMover.enqueue(context, saved.uri, saved.name + ".mp4", currentFinalVolume, "Movies/SurfCam")
     }
 
     private companion object {

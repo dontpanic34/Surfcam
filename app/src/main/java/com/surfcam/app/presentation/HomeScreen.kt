@@ -126,6 +126,7 @@ fun HomeScreen(
     val exporter = remember { com.surfcam.app.data.library.Exporter(context) }
     var showExport by remember { mutableStateOf(false) }
     var showDiag by remember { mutableStateOf(false) }
+    val waitingForCard by produceState(0) { while (true) { value = com.surfcam.app.data.storage.SdMover.pendingCount(context); delay(3_000) } }
     var sdDeclined by remember { mutableStateOf(setOf<String>()) }
     val sdOffer = if (running) null else storages.firstOrNull { it.removable && it.name != options.storage && it.name !in sdDeclined }
     val rejectCount by produceState(0, running) { value = withContext(Dispatchers.IO) { VideoLibrary(context).listRejected().size } }
@@ -181,9 +182,8 @@ fun HomeScreen(
                 confirmButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showSdBlock = false
-                        onOptionsChange(options.copy(storage = com.surfcam.app.data.storage.StorageTarget.PHONE))
                         openCamera()
-                    }) { Text("Filmer sur le téléphone") }
+                    }) { Text("Filmer quand même") }
                 },
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = { showSdBlock = false; recheck++ }) { Text("Réessayer") }
@@ -334,6 +334,9 @@ fun HomeScreen(
                     )
                 }
 
+                if (waitingForCard > 0) {
+                    Text("$waitingForCard fichier(s) en cours d'envoi vers la carte (ils restent sur le téléphone tant que la copie n'est pas vérifiée)", color = SurfColors.Warn, fontSize = 12.sp)
+                }
                 if (!running && (external || storages.any { it.removable })) {
                     Text(
                         "Diagnostic de la carte SD (état, test d'écriture, journal)",

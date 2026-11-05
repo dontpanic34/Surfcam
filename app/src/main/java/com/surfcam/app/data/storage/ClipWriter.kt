@@ -11,7 +11,7 @@ import android.provider.MediaStore
 import com.surfcam.app.domain.model.EncodedSample
 import java.nio.ByteBuffer
 
-data class SavedClip(val name: String, val durationSec: Float, val sizeBytes: Long)
+data class SavedClip(val name: String, val durationSec: Float, val sizeBytes: Long, val uri: android.net.Uri? = null)
 
 /**
  * Écrit des images déjà encodées dans un MP4, sans réencoder, dans Movies/SurfCam (visible dans la galerie).
@@ -94,7 +94,7 @@ class ClipWriter(
             return try {
                 resolver.update(uri, moved, null, null)
                 val size = resolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
-                SavedClip(rejectedAs, lastUs / 1_000_000f, size)
+                SavedClip(rejectedAs, lastUs / 1_000_000f, size, uri)
             } catch (_: Exception) {
                 resolver.delete(uri, null, null)
                 null
@@ -107,6 +107,6 @@ class ClipWriter(
         val values = ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }
         resolver.update(uri, values, null, null)
         val size = resolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
-        return SavedClip(name, lastUs / 1_000_000f, size)
+        return SavedClip(name, lastUs / 1_000_000f, size, uri)
     }
 }

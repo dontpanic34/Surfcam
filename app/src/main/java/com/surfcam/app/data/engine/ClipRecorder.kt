@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaFormat
 import com.surfcam.app.data.storage.ClipWriter
 import com.surfcam.app.data.storage.SavedClip
+import com.surfcam.app.data.storage.SdMover
 import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
 import com.surfcam.app.domain.model.EncodedSample
@@ -49,6 +50,7 @@ class ClipRecorder(
     // Touché uniquement depuis le thread de l'exécuteur.
     private var writer: ClipWriter? = null
     private var currentStartedAtMs = 0L
+    private var currentFinalVolume = StorageTarget.PHONE
     private var rejectCounter = 0
 
     /** Garder à part les clips rejetés au lieu de les supprimer. */
@@ -101,19 +103,13 @@ class ClipRecorder(
         val startedAtMs = System.currentTimeMillis() - ((newest - snapshot.first().ptsUs) / 1_000L)
         val baseName = VideoNaming.clipName(startedAtMs, waveNumber)
         currentStartedAtMs = startedAtMs
+        currentFinalVolume = target.volume
         active = true
         executor.execute {
             try {
-                if (target.isExternal) target.awaitVolumeReady()
-                val w = try {
-                    ClipWriter(context, fmt, orientationHint, baseName, target.volume)
-                } catch (e: Exception) {
-                    SessionLog.ev("stockage", "ouverture du clip impossible sur ${target.volume} : ${e.javaClass.simpleName} ${e.message}")
-                    if (!target.isExternal) throw e
-                    // Support externe indisponible : le clip est écrit sur le téléphone, rien n'est perdu.
-                    target.fallBackToPhone("${target.describeFailure(e)} : les vidéos sont enregistrées sur le téléphone")
-                    ClipWriter(context, fmt, orientationHint, baseName, target.volume)
-                }
+                // Avec une carte choisie, le clip est d'abord écrit sur le téléphone (jamais interrompu par le bus USB), puis envoyé
+                // sur la carte en arrière-plan par SdMover.
+                val w = ClipWriter(context, fmt, orientationHint, baseName, StorageTarget.PHONE)
                 writer = w
                 snapshot.forEach { w.write(it) }
             } catch (e: Exception) {
@@ -155,10 +151,15 @@ class ClipRecorder(
                 try {
                     if (discard && keepRejected) {
                         val kept = w.close(true, VideoNaming.rejectName(currentStartedAtMs, ++rejectCounter))
-                        if (kept != null) onRejected(kept)
+                        if (kept != null) {
+                            SdMover.enqueue(context, kept.uri, kept.name + ".mp4", currentFinalVolume, "Movies/SurfCam/Rejets")
+                            onRejected(kept)
+                        }
                         onResult(null, null)
                     } else {
-                        onResult(w.close(discard), null)
+                        val saved = w.close(discard)
+                        if (saved != null) SdMover.enqueue(context, saved.uri, saved.name + ".mp4", currentFinalVolume, "Movies/SurfCam")
+                        onResult(saved, null)
                     }
                 } catch (e: Exception) {
                     onResult(null, "Clip non finalisé : ${e.message}")
