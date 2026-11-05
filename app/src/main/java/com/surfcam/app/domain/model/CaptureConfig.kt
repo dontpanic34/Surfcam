@@ -7,8 +7,11 @@ data class CaptureConfig(
     val fps: Int,
     val bitrate: Int,
     val bufferWindowSec: Int = BUFFER_WINDOW_SEC,
-    /** Image clé toutes les 0,5 s : clips plus précis au démarrage et défilement plus fluide dans le lecteur. */
-    val keyFrameIntervalSec: Float = 0.5f,
+    /**
+     * Image clé toutes les 2 s : à débit constant, une image clé toutes les 0,5 s mangeait le budget des autres images et la
+     * qualité « respirait » deux fois par seconde. Le tampon (10 s) couvre la marge avant (5 s) plus 2 s jusqu'à l'image clé.
+     */
+    val keyFrameIntervalSec: Float = 2f,
     /** Vidéo HDR 10 bits HLG (profil HEVC Main 10, couleurs BT.2020). */
     val tenBit: Boolean = false,
 ) {

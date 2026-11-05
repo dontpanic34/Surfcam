@@ -245,8 +245,9 @@ class Camera2Source(context: Context) {
         val bitrate = when {
             size.width >= 3840 && fps >= 60 -> 100_000_000
             size.width >= 3840 -> 80_000_000
-            fps >= 60 -> 50_000_000
-            else -> 32_000_000
+            // 1080p : débit relevé (l'écume et l'eau en mouvement sont très coûteuses à coder ; 32 Mb/s donnait des blocs).
+            fps >= 60 -> 70_000_000
+            else -> 50_000_000
         }
         val zoomRange = if (lens == Lens.TELE) null else chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
         val useCases = chars.get(CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES)
