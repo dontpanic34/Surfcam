@@ -104,6 +104,7 @@ class Camera2Source(context: Context) {
     private var useStreamUseCases = false
     private var retriedWithoutUseCases = false
     private var lastLensInfo = ""
+    private var digitalAtTeleSinceMs = 0L
 
     private var zoom = 1f
     private var lastOptical: Boolean? = null
@@ -353,6 +354,15 @@ class Camera2Source(context: Context) {
             zoom = ratio
             // Hystérésis : on monte sur le télé à ×5, on ne redescend que sous ×4,6 ; et jamais deux changements en moins
             // d'une seconde et demie. Sans cela, un pincement qui hésite autour de ×5 recréerait la session en boucle.
+            if (SEAMLESS_ZOOM && teleActive && ratio < TELEPHOTO_RELEASE && device != null && !closed) {
+                // Téléobjectif forcé et on dézoome : retour à la caméra logique (zoom continu).
+                teleActive = false
+                physicalId = null
+                lastLensSwitchMs = android.os.SystemClock.elapsedRealtime()
+                unlock()
+                createSession()
+                return@post
+            }
             val wantTele = teleSwitchAllowed && (if (teleActive) ratio >= TELEPHOTO_RELEASE else ratio >= TELEPHOTO_SWITCH)
             val now = android.os.SystemClock.elapsedRealtime()
             if (wantTele != teleActive && device != null && !closed && now - lastLensSwitchMs >= MIN_SWITCH_GAP_MS) {
@@ -673,7 +683,38 @@ class Camera2Source(context: Context) {
         val active = result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID)
         // Téléobjectif demandé mais autre objectif actif : on est en train de recadrer l'objectif principal.
         val tele = telePhysicalId
+        // Garantie du téléobjectif optique : en zoom continu, si le téléphone reste sur l'objectif principal (recadrage
+        // numérique) plus d'une seconde alors qu'on demande ×5 ou plus, on ouvre directement le téléobjectif.
+        if (SEAMLESS_ZOOM && !teleActive && tele != null && zoom >= TELEPHOTO_SWITCH - 0.05f) {
+            val nowMs = android.os.SystemClock.elapsedRealtime()
+            if (active == tele) {
+                digitalAtTeleSinceMs = 0L
+            } else {
+                if (digitalAtTeleSinceMs == 0L) digitalAtTeleSinceMs = nowMs
+                if (nowMs - digitalAtTeleSinceMs > 1_000L && !closed && device != null) {
+                    digitalAtTeleSinceMs = 0L
+                    com.surfcam.app.data.engine.SessionLog.ev("objectif", "×5 demandé mais objectif actif $active (numérique) : ouverture forcée du téléobjectif optique $tele")
+                    handler.post {
+                        teleActive = true
+                        physicalId = tele
+                        lastLensSwitchMs = android.os.SystemClock.elapsedRealtime()
+                        unlock()
+                        createSession()
+                    }
+                }
+            }
+        } else {
+            digitalAtTeleSinceMs = 0L
+        }
         val ok = !(teleActive && active != null && tele != null && active != tele)
+        if (SEAMLESS_ZOOM && !teleActive) {
+            // Zoom continu : optique seulement à ×1 sur le principal ou à ×5 quand le téléphone est réellement sur le télé.
+            val nowOptical = zoom <= 1.01f || (tele != null && active == tele && kotlin.math.abs(zoom - TELEPHOTO_SWITCH) < 0.06f)
+            if (nowOptical != zoomOptical) {
+                zoomOptical = nowOptical
+                emitOptical()
+            }
+        }
         if (ok != lensOk) {
             lensOk = ok
             emitOptical()

@@ -141,7 +141,7 @@ fun HomeScreen(
         val leveler = HorizonLeveler(link, gp)
         val needLandscape = upright == true && !gp.getBoolean("landscapeFailed", false)
         val angle = horizon
-        val needLevel = angle != null && abs(angle) > 0.8f && !gp.getBoolean("rollFailed", false)
+        val needLevel = angle != null && abs(angle) > 0.3f
         if (gimbalState.connected && (needLandscape || needLevel)) {
             leveling = true
             notice = null
@@ -150,9 +150,10 @@ fun HomeScreen(
                     gp.edit().putBoolean("landscapeFailed", true).apply()
                     notice = "Le gimbal n'a pas tourné en paysage : fais un double appui sur son bouton M."
                 }
-                if (horizon?.let { abs(it) > 0.8f } == true && !gp.getBoolean("rollFailed", false)) {
-                    leveler.run { horizon }
-                    if (abs(leveler.lastEndDeg ?: 0f) > 1.5f) gp.edit().putBoolean("rollFailed", true).apply()
+                if (horizon?.let { abs(it) > 0.3f } == true) {
+                    val lines = ArrayList<String>()
+                    notice = leveler.run({ horizon }) { lines += it }
+                    gp.edit().putString("lastLeveling", lines.joinToString("\n")).apply()
                 }
                 leveling = false
                 onOpenCamera()

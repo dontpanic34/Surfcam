@@ -668,6 +668,7 @@ class RecordingEngine(private val context: Context) {
             _state.update { it.copy(gimbalStatus = null, followEnabled = false) }
         }
         setupBrain(options)
+        context.getSharedPreferences("gimbal", Context.MODE_PRIVATE).getString("lastLeveling", null)?.lines()?.forEach { SessionLog.ev("niveau", it) }
         source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }

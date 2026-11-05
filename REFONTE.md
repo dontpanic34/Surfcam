@@ -51,6 +51,14 @@
 - CI `build-surfcam2.yml` : APK « SurfCam 2 » dans la release `surfcam2-latest` à chaque envoi sur la branche.
 - Pas encore : nouvelle interface, mise à niveau (roulis), batterie, rejeu banc d'un journal réel.
 
+## 05/11, 23h10
+- ×5 optique garanti : en zoom continu, si l'objectif actif n'est pas le télé à ×5 pendant plus d'1 s, ouverture forcée du
+  téléobjectif physique (coupure possible seulement dans ce cas, écrite au rapport). Badge « optique/numérique » vrai.
+- Mise à niveau : HorizonLeveler en boucle fermée (mesure médiane gimbal immobile, sens et amplitude appris, arrêt < 0,3°,
+  vérification de tenue à 3 s, plus de rollFailed définitif) ; étapes écrites au rapport de la session suivante.
+- Interface : CameramanHud sur l'image (horizon artificiel, état du pilote, objectif optique/numérique, REC).
+  La refonte visuelle des autres écrans reste à faire.
+
 ## Reste à faire
 1. Brancher `:core` dans l'appli : remplacer SurferTracker/WaveDetector/ClipPlanner/GimbalFollower par SurfBrain dans
    AnalysisPipeline + RecordingEngine (cap via GyroYaw.timeline.at(horodatage image), vérifier la base de temps caméra),

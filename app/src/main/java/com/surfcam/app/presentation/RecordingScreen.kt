@@ -224,6 +224,8 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             },
         )
 
+        CameramanHud(state, Modifier.matchParentSize())
+
         // Pincement à deux doigts : zoom continu, comme dans l'appareil photo.
         val currentZoom by rememberUpdatedState(state.zoom)
         // Toucher l'image : mise au point sur ce point (anneau affiché 1,5 s).

@@ -125,7 +125,7 @@ fun GimbalScreen(onBack: () -> Unit) {
         leveling = true
         report = "Redressement de l'horizon…"
         scope.launch {
-            report = com.surfcam.app.data.gimbal.HorizonLeveler(link, prefs).run { horizon }
+            report = com.surfcam.app.data.gimbal.HorizonLeveler(link, prefs).run({ horizon })
             leveling = false
         }
     }
