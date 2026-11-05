@@ -62,6 +62,40 @@ class StorageTarget(context: Context) {
         return if (isVolumeMounted()) "Écriture impossible sur le support externe, toujours branché ($detail)" else "Support externe retiré ($detail)"
     }
 
+    /**
+     * Vérifie qu'on peut vraiment créer et écrire un fichier vidéo sur [volumeName] (2 Mo, effacés ensuite), exactement comme le
+     * fera l'enregistrement. Renvoie null si tout va bien, sinon le message de l'erreur.
+     */
+    fun testWrite(volumeName: String): String? {
+        if (volumeName != PHONE && !awaitKnown(volumeName, 4_000L)) return "Le support n'est pas (encore) connu du système de médias : débranche et rebranche le lecteur, puis réessaie."
+        val resolver = appContext.contentResolver
+        val values = android.content.ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, "surfcam-test.mp4")
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SurfCam")
+            put(MediaStore.Video.Media.IS_PENDING, 1)
+        }
+        var uri: Uri? = null
+        return try {
+            uri = resolver.insert(videoUri(volumeName), values) ?: return "Impossible de créer un fichier sur ce support."
+            resolver.openOutputStream(uri, "w")?.use { it.write(ByteArray(2 * 1024 * 1024)) } ?: return "Impossible d'ouvrir le fichier en écriture."
+            null
+        } catch (e: Exception) {
+            "${e.javaClass.simpleName} : ${e.message}"
+        } finally {
+            uri?.let { try { resolver.delete(it, null, null) } catch (_: Exception) {} }
+        }
+    }
+
+    private fun awaitKnown(volumeName: String, timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (!isKnownToMediaStore(volumeName)) {
+            if (System.currentTimeMillis() >= deadline) return false
+            try { Thread.sleep(250) } catch (_: InterruptedException) { return false }
+        }
+        return true
+    }
+
     /** MediaStore connaît-il ce volume pour l'instant ? (Un support peut être « monté » pour Android mais pas encore pour MediaStore.) */
     fun isKnownToMediaStore(volumeName: String = volume): Boolean =
         volumeName == PHONE || MediaStore.getExternalVolumeNames(appContext).contains(volumeName)

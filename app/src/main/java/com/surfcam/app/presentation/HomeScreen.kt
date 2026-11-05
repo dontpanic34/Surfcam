@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -109,6 +110,21 @@ fun HomeScreen(
             delay(3_000)
         }
     }
+    // Vérification réelle de l'écriture sur le support choisi (une carte « branchée » peut refuser d'écrire).
+    val external = options.storage != com.surfcam.app.data.storage.StorageTarget.PHONE
+    var storageProblem by remember { mutableStateOf<String?>(null) }
+    var storageChecking by remember { mutableStateOf(false) }
+    var recheck by remember { mutableStateOf(0) }
+    var showSdBlock by remember { mutableStateOf(false) }
+    LaunchedEffect(options.storage, recheck, storages.any { it.name == options.storage }, running) {
+        if (running || !external) { storageProblem = null; return@LaunchedEffect }
+        storageChecking = true
+        storageProblem = if (storages.none { it.name == options.storage }) "la carte n'est pas branchée ou pas montée"
+        else withContext(Dispatchers.IO) { engine.storage.testWrite(options.storage) }
+        storageChecking = false
+    }
+    val exporter = remember { com.surfcam.app.data.library.Exporter(context) }
+    var showExport by remember { mutableStateOf(false) }
     var sdDeclined by remember { mutableStateOf(setOf<String>()) }
     val sdOffer = if (running) null else storages.firstOrNull { it.removable && it.name != options.storage && it.name !in sdDeclined }
     val rejectCount by produceState(0, running) { value = withContext(Dispatchers.IO) { VideoLibrary(context).listRejected().size } }
@@ -156,6 +172,24 @@ fun HomeScreen(
 
     SurfCamTheme {
         if (crashReport != null) CrashDialog(crashReport, onDismissCrash)
+        if (showSdBlock) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showSdBlock = false },
+                title = { Text(if (storageChecking) "Vérification de la carte…" else "La carte n'est pas prête") },
+                text = { Text(if (storageChecking) "Patiente un instant, puis réessaie." else "Impossible d'écrire sur le support choisi : ${storageProblem ?: "inconnu"}.\n\nSi tu filmes quand même, les vidéos iront sur la mémoire du téléphone.") },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showSdBlock = false
+                        onOptionsChange(options.copy(storage = com.surfcam.app.data.storage.StorageTarget.PHONE))
+                        openCamera()
+                    }) { Text("Filmer sur le téléphone") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showSdBlock = false; recheck++ }) { Text("Réessayer") }
+                },
+            )
+        }
+        if (showExport) ExportDialog(exporter = exporter, onClose = { showExport = false })
         if (sdOffer != null) {
             val free = sdOffer.freeBytes?.let { " (${it / 1_000_000_000L} Go libres)" } ?: ""
             androidx.compose.material3.AlertDialog(
@@ -284,11 +318,25 @@ fun HomeScreen(
                     }
                 }
 
+                if (!running && external) {
+                    val sdLabel = storages.firstOrNull { it.name == options.storage }?.label ?: "Carte SD"
+                    val ok = !storageChecking && storageProblem == null
+                    Text(
+                        when {
+                            storageChecking -> "Vérification de l'écriture sur « $sdLabel »…"
+                            ok -> "✓ « $sdLabel » : écriture vérifiée"
+                            else -> "⚠ « $sdLabel » : $storageProblem · toucher pour réessayer"
+                        },
+                        color = if (ok) SurfColors.Ok else SurfColors.Warn, fontSize = 12.sp,
+                        modifier = Modifier.fillMaxWidth().clickable { recheck++ },
+                    )
+                }
+
                 // Le geste principal.
                 if (running) {
                     BigButton("Retourner à la caméra", "Session en cours", enabled = true, onClick = onOpenCamera)
                 } else {
-                    BigButton(if (leveling) "Redressement du gimbal…" else "Filmer", "$qualityName · $whoName · $gimbalName", enabled = !leveling, onClick = openCamera)
+                    BigButton(if (leveling) "Redressement du gimbal…" else "Filmer", "$qualityName · $whoName · $gimbalName", enabled = !leveling, onClick = { if (external && (storageChecking || storageProblem != null)) showSdBlock = true else openCamera() })
                     notice?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
                 }
 
@@ -353,6 +401,9 @@ fun HomeScreen(
                     OutlinedButton(onClick = onOpenRejects, modifier = Modifier.fillMaxWidth()) {
                         Text("Vagues rejetées ($rejectCount) : récupérer les bonnes")
                     }
+                }
+                if (!running) {
+                    OutlinedButton(onClick = { showExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Exporter mes vagues (avec leurs rapports)") }
                 }
                 if (!running && SessionShare.available(context)) {
                     var shareNote by remember { mutableStateOf<String?>(null) }
@@ -439,4 +490,51 @@ private fun Segmented(items: List<Triple<String, String, String>>, selected: Str
             }
         }
     }
+}
+
+/** Exporte les vagues, avec leurs rapports, dans le dossier choisi (carte SD, dossier synchronisé, clé USB…). */
+@Composable
+private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClose: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var folder by remember { mutableStateOf(exporter.folderLabel()) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var working by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf("") }
+    val library = remember { VideoLibrary(context) }
+    val all by produceState<List<com.surfcam.app.data.library.LibraryVideo>>(emptyList()) { value = withContext(Dispatchers.IO) { library.list() } }
+    val pending = exporter.pending(all)
+    val last = exporter.lastSession(all)
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) { exporter.setFolder(uri); folder = exporter.folderLabel() }
+    }
+    fun run(list: List<com.surfcam.app.data.library.LibraryVideo>) {
+        if (working || list.isEmpty()) return
+        working = true
+        scope.launch {
+            message = withContext(Dispatchers.IO) { exporter.export(list) { i, n -> progress = "Export : $i sur $n…" } }
+            working = false
+            progress = ""
+        }
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!working) onClose() },
+        title = { Text("Exporter mes vagues") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Dossier d'export : ${folder ?: "pas encore choisi"}", fontSize = 13.sp)
+                OutlinedButton(onClick = { pick.launch(null) }, enabled = !working) { Text(if (folder == null) "Choisir le dossier" else "Changer de dossier") }
+                Text("Chaque vague est copiée avec son rapport du même nom ; le rapport de la session est ajouté une fois.", fontSize = 12.sp, color = SurfColors.Muted)
+                Button(onClick = { run(pending) }, enabled = !working && folder != null && pending.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                    Text("Exporter les vagues pas encore exportées (${pending.size})", fontSize = 13.sp)
+                }
+                OutlinedButton(onClick = { run(last) }, enabled = !working && folder != null && last.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                    Text("Exporter la dernière session (${last.size})", fontSize = 13.sp)
+                }
+                if (progress.isNotEmpty()) Text(progress, fontSize = 12.sp, color = SurfColors.Foam)
+                message?.let { Text(it, fontSize = 12.sp, color = SurfColors.Warn) }
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onClose, enabled = !working) { Text("Fermer") } },
+    )
 }
