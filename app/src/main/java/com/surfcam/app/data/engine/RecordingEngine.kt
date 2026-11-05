@@ -109,6 +109,10 @@ data class EngineState(
  */
 class RecordingEngine(private val context: Context) {
 
+    init {
+        com.surfcam.app.data.storage.StorageDiag.init(context)
+    }
+
     private val _state = MutableStateFlow(EngineState())
     val state: StateFlow<EngineState> = _state.asStateFlow()
 
@@ -268,6 +272,7 @@ class RecordingEngine(private val context: Context) {
             }
             camera = source
             beginBatteryLog()
+            if (options.storage != StorageTarget.PHONE) com.surfcam.app.data.storage.StorageDiag.monitor(context, options.storage, 90)
             startSafetyChecks()
         } catch (e: Throwable) {
             source?.release()

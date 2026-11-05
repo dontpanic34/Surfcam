@@ -125,6 +125,7 @@ fun HomeScreen(
     }
     val exporter = remember { com.surfcam.app.data.library.Exporter(context) }
     var showExport by remember { mutableStateOf(false) }
+    var showDiag by remember { mutableStateOf(false) }
     var sdDeclined by remember { mutableStateOf(setOf<String>()) }
     val sdOffer = if (running) null else storages.firstOrNull { it.removable && it.name != options.storage && it.name !in sdDeclined }
     val rejectCount by produceState(0, running) { value = withContext(Dispatchers.IO) { VideoLibrary(context).listRejected().size } }
@@ -190,6 +191,7 @@ fun HomeScreen(
             )
         }
         if (showExport) ExportDialog(exporter = exporter, onClose = { showExport = false })
+        if (showDiag) StorageDiagDialog(volumeName = storages.firstOrNull { it.name == options.storage && external }?.name ?: storages.firstOrNull { it.removable }?.name, onClose = { showDiag = false })
         if (sdOffer != null) {
             val free = sdOffer.freeBytes?.let { " (${it / 1_000_000_000L} Go libres)" } ?: ""
             androidx.compose.material3.AlertDialog(
@@ -329,6 +331,14 @@ fun HomeScreen(
                         },
                         color = if (ok) SurfColors.Ok else SurfColors.Warn, fontSize = 12.sp,
                         modifier = Modifier.fillMaxWidth().clickable { recheck++ },
+                    )
+                }
+
+                if (!running && (external || storages.any { it.removable })) {
+                    Text(
+                        "Diagnostic de la carte SD (état, test d'écriture, journal)",
+                        color = SurfColors.Aqua, fontSize = 12.sp,
+                        modifier = Modifier.fillMaxWidth().clickable { showDiag = true }.padding(vertical = 4.dp),
                     )
                 }
 
