@@ -63,6 +63,7 @@ fun RejectsScreen(library: VideoLibrary, learning: LearningRepository, onBack: (
     var message by remember { mutableStateOf<String?>(null) }
     var confirmAll by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     fun reload(then: () -> Unit = {}) {
         scope.launch {
@@ -138,7 +139,10 @@ fun RejectsScreen(library: VideoLibrary, learning: LearningRepository, onBack: (
                             Button(onClick = {
                                 scope.launch {
                                     val name = withContext(Dispatchers.IO) { library.promoteRejected(v) }
-                                    if (name != null) withContext(Dispatchers.IO) { learning.markRecovered(v.name, name) }
+                                    if (name != null) withContext(Dispatchers.IO) {
+                                        learning.markRecovered(v.name, name)
+                                        com.surfcam.app.data.engine.SessionLog.recoveredReport(context, v.name, name, v.durationMs / 1000f)
+                                    }
                                     message = if (name != null) "Récupérée : $name (dans Mes vidéos). L'appli retient que c'était une vraie vague pour mieux détecter les suivantes." else "Impossible de récupérer ce clip."
                                     reload()
                                 }

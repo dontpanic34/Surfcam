@@ -131,4 +131,48 @@ object SessionLog {
 
     fun clipReportUris(context: Context): List<Uri> =
         (context.getSharedPreferences("rapport", Context.MODE_PRIVATE).getString("clipReports", "") ?: "").split("|").filter { it.isNotBlank() }.map(Uri::parse)
+
+    /**
+     * Quand l'utilisateur récupère un clip rejeté : un rapport « <nouveau nom> - rapport.txt » qui dit que c'était un rejet de
+     * l'appli récupéré à la main (donc une vraie vague), avec les lignes du rapport de sa session autour de l'heure du clip
+     * (décision, personnes vues, mouvement du gimbal, raison du rejet). Lu dans les rapports gardés sur le téléphone, même si la
+     * session est finie depuis longtemps.
+     */
+    fun recoveredReport(context: Context, rejectName: String, newName: String, durationSec: Float) {
+        try {
+            val start = com.surfcam.app.domain.naming.VideoNaming.rejectStart(rejectName) ?: return
+            val dir = File(context.filesDir, "rapports")
+            val stamp = Regex("""SurfCam-rapport-(\d{4})-(\d{2})-(\d{2})_(\d{2})h(\d{2})\.txt""")
+            val clipStart = start.toLocalDateTime()
+            val source = dir.listFiles()?.mapNotNull { f ->
+                val m = stamp.matchEntire(f.name) ?: return@mapNotNull null
+                val t = java.time.LocalDateTime.of(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt(), m.groupValues[4].toInt(), m.groupValues[5].toInt())
+                if (t <= clipStart.plusMinutes(1)) t to f else null
+            }?.maxByOrNull { it.first }?.second
+            val fromS = start.hour * 3600 + start.minute * 60
+            val toS = fromS + 60 + durationSec.toInt() + 6
+            val excerpt = source?.readLines()?.filter { l ->
+                val m = Regex("""^(\d{2}):(\d{2}):(\d{2})""").find(l) ?: return@filter false
+                val secs = m.groupValues[1].toInt() * 3600 + m.groupValues[2].toInt() * 60 + m.groupValues[3].toInt()
+                secs in fromS..toS
+            }.orEmpty()
+            val body = buildString {
+                append("RAPPORT DU CLIP RÉCUPÉRÉ ${newName.removeSuffix(".mp4")} (%.1f s)\n".format(durationSec))
+                append("L'APPLI AVAIT REJETÉ CE CLIP (nom d'origine : ${rejectName.removeSuffix(".mp4")}) ET L'UTILISATEUR L'A GARDÉ : c'est donc une vraie vague manquée par la détection.\n")
+                append("Extrait du rapport de session ${source?.name ?: "introuvable"} (minute du clip et quelques secondes après).\n\n")
+                excerpt.forEach { append(it).append('\n') }
+            }
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, newName.removeSuffix(".mp4") + " - rapport.txt")
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SurfCam/Rapports")
+            }
+            val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
+            context.contentResolver.openOutputStream(uri)?.use { it.write(body.toByteArray()) }
+            val prefs = context.getSharedPreferences("rapport", Context.MODE_PRIVATE)
+            val list = (prefs.getString("clipReports", "") ?: "").split("|").filter { it.isNotBlank() } + uri.toString()
+            prefs.edit().putString("clipReports", list.joinToString("|")).apply()
+        } catch (_: Exception) {
+        }
+    }
 }
