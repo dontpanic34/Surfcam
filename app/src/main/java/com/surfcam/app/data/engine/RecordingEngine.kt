@@ -478,7 +478,7 @@ class RecordingEngine(private val context: Context) {
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.
         val hint = (probe.sensorOrientation - rotationDegrees + 360) % 360
-        val clips = ClipRecorder(context, buffer, hint, storage, { saved, error -> onClipResult(saved, error) }, { kept -> pendingRejectStats?.let { learning.recordRejected(kept.name, it) }; pendingRejectStats = null; SessionLog.ev("clip", "rejeté (fausse alerte) mais gardé dans « Vagues rejetées » : ${kept.name} (%.1f s, ${kept.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(kept.durationSec)) })
+        val clips = ClipRecorder(context, buffer, hint, storage, { saved, error -> onClipResult(saved, error) }, { kept -> pendingRejectStats?.let { learning.recordRejected(kept.name, it) }; pendingRejectStats = null; SessionLog.clipSaved(context, kept.name, kept.durationSec); SessionLog.ev("clip", "rejeté (fausse alerte) mais gardé dans « Vagues rejetées » : ${kept.name} (%.1f s, ${kept.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(kept.durationSec)) })
         ring = buffer
         recorder = clips
         sampleCount = 0
@@ -1139,6 +1139,7 @@ class RecordingEngine(private val context: Context) {
             }
             val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
             context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+            context.getSharedPreferences("rapport", Context.MODE_PRIVATE).edit().putString("journalUri", uri.toString()).apply()
             SessionLog.ev("journal", "journal de capteurs copié dans Téléchargements/SurfCam/Journaux/${file.name} (${file.length() / 1024} Ko)")
         } catch (e: Exception) {
             SessionLog.ev("journal", "copie du journal impossible : ${e.message}")

@@ -1088,6 +1088,7 @@ private fun GimbalLogSection() {
         if (SessionShare.available(context)) {
             OutlinedButton(onClick = { SessionShare.share(context, withSessionFiles = false) }) { Text("Partager session : rapport + vagues", fontSize = 12.sp) }
             OutlinedButton(onClick = { SessionShare.share(context, withSessionFiles = true) }) { Text("… avec les fichiers de session (gros)", fontSize = 12.sp) }
+            OutlinedButton(onClick = { SessionShare.shareEverything(context) }) { Text("Tout exporter (test) : y compris refusées et journal", fontSize = 12.sp) }
         }
         if (exported != null) {
             OutlinedButton(onClick = {

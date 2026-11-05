@@ -425,6 +425,10 @@ fun HomeScreen(
                         onClick = { shareNote = SessionShare.share(context, withSessionFiles = false) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Partager la dernière session (rapport + vagues)") }
+                    Button(
+                        onClick = { shareNote = SessionShare.shareEverything(context) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Tout exporter (test) : vagues, refusées, session, rapports, journal") }
                     shareNote?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
                 }
 
