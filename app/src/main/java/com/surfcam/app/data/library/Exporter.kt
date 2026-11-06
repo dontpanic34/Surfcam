@@ -102,6 +102,128 @@ class Exporter(context: Context) {
         }
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Tout exporter : vagues, rejets, sessions entières et rapports, rangés en sous-dossiers du dossier d'export
+    // (qui peut être un dossier Google Drive : il apparaît dans le sélecteur de dossier).
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /** Un fichier à envoyer : [folder] est le sous-dossier de destination. */
+    class Item(val folder: String, val name: String, val size: Long, val open: () -> java.io.InputStream?)
+
+    /** Tout ce que l'appli a produit [today] seulement (jour courant) ou depuis toujours, hors fichiers encore en cours d'écriture. */
+    fun everything(today: Boolean): List<Item> {
+        val library = VideoLibrary(appContext)
+        val startOfDay = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        fun inScope(v: LibraryVideo) = !v.pending && (!today || v.modifiedMs >= startOfDay)
+        val items = ArrayList<Item>()
+        val videos = (library.list() + library.listRejected()).filter(::inScope).sortedBy { it.modifiedMs }
+        for (v in videos) {
+            val base = v.name.removeSuffix(".mp4")
+            val folder = when {
+                VideoNaming.isReject(v.name) -> "Rejets"
+                v.isSession || VideoNaming.parse(v.name)?.let { it.isFilm } == true -> "Sessions"
+                isWave(v.name) -> "Vagues"
+                else -> "Autres"
+            }
+            items += Item(folder, "$base.mp4", v.sizeBytes) { resolver.openInputStream(v.uri) }
+            // Le petit rapport du même nom, s'il existe (vagues et rejets).
+            if (folder == "Vagues" || folder == "Rejets") {
+                findDownload("$base - rapport.txt")?.let { r -> items += Item(folder, "$base - rapport.txt", sizeOf(r)) { resolver.openInputStream(r) } }
+            }
+        }
+        // Les rapports de session : copies de Téléchargements/SurfCam, puis ceux gardés dans l'appli qui n'y seraient plus.
+        val names = HashSet<String>()
+        try {
+            resolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME, MediaStore.Downloads.SIZE, MediaStore.Downloads.DATE_MODIFIED),
+                "${MediaStore.Downloads.DISPLAY_NAME} LIKE ?", arrayOf("SurfCam-rapport-%"), null,
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    if (today && c.getLong(3) * 1000L < startOfDay) continue
+                    val n = c.getString(1) ?: continue
+                    val uri = android.content.ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, c.getLong(0))
+                    if (names.add(n)) items += Item("Rapports", n, c.getLong(2)) { resolver.openInputStream(uri) }
+                }
+            }
+        } catch (_: Exception) {
+        }
+        java.io.File(appContext.filesDir, "rapports").listFiles()?.filter { it.isFile && it.name !in names && (!today || it.lastModified() >= startOfDay) }?.forEach { f ->
+            items += Item("Rapports", f.name, f.length()) { f.inputStream() }
+        }
+        return items
+    }
+
+    /** Fichiers déjà présents dans un dossier du dossier d'export : nom → taille (0 si le fournisseur ne la donne pas). */
+    private fun children(tree: Uri, dirDocId: String): Map<String, Pair<String, Long>> {
+        val out = HashMap<String, Pair<String, Long>>()
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, dirDocId)
+        try {
+            resolver.query(
+                childrenUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_SIZE),
+                null, null, null,
+            )?.use { c ->
+                while (c.moveToNext()) out[c.getString(1) ?: continue] = c.getString(0) to (if (c.isNull(2)) 0L else c.getLong(2))
+            }
+        } catch (_: Exception) {
+        }
+        return out
+    }
+
+    /** Le document (dossier) [name] dans [parentDocId], créé s'il n'existe pas. Renvoie son identifiant de document. */
+    private fun ensureFolder(tree: Uri, parentDocId: String, name: String): String {
+        children(tree, parentDocId)[name]?.let { return it.first }
+        val parentUri = DocumentsContract.buildDocumentUriUsingTree(tree, parentDocId)
+        val created = DocumentsContract.createDocument(resolver, parentUri, DocumentsContract.Document.MIME_TYPE_DIR, name)
+            ?: throw IllegalStateException("création du dossier impossible : $name")
+        return DocumentsContract.getDocumentId(created)
+    }
+
+    class AllResult(val sent: Int, val skipped: Int, val failed: List<String>, val bytes: Long)
+
+    /**
+     * Envoie [items] dans Vagues / Rejets / Sessions / Rapports du dossier d'export. Ce qui est déjà là avec la même taille est
+     * laissé tel quel (on peut relancer après une coupure) ; un fichier incomplet est remplacé. Chaque envoi est comparé en taille.
+     */
+    fun exportAll(items: List<Item>, onProgress: (done: Int, total: Int, current: String) -> Unit): AllResult {
+        val tree = folder() ?: return AllResult(0, 0, listOf("Choisis d'abord le dossier d'export."), 0)
+        val rootId = try { DocumentsContract.getTreeDocumentId(tree) } catch (e: Exception) { return AllResult(0, 0, listOf("Dossier d'export illisible : choisis-le de nouveau."), 0) }
+        var sent = 0
+        var skipped = 0
+        var bytes = 0L
+        val failed = ArrayList<String>()
+        val folderIds = HashMap<String, String>()
+        val existing = HashMap<String, Map<String, Pair<String, Long>>>()
+        for ((i, item) in items.withIndex()) {
+            onProgress(i, items.size, item.name)
+            try {
+                val dirId = folderIds.getOrPut(item.folder) { ensureFolder(tree, rootId, item.folder) }
+                val here = existing.getOrPut(item.folder) { children(tree, dirId) }
+                val old = here[item.name]
+                if (old != null && item.size > 0 && old.second == item.size) { skipped++; continue }
+                if (old != null) {
+                    // Un fichier du même nom mais d'une autre taille (envoi interrompu) : on le remplace.
+                    try { DocumentsContract.deleteDocument(resolver, DocumentsContract.buildDocumentUriUsingTree(tree, old.first)) } catch (_: Exception) {}
+                }
+                val dirUri = DocumentsContract.buildDocumentUriUsingTree(tree, dirId)
+                val mime = if (item.name.endsWith(".mp4")) "video/mp4" else "text/plain"
+                val target = DocumentsContract.createDocument(resolver, dirUri, mime, item.name) ?: throw IllegalStateException("création impossible")
+                val input = item.open() ?: throw IllegalStateException("lecture impossible")
+                val copiedBytes = input.use { src -> resolver.openOutputStream(target, "w")?.use { out -> src.copyTo(out) } ?: throw IllegalStateException("écriture impossible") }
+                val targetSize = sizeOf(target)
+                // Certains fournisseurs (Drive) ne donnent la taille qu'après synchronisation : on ne conclut à l'échec que si elle est connue et différente.
+                if (targetSize > 0 && item.size > 0 && targetSize != item.size && targetSize != copiedBytes) throw IllegalStateException("taille différente après copie")
+                sent++
+                bytes += copiedBytes
+            } catch (e: Exception) {
+                failed += "${item.folder}/${item.name} : ${e.javaClass.simpleName} ${e.message ?: ""}".trim()
+            }
+        }
+        onProgress(items.size, items.size, "")
+        return AllResult(sent, skipped, failed, bytes)
+    }
+
     private fun sizeOf(uri: Uri): Long = try {
         resolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_SIZE), null, null, null)?.use { if (it.moveToFirst()) it.getLong(0) else -1L } ?: -1L
     } catch (_: Exception) {
