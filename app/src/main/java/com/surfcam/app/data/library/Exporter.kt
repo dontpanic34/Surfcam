@@ -243,6 +243,11 @@ class Exporter(context: Context) {
                 sent++
                 bytes += copiedBytes
             } catch (e: Exception) {
+                if ((e.message ?: "").contains("ENOSPC")) {
+                    // L'appli Drive garde une copie de chaque fichier sur le téléphone jusqu'à ce qu'il soit envoyé : téléphone plein.
+                    failed += "ARRÊT : téléphone plein (l'appli Drive met les fichiers en attente sur le téléphone avant de les envoyer). Laisse Drive finir ses envois (Wi-Fi), puis relance : ce qui est arrivé est sauté."
+                    break
+                }
                 failed += "${item.folder}/${item.name} : ${e.javaClass.simpleName} ${e.message ?: ""}".trim()
             }
         }

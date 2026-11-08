@@ -541,7 +541,7 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
             allResult = if (r == null) "Rien à exporter ${if (today) "pour aujourd'hui" else ""}."
             else buildString {
                 append("${r.sent} fichier(s) envoyé(s) (%.1f Go), ${r.skipped} déjà présent(s)".format(r.bytes / 1e9))
-                if (r.failed.isNotEmpty()) append(". ${r.failed.size} en échec, à relancer : ${r.failed.take(3).joinToString(" ; ")}")
+                if (r.failed.isNotEmpty()) append(". ${r.failed.size} en échec, à relancer : ${(r.failed.filter { it.startsWith("ARRÊT") } + r.failed.filterNot { it.startsWith("ARRÊT") }).take(3).joinToString(" ; ")}")
                 append(".")
             }
             working = false
