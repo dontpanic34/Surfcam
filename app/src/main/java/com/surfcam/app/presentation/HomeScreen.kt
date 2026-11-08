@@ -527,7 +527,6 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
         onDispose { keepOn.keepScreenOn = false }
     }
     val days by produceState<List<Triple<java.time.LocalDate, Int, Long>>>(emptyList()) { value = withContext(Dispatchers.IO) { exporter.days() } }
-    fun runAll(today: Boolean) = runDay(if (today) java.time.LocalDate.now() else null)
     fun runDay(day: java.time.LocalDate?) {
         val today = day != null
         if (working) return
@@ -549,6 +548,7 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
             progress = ""
         }
     }
+    fun runAll(today: Boolean) = runDay(if (today) java.time.LocalDate.now() else null)
     val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) { exporter.setFolder(uri); folder = exporter.folderLabel() }
     }
