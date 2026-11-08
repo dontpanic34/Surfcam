@@ -14,7 +14,7 @@ data class WaveConfig(
     /** Disparition du suivi (chute, écume) tolérée avant de déclarer la fin. */
     val lostGraceUs: Long = 4_000_000,
     /** Une vague plus courte que ça est annulée (surfeur qui rame vite, fausse alerte). */
-    val minRideUs: Long = 2_000_000,
+    val minRideUs: Long = 0, // la durée ne décide plus : une vague courte (chute) reste une vague
     /** Une preuve de départ (vitesse, posture…) n'est pas effacée par une image sans détection plus courte que cela. */
     val startGapUs: Long = 1_000_000,
     /** Au-delà, ce n'est pas un surfeur mais deux personnes confondues par le suivi (saut d'identité) : pas de départ. */
@@ -36,7 +36,7 @@ data class WaveConfig(
      * on ne l'a suivi que peu de temps : la durée minimale tombe à [minRideLeavingUs] s'il bougeait encore moins de
      * [leaveGraceUs] avant de disparaître.
      */
-    val minRideLeavingUs: Long = 2_000_000,
+    val minRideLeavingUs: Long = 0,
     val leaveGraceUs: Long = 800_000,
 )
 

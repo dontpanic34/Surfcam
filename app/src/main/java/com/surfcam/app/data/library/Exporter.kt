@@ -116,7 +116,9 @@ class Exporter(context: Context) {
         val startOfDay = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
         fun inScope(v: LibraryVideo) = !v.pending && (!today || v.modifiedMs >= startOfDay)
         val items = ArrayList<Item>()
-        val videos = (library.list() + library.listRejected()).filter(::inScope).sortedBy { it.modifiedMs }
+        // Une même vidéo peut exister deux fois (téléphone + copie sur la carte SD) : une seule par nom, la plus grosse.
+        val videos = (library.list() + library.listRejected()).filter(::inScope)
+            .groupBy { it.name }.values.map { copies -> copies.maxBy { it.sizeBytes } }.sortedBy { it.modifiedMs }
         for (v in videos) {
             val base = v.name.removeSuffix(".mp4")
             val folder = when {
@@ -203,16 +205,17 @@ class Exporter(context: Context) {
                 val dirId = folderIds.getOrPut(item.folder) { ensureFolder(tree, rootId, item.folder) }
                 val here = existing.getOrPut(item.folder) { children(tree, dirId) }
                 val old = here[item.name]
-                if (old != null && item.size > 0 && old.second == item.size) { skipped++; continue }
-                if (old != null) {
-                    // Un fichier du même nom mais d'une autre taille (envoi interrompu) : on le remplace.
-                    try { DocumentsContract.deleteDocument(resolver, DocumentsContract.buildDocumentUriUsingTree(tree, old.first)) } catch (_: Exception) {}
+                // Jamais de suppression : un fichier déjà là est laissé tel quel, sauf s'il est plus petit (envoi interrompu), alors réécrit en place.
+                if (old != null && !(old.second in 1 until item.size) && old.second != 0L) { skipped++; continue }
+                if (old != null && old.second == 0L && item.size > 0) {
+                    // Taille inconnue (Drive) ou fichier vide : réécrit en place, sans supprimer.
                 }
                 val dirUri = DocumentsContract.buildDocumentUriUsingTree(tree, dirId)
                 val mime = if (item.name.endsWith(".mp4")) "video/mp4" else "text/plain"
-                val target = DocumentsContract.createDocument(resolver, dirUri, mime, item.name) ?: throw IllegalStateException("création impossible")
+                val target = old?.let { DocumentsContract.buildDocumentUriUsingTree(tree, it.first) }
+                    ?: DocumentsContract.createDocument(resolver, dirUri, mime, item.name) ?: throw IllegalStateException("création impossible")
                 val input = item.open() ?: throw IllegalStateException("lecture impossible")
-                val copiedBytes = input.use { src -> resolver.openOutputStream(target, "w")?.use { out -> src.copyTo(out) } ?: throw IllegalStateException("écriture impossible") }
+                val copiedBytes = input.use { src -> resolver.openOutputStream(target, "wt")?.use { out -> src.copyTo(out) } ?: throw IllegalStateException("écriture impossible") }
                 val targetSize = sizeOf(target)
                 // Certains fournisseurs (Drive) ne donnent la taille qu'après synchronisation : on ne conclut à l'échec que si elle est connue et différente.
                 if (targetSize > 0 && item.size > 0 && targetSize != item.size && targetSize != copiedBytes) throw IllegalStateException("taille différente après copie")

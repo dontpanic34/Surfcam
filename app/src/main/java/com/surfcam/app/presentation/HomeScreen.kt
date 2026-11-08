@@ -579,10 +579,6 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
                 OutlinedButton(onClick = { runAll(false) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) {
                     Text("Tout exporter : tout ce qui est sur le téléphone", fontSize = 13.sp)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.material3.Checkbox(checked = deleteAfter, onCheckedChange = { deleteAfter = it }, enabled = !working)
-                    Text("Libérer le téléphone : supprimer chaque vague une fois sa copie vérifiée", fontSize = 12.sp)
-                }
                 if (progress.isNotEmpty()) Text(progress, fontSize = 12.sp, color = SurfColors.Foam)
                 message?.let { Text(it, fontSize = 12.sp, color = SurfColors.Warn) }
                 allResult?.let { Text(it, fontSize = 12.sp, color = SurfColors.Warn) }

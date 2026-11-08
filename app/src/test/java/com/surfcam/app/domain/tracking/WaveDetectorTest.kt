@@ -97,8 +97,8 @@ class WaveDetectorTest {
     }
 
     @Test
-    fun shortBurstIsCancelledNotKept() {
-        // Une seconde et demie rapide puis arrêt : trop court pour une vague.
+    fun shortRideIsKeptBecauseDurationNoLongerDecides() {
+        // Une seconde et demie rapide puis arrêt (chute) : c'est quand même une vague.
         val events = replay(12f) { t ->
             when {
                 t < 3f -> 100f
@@ -106,8 +106,7 @@ class WaveDetectorTest {
                 else -> 280f
             }
         }.map { it.second }
-        assertTrue(events.any { it is WaveEvent.Cancelled })
-        assertTrue(events.none { it is WaveEvent.Ended })
+        assertTrue(events.any { it is WaveEvent.Ended })
     }
 
     @Test
