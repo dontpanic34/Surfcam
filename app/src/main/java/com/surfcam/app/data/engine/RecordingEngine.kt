@@ -38,6 +38,7 @@ import com.surfcam.app.domain.reframe.PathFrame
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.domain.model.EncodedSample
 import com.surfcam.app.domain.tracking.RideStats
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -393,7 +394,9 @@ class RecordingEngine(private val context: Context) {
     }
 
     @Synchronized
-    fun setZoom(ratio: Float) {
+    fun setZoom(ratio: Float) = setZoomInternal(ratio, fromBrain = false)
+
+    private fun setZoomInternal(ratio: Float, fromBrain: Boolean) {
         val s = _state.value
         var clamped = ratio.coerceIn(s.minZoom, s.maxZoom)
         // Entre ×4,2 et ×5 on colle sur le téléobjectif : un zoom hésitant juste en dessous serait numérique, donc flou.
@@ -401,6 +404,8 @@ class RecordingEngine(private val context: Context) {
         desiredZoom = clamped
         _state.update { it.copy(zoom = clamped) }
         camera?.setZoom(clamped)
+        // Zoom choisi à la main : il devient le zoom de surveillance du pilote, qui ne l'écrase plus.
+        if (!fromBrain) analysis?.brain?.director?.idleZoom = clamped.toDouble()
     }
 
     /** Mise au point sur un point touché de l'image (0 à 1), conservée jusqu'à ce qu'on repasse en automatique. */
@@ -669,6 +674,7 @@ class RecordingEngine(private val context: Context) {
         }
         setupBrain(options)
         context.getSharedPreferences("gimbal", Context.MODE_PRIVATE).getString("lastLeveling", null)?.lines()?.forEach { SessionLog.ev("niveau", it) }
+        if (follower != null) autoLevel(displayRotationDegreesForLevel)
         source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
@@ -907,7 +913,7 @@ class RecordingEngine(private val context: Context) {
 
     private fun zoomTo(ratio: Float) {
         // Sur le fil principal : cet appel vient du fil d'analyse, qui ne doit jamais attendre le verrou du moteur.
-        mainHandler.post { setZoom(ratio) }
+        mainHandler.post { setZoomInternal(ratio, fromBrain = true) }
     }
 
     private fun updateWideSearch(snapshot: AnalysisSnapshot, f: GimbalFollower?) {
@@ -1126,6 +1132,34 @@ class RecordingEngine(private val context: Context) {
     }
 
     private var journalWriter: java.io.Writer? = null
+    private val displayRotationDegreesForLevel: Int get() = lastRotation
+    private val levelScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+
+    /**
+     * Mise à niveau automatique au début de chaque session, dès que le gimbal est connecté : boucle fermée sur le capteur de
+     * gravité (HorizonLeveler). Chaque étape est écrite dans le rapport ; le résultat s'affiche sur l'écran de tournage.
+     */
+    private fun autoLevel(rotationDegrees: Int) {
+        val link = com.surfcam.app.data.gimbal.GimbalHub.link(context)
+        val prefs = context.getSharedPreferences("gimbal", Context.MODE_PRIVATE)
+        val gravity = com.surfcam.app.data.gimbal.GravityRoll(context, rotationDegrees)
+        levelScope.launch {
+            try {
+                gravity.start()
+                // Attendre la liaison (2 s au plus) et une première mesure.
+                var waited = 0
+                while ((!link.state.value.connected || gravity.rollDeg == null) && waited < 20) { kotlinx.coroutines.delay(100); waited++ }
+                if (!link.state.value.connected) { SessionLog.ev("niveau", "gimbal non connecté : pas de mise à niveau"); return@launch }
+                val report = com.surfcam.app.data.gimbal.HorizonLeveler(link, prefs).run({ gravity.rollDeg }) { SessionLog.ev("niveau", it) }
+                SessionLog.ev("niveau", report)
+                _state.update { it.copy(message = report) }
+            } catch (e: Exception) {
+                SessionLog.ev("niveau", "mise à niveau interrompue : ${e.message}")
+            } finally {
+                gravity.stop()
+            }
+        }
+    }
     private var lastBrainState = ""
     private var journalFile: java.io.File? = null
 

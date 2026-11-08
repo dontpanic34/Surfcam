@@ -1,39 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.surfcam.core.SimulatorTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-11-05T22:52:19.479Z" hostname="vm" time="1.51">
+<testsuite name="com.surfcam.core.SimulatorTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-11-08T19:19:04.698Z" hostname="vm" time="2.37">
   <properties/>
-  <testcase name="everyoneFilmsRides" classname="com.surfcam.core.SimulatorTest" time="0.948"/>
-  <testcase name="meFindsAndFollowsTheUser" classname="com.surfcam.core.SimulatorTest" time="0.509"/>
-  <testcase name="meWithoutMarkerKeepsSearchingWithoutFilmingOthers" classname="com.surfcam.core.SimulatorTest" time="0.052"/>
+  <testcase name="everyoneFilmsRides" classname="com.surfcam.core.SimulatorTest" time="1.592"/>
+  <testcase name="meFindsAndFollowsTheUser" classname="com.surfcam.core.SimulatorTest" time="0.703"/>
+  <testcase name="meWithoutMarkerKeepsSearchingWithoutFilmingOthers" classname="com.surfcam.core.SimulatorTest" time="0.073"/>
   <system-out><![CDATA[== tout le monde, graine 1
-   vagues de l'utilisateur filmées : 8 / 8 · cadré pendant ses vagues : 78 %
-   toutes vagues filmées : 37 / 58 · clips : 41 · rejetés : 6
+   vagues de l'utilisateur filmées : 5 / 10 · cadré pendant ses vagues : 36 %
+   toutes vagues filmées : 26 / 60 · clips : 26 · rejetés : 0
    premier accrochage : jamais · zooms pendant un clip : 0
-   temps par état : Attente au pic 1102 s, Suivi 529 s
-   RATÉE clips proches [658.1–672.1] · surfeur 1 part à +0.11 du centre vers la droite · vague 664.3→669.4 s, cadrée ? · au départ : Suivi/×2 cap -1.6 utilisateur -3.0 · piste « moi » #115 az -3.0 · pistes près de lui : #115(odds 6.0 vu il y a 0.0s) · événements : 664.4 départ #120 (take-off 663.1 s) | 671.7 fin #120 gardée : vague (6.1 s, 15.4 corps)
-   RATÉE clips proches [1317.6–1333.4], [1336.1–1348.0] · surfeur 4 part à -0.48 du centre vers la gauche · vague 1323.4→1331.4 s, cadrée ? · au départ : Suivi/×2 cap 2.9 utilisateur -4.5 · piste « moi » #243 az -4.5 · pistes près de lui : #243(odds 6.0 vu il y a 1.0s) · événements : 1324.4 départ #247 (take-off 1322.6 s) | 1332.4 fin #247 gardée : vague (7.8 s, 33.8 corps)
-   RATÉE clips proches [1683.6–1693.7] · surfeur 1 part à -0.22 du centre vers la gauche · vague 1688.1→1702.0 s, cadrée ? · au départ : Attente au pic/×2 cap -1.1 utilisateur 2.7 · piste « moi » aucune · pistes près de lui : #321(odds -2.2 vu il y a 0.0s),#323(odds -4.0 vu il y a 0.0s),#324(odds -0.9 vu il y a 0.0s),#325(odds 0.0 vu il y a 0.0s) · événements : 1690.7 départ #320 (take-off 1688.6 s) | 1693.8 fin #320 gardée : vague (2.1 s, 10.0 corps)
-   RATÉE clips proches [1756.0–1776.7], [1783.7–1800.0] · surfeur 2 part à +0.12 du centre vers la droite · vague 1788.0→1799.9 s, cadrée ? · au départ : Attente au pic/×2 cap 0.4 utilisateur 2.8 · piste « moi » #341 az 2.3 · pistes près de lui : #340(odds -0.6 vu il y a 0.0s),#341(odds 3.6 vu il y a 1.5s),#342(odds -1.8 vu il y a 0.0s) · événements : 1790.2 départ #343 (take-off 1788.7 s) | 1799.6 fin #343 gardée : vague (9.4 s, 28.8 corps)
+   temps par état : Attente au pic 1385 s, Suivi 331 s
+   RATÉE clips proches [647.0–671.6], [706.0–718.9] · surfeur 0 part à +0.30 du centre vers la droite · vague 679.2→688.5 s, cadrée 23 % · au départ : Attente au pic/×5 cap -0.0 utilisateur 4.9 · piste « moi » aucune · pistes près de lui : #85(odds 2.4 vu il y a 0.0s),#88(odds -3.0 vu il y a 0.0s) · événements : aucun
+   RATÉE clips proches [1167.1–1182.9] · surfeur 4 part à -0.23 du centre vers la droite · vague 1171.6→1184.1 s, cadrée ? · au départ : Attente au pic/×5 cap 0.2 utilisateur 11.3 · piste « moi » aucune · pistes près de lui : aucune · événements : 1173.5 départ #140 (take-off 1172.1 s) | 1181.4 fin #140 gardée : vague (7.8 s, 31.0 corps)
+   RATÉE clips proches [1418.6–1435.8], [1450.8–1468.8] · surfeur 1 part à +0.78 du centre vers la droite · vague 1444.0→1453.4 s, cadrée ? · au départ : Attente au pic/×5 cap 0.0 utilisateur 29.5 · piste « moi » aucune · pistes près de lui : aucune · événements : 1457.3 départ #170 (take-off 1455.8 s)
 == tout le monde, graine 2
-   vagues de l'utilisateur filmées : 6 / 7 · cadré pendant ses vagues : 68 %
-   toutes vagues filmées : 32 / 60 · clips : 37 · rejetés : 3
+   vagues de l'utilisateur filmées : 4 / 8 · cadré pendant ses vagues : 44 %
+   toutes vagues filmées : 29 / 58 · clips : 29 · rejetés : 0
    premier accrochage : jamais · zooms pendant un clip : 0
-   temps par état : Attente au pic 1143 s, Suivi 490 s
+   temps par état : Attente au pic 1318 s, Suivi 393 s
 == tout le monde, graine 3
-   vagues de l'utilisateur filmées : 6 / 8 · cadré pendant ses vagues : 51 %
-   toutes vagues filmées : 30 / 58 · clips : 34 · rejetés : 7
+   vagues de l'utilisateur filmées : 8 / 9 · cadré pendant ses vagues : 63 %
+   toutes vagues filmées : 33 / 61 · clips : 35 · rejetés : 2
    premier accrochage : jamais · zooms pendant un clip : 0
-   temps par état : Attente au pic 1170 s, Suivi 461 s
+   temps par état : Attente au pic 1241 s, Suivi 473 s
 == tout le monde, graine 4
-   vagues de l'utilisateur filmées : 7 / 8 · cadré pendant ses vagues : 56 %
-   toutes vagues filmées : 31 / 62 · clips : 32 · rejetés : 4
+   vagues de l'utilisateur filmées : 6 / 8 · cadré pendant ses vagues : 52 %
+   toutes vagues filmées : 31 / 60 · clips : 31 · rejetés : 0
    premier accrochage : jamais · zooms pendant un clip : 0
-   temps par état : Attente au pic 1205 s, Suivi 439 s
+   temps par état : Attente au pic 1309 s, Suivi 398 s
 == tout le monde, graine 5
-   vagues de l'utilisateur filmées : 5 / 9 · cadré pendant ses vagues : 21 %
-   toutes vagues filmées : 34 / 61 · clips : 42 · rejetés : 6
+   vagues de l'utilisateur filmées : 6 / 8 · cadré pendant ses vagues : 47 %
+   toutes vagues filmées : 27 / 62 · clips : 29 · rejetés : 1
    premier accrochage : jamais · zooms pendant un clip : 0
-   temps par état : Attente au pic 1140 s, Suivi 490 s
-TOTAL tout le monde : 164 / 299 vagues filmées ; filmables (départ dans le champ, caméra libre) : 120 / 139 ; 186 clips
+   temps par état : Attente au pic 1341 s, Suivi 378 s
+TOTAL tout le monde : 146 / 301 vagues filmées ; filmables (départ dans le champ, caméra libre) : 99 / 111 ; 150 clips
 == moi, graine 1
    vagues de l'utilisateur filmées : 8 / 9 · cadré pendant ses vagues : 90 %
    toutes vagues filmées : 8 / 62 · clips : 8 · rejetés : 1

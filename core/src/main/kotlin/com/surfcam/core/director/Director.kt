@@ -121,6 +121,13 @@ class Director(
      * @param ridingTrackId piste en train de surfer (détecteur de vagues), null sinon
      * @param clipActive un clip est en cours (vague ou marges) : zoom verrouillé
      */
+    /**
+     * Zoom de surveillance du pic (mode tout le monde). Par défaut le zoom de suivi (×5, téléobjectif) ; le zoom choisi à la main
+     * par l'utilisateur le remplace et est respecté : le pilote ne le change plus de lui-même hors vague.
+     */
+    @Volatile
+    var idleZoom: Double = config.followZoom
+
     /** Piste candidate à un départ (votes en cours), fournie par le détecteur de vagues. */
     var candidateTrackId: Int? = null
 
@@ -154,7 +161,7 @@ class Director(
 
     private fun everyone(frame: Frame, tracks: List<Track>, heading: Double, ridingId: Int?, zoomLocked: Boolean): Command {
         val now = frame.timeUs
-        val idleZoom = if (config.watchZoom > 0) config.watchZoom else config.followZoom
+        val idleZoom = this.idleZoom
         if (ridingId != null) {
             // Une vague part : on zoome sur le surfeur (seul changement de zoom permis pendant un clip : le resserrement).
             zoom = config.followZoom
