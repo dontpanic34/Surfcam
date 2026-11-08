@@ -526,14 +526,17 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
         keepOn.keepScreenOn = working
         onDispose { keepOn.keepScreenOn = false }
     }
-    fun runAll(today: Boolean) {
+    val days by produceState<List<Triple<java.time.LocalDate, Int, Long>>>(emptyList()) { value = withContext(Dispatchers.IO) { exporter.days() } }
+    fun runAll(today: Boolean) = runDay(if (today) java.time.LocalDate.now() else null)
+    fun runDay(day: java.time.LocalDate?) {
+        val today = day != null
         if (working) return
         working = true
         message = null
         allResult = null
         scope.launch {
             val r = withContext(Dispatchers.IO) {
-                val items = exporter.everything(today)
+                val items = exporter.everything(day)
                 if (items.isEmpty()) null else exporter.exportAll(items) { i, n, cur -> progress = "Export $i sur $n : $cur" }
             }
             allResult = if (r == null) "Rien à exporter ${if (today) "pour aujourd'hui" else ""}."
@@ -573,8 +576,11 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
                     Text("Exporter la dernière session (${last.size})", fontSize = 13.sp)
                 }
                 Text("Tout exporter : Vagues, Rejets, Sessions entières (en parties) et Rapports, chacun dans son sous-dossier. Ce qui est déjà envoyé est ignoré : tu peux relancer après une coupure. Garde l'écran allumé.", fontSize = 12.sp, color = SurfColors.Muted)
-                Button(onClick = { runAll(true) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) {
-                    Text("Tout exporter : aujourd'hui", fontSize = 13.sp)
+                Text("Exporter un jour entier (vagues, puis rejets, puis rapports, puis la session : le film s'il existe, sinon les morceaux de 2 min, sans rien assembler) :", fontSize = 12.sp, color = SurfColors.Muted)
+                days.take(10).forEach { (d, n, bytes) ->
+                    Button(onClick = { runDay(d) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) {
+                        Text("%s · %d fichiers · %.1f Go".format(d.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.FRENCH)), n, bytes / 1e9), fontSize = 13.sp)
+                    }
                 }
                 OutlinedButton(onClick = { runAll(false) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) {
                     Text("Tout exporter : tout ce qui est sur le téléphone", fontSize = 13.sp)

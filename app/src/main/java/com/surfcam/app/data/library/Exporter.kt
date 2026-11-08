@@ -111,10 +111,27 @@ class Exporter(context: Context) {
     class Item(val folder: String, val name: String, val size: Long, val open: () -> java.io.InputStream?)
 
     /** Tout ce que l'appli a produit [today] seulement (jour courant) ou depuis toujours, hors fichiers encore en cours d'écriture. */
-    fun everything(today: Boolean): List<Item> {
+    fun everything(today: Boolean): List<Item> =
+        everything(if (today) java.time.LocalDate.now() else null)
+
+    /** Les jours où l'appli a produit des fichiers, du plus récent au plus ancien, avec le nombre de fichiers et leur poids. */
+    fun days(): List<Triple<java.time.LocalDate, Int, Long>> {
+        val zone = java.time.ZoneId.systemDefault()
+        val lib = VideoLibrary(appContext)
+        return (lib.list() + lib.listRejected()).filter { !it.pending }.groupBy { it.name }.values.map { it.maxBy { v -> v.sizeBytes } }
+            .groupBy { java.time.Instant.ofEpochMilli(it.modifiedMs).atZone(zone).toLocalDate() }
+            .map { (d, l) -> Triple(d, l.size, l.sumOf { it.sizeBytes }) }.sortedByDescending { it.first }
+    }
+
+    /** Tout ce que l'appli a produit le jour [day] (null = depuis toujours). */
+    fun everything(day: java.time.LocalDate?): List<Item> {
+        val today = day != null
         val library = VideoLibrary(appContext)
-        val startOfDay = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-        fun inScope(v: LibraryVideo) = !v.pending && (!today || v.modifiedMs >= startOfDay)
+        val zone = java.time.ZoneId.systemDefault()
+        val startOfDay = (day ?: java.time.LocalDate.now()).atStartOfDay(zone).toInstant().toEpochMilli()
+        val endOfDay = (day ?: java.time.LocalDate.now()).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        fun inDay(ms: Long) = !today || ms in startOfDay until endOfDay
+        fun inScope(v: LibraryVideo) = !v.pending && inDay(v.modifiedMs)
         val items = ArrayList<Item>()
         // Une même vidéo peut exister deux fois (téléphone + copie sur la carte SD) : une seule par nom, la plus grosse.
         val videos = (library.list() + library.listRejected()).filter(::inScope)
@@ -142,7 +159,7 @@ class Exporter(context: Context) {
                 "${MediaStore.Downloads.DISPLAY_NAME} LIKE ?", arrayOf("SurfCam-rapport-%"), null,
             )?.use { c ->
                 while (c.moveToNext()) {
-                    if (today && c.getLong(3) * 1000L < startOfDay) continue
+                    if (!inDay(c.getLong(3) * 1000L)) continue
                     val n = c.getString(1) ?: continue
                     val uri = android.content.ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, c.getLong(0))
                     if (names.add(n)) items += Item("Rapports", n, c.getLong(2)) { resolver.openInputStream(uri) }
@@ -150,12 +167,16 @@ class Exporter(context: Context) {
             }
         } catch (_: Exception) {
         }
-        java.io.File(appContext.filesDir, "rapports").listFiles()?.filter { it.isFile && it.name !in names && (!today || it.lastModified() >= startOfDay) }?.forEach { f ->
+        java.io.File(appContext.filesDir, "rapports").listFiles()?.filter { it.isFile && it.name !in names && inDay(it.lastModified()) }?.forEach { f ->
             items += Item("Rapports", f.name, f.length()) { f.inputStream() }
         }
         // Les rapports d'abord (petits et indispensables pour comprendre la session), puis vagues, rejets et sessions.
-        val order = listOf("Rapports", "Vagues", "Rejets", "Sessions", "Autres")
-        return items.sortedBy { order.indexOf(it.folder) }
+        // Dans l'ordre demandé : vagues, rejets, puis rapports (petits), puis sessions (lourdes) en dernier.
+        // Si la session a déjà été assemblée en film ce jour-là, on envoie le film et pas les morceaux de 2 min.
+        val hasFilm = items.any { it.folder == "Sessions" && VideoNaming.parse(it.name)?.isFilm == true }
+        val kept = if (hasFilm) items.filter { it.folder != "Sessions" || VideoNaming.parse(it.name)?.isFilm == true } else items
+        val order = listOf("Vagues", "Rejets", "Rapports", "Sessions", "Autres")
+        return kept.sortedBy { order.indexOf(it.folder) }
     }
 
     /** Fichiers déjà présents dans un dossier du dossier d'export : nom → taille (0 si le fournisseur ne la donne pas). */
