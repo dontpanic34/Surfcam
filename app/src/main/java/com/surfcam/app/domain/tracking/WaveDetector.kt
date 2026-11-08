@@ -17,6 +17,8 @@ data class WaveConfig(
     val minRideUs: Long = 2_000_000,
     /** Une preuve de départ (vitesse, posture…) n'est pas effacée par une image sans détection plus courte que cela. */
     val startGapUs: Long = 1_000_000,
+    /** Au-delà, ce n'est pas un surfeur mais deux personnes confondues par le suivi (saut d'identité) : pas de départ. */
+    val maxStartSpeed: Float = 9f,
     /**
      * Rapport hauteur/largeur minimal pour être « debout » : un surfeur allongé qui rame (0,45 à 0,8 mesuré) ne
      * déclenche pas. Un surfeur en manœuvre est presque aussi large que haut (0,9 à 1,0), d'où un seuil à 0,9.
@@ -34,7 +36,7 @@ data class WaveConfig(
      * on ne l'a suivi que peu de temps : la durée minimale tombe à [minRideLeavingUs] s'il bougeait encore moins de
      * [leaveGraceUs] avant de disparaître.
      */
-    val minRideLeavingUs: Long = 1_200_000,
+    val minRideLeavingUs: Long = 2_000_000,
     val leaveGraceUs: Long = 800_000,
 )
 
@@ -131,7 +133,7 @@ class WaveDetector(private val config: WaveConfig = WaveConfig()) {
                 movingSince.remove(track.id)
                 continue
             }
-            if (speed == null || speed < config.startSpeed || aspect == null || aspect < config.minStandingAspect ||
+            if (speed == null || speed < config.startSpeed || speed > config.maxStartSpeed || aspect == null || aspect < config.minStandingAspect ||
                 track.confidence < config.minTriggerConfidence
             ) {
                 movingSince.remove(track.id)

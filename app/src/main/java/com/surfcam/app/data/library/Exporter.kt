@@ -151,7 +151,9 @@ class Exporter(context: Context) {
         java.io.File(appContext.filesDir, "rapports").listFiles()?.filter { it.isFile && it.name !in names && (!today || it.lastModified() >= startOfDay) }?.forEach { f ->
             items += Item("Rapports", f.name, f.length()) { f.inputStream() }
         }
-        return items
+        // Les rapports d'abord (petits et indispensables pour comprendre la session), puis vagues, rejets et sessions.
+        val order = listOf("Rapports", "Vagues", "Rejets", "Sessions", "Autres")
+        return items.sortedBy { order.indexOf(it.folder) }
     }
 
     /** Fichiers déjà présents dans un dossier du dossier d'export : nom → taille (0 si le fournisseur ne la donne pas). */
