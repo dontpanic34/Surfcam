@@ -438,7 +438,6 @@ fun HomeScreen(
                     }
                 }
                 if (showExportAll) ExportAllDialog(exporter) { showExportAll = false }
-энд
 
                 Text(
                     "Réglages avancés",
@@ -562,6 +561,60 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
                     androidx.compose.material3.Checkbox(checked = deleteAfter, onCheckedChange = { deleteAfter = it }, enabled = !working)
                     Text("Libérer le téléphone : supprimer chaque vague une fois sa copie vérifiée", fontSize = 12.sp)
                 }
+                if (progress.isNotEmpty()) Text(progress, fontSize = 12.sp, color = SurfColors.Foam)
+                message?.let { Text(it, fontSize = 12.sp, color = SurfColors.Warn) }
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onClose, enabled = !working) { Text("Fermer") } },
+    )
+}
+
+/** Copie tout (vagues, rejets, rapports, sessions) vers le dossier choisi. Ne supprime jamais rien sur le téléphone. */
+@Composable
+private fun ExportAllDialog(exporter: com.surfcam.app.data.library.Exporter, onClose: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var folder by remember { mutableStateOf(exporter.folderLabel()) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var working by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf("") }
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) { exporter.setFolder(uri); folder = exporter.folderLabel() }
+    }
+    fun run(today: Boolean) {
+        if (working) return
+        working = true
+        message = null
+        scope.launch {
+            message = withContext(Dispatchers.IO) {
+                try {
+                    val items = exporter.everything(today)
+                    if (items.isEmpty()) "Rien à exporter."
+                    else {
+                        val r = exporter.exportAll(items) { i, n, name -> progress = "Export : $i sur $n… $name" }
+                        buildString {
+                            append("${r.sent} fichier(s) copié(s), ${r.skipped} déjà présent(s)")
+                            if (r.failed.isNotEmpty()) append(", ${r.failed.size} échec(s) : ${r.failed.take(3).joinToString(" ; ")}")
+                            append(". Aucun fichier supprimé du téléphone.")
+                        }
+                    }
+                } catch (e: Exception) {
+                    "Export impossible : ${e.javaClass.simpleName} ${e.message ?: ""}"
+                }
+            }
+            working = false
+            progress = ""
+        }
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!working) onClose() },
+        title = { Text("Tout exporter") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Dossier d'export : ${folder ?: "pas encore choisi"}", fontSize = 13.sp)
+                OutlinedButton(onClick = { pick.launch(null) }, enabled = !working) { Text(if (folder == null) "Choisir le dossier" else "Changer de dossier") }
+                Text("Vagues, rejets, rapports et sessions sont copiés ; rien n'est supprimé du téléphone.", fontSize = 12.sp, color = SurfColors.Muted)
+                Button(onClick = { run(true) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) { Text("Exporter aujourd'hui", fontSize = 13.sp) }
+                OutlinedButton(onClick = { run(false) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) { Text("Exporter tout l'historique", fontSize = 13.sp) }
                 if (progress.isNotEmpty()) Text(progress, fontSize = 12.sp, color = SurfColors.Foam)
                 message?.let { Text(it, fontSize = 12.sp, color = SurfColors.Warn) }
             }
