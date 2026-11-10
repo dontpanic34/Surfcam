@@ -1,0 +1,136 @@
+package com.surfcam.app.domain.gimbal
+
+import kotlin.math.abs
+import kotlin.math.atan
+import kotlin.math.roundToInt
+
+/** Un surfeur vu par la détection : position horizontale (0 à 1) et hauteur dans l'image. */
+data class FollowBox(val centerX: Float, val height: Float, val riding: Boolean, val marked: Boolean = false, val id: Int = -1)
+
+data class FollowConfig(
+    /** Écart (en degrés) sous lequel on ne bouge pas : évite de trembler autour du centre. */
+    val deadbandDeg: Float = 1.5f,
+    /** Gain proportionnel : degrés par seconde demandés par degré d'écart. */
+    val gain: Float = 1.2f,
+    /** Vitesse maximale commandée au gimbal, en degrés par seconde. */
+    val maxDegPerSec: Float = 25f,
+)
+
+/**
+ * Asservissement du gimbal sur le surfeur : on garde le surfeur au centre de l'image en faisant pivoter la tête à une
+ * vitesse proportionnelle à l'écart. Pur calcul : le Bluetooth et la caméra sont ailleurs.
+ */
+object FollowController {
+
+    /** Le surfeur à suivre : celui qui porte le manchon, sinon celui qui surfe, sinon le plus proche du précédent, sinon le plus grand. */
+    fun chooseTarget(boxes: List<FollowBox>, previousX: Float?): FollowBox? {
+        if (boxes.isEmpty()) return null
+        boxes.filter { it.marked }.maxByOrNull { it.height }?.let { return it }
+        boxes.filter { it.riding }.maxByOrNull { it.height }?.let { return it }
+        if (previousX != null) return boxes.minByOrNull { abs(it.centerX - previousX) }
+        return boxes.maxByOrNull { it.height }
+    }
+
+    /** Champ de vision horizontal de l'image, en degrés, pour une focale exprimée en pixels de cette image. */
+    fun horizontalFovDeg(focalPx: Float, widthPx: Int): Float =
+        Math.toDegrees(2.0 * atan(widthPx / 2.0 / focalPx)).toFloat()
+
+    /** Vitesse de pivotement voulue (degrés par seconde, positive vers la droite) pour un écart en degrés. */
+    fun desiredSpeedDegPerSec(errorDeg: Float, config: FollowConfig = FollowConfig()): Float {
+        if (abs(errorDeg) < config.deadbandDeg) return 0f
+        // On retranche la zone morte : la vitesse part de zéro à sa limite, sans à-coup.
+        val effective = errorDeg - config.deadbandDeg * if (errorDeg > 0) 1 else -1
+        return (effective * config.gain).coerceIn(-config.maxDegPerSec, config.maxDegPerSec)
+    }
+
+    /** Traduit des degrés par seconde en unités du protocole du gimbal, d'après le calibrage ; [invert] inverse le sens. */
+    fun toProtocolUnits(speedDegPerSec: Float, gainDegPerSecPerUnit: Float, invert: Boolean): Int {
+        if (gainDegPerSecPerUnit <= 0f) return 0
+        val units = (speedDegPerSec / gainDegPerSecPerUnit).roundToInt()
+        return (if (invert) -units else units).coerceIn(-MAX_UNITS, MAX_UNITS)
+    }
+
+    /**
+     * Suivi par pas d'angle : on mesure l'écart, on commande un pivotement relatif d'une fraction de cet écart, puis on
+     * attend avant de mesurer de nouveau. Insensible au retard de l'analyse (les ordres de vitesse continuaient à tourner
+     * après le centrage et faisaient partir le gimbal en oscillation) et sans calibrage de vitesse.
+     */
+    data class StepConfig(
+        /** Écart (en degrés) sous lequel on ne bouge pas. */
+        val deadbandDeg: Float = 2.5f,
+        /** Part de l'écart corrigée à chaque pas : sous 1, pour ne pas dépasser le centre. */
+        val gain: Float = 0.8f,
+        /** Pas maximal, en degrés. */
+        val maxStepDeg: Float = 15f,
+    )
+
+    /** Angle à pivoter (degrés, positif vers la droite), 0 si l'écart est dans la zone morte. */
+    fun stepDegrees(errorDeg: Float, config: StepConfig = StepConfig()): Float {
+        if (abs(errorDeg) < config.deadbandDeg) return 0f
+        return (errorDeg * config.gain).coerceIn(-config.maxStepDeg, config.maxStepDeg)
+    }
+
+    /**
+     * Pas d'angle avec anticipation : le surfeur avance pendant que l'analyse répond et que le gimbal tourne. On vise
+     * donc là où il sera dans [leadSeconds] d'après sa vitesse angulaire [velocityDegPerSec] (degrés par seconde dans
+     * le repère fixe). Une vitesse sous 1 °/s est du bruit de mesure : ignorée.
+     */
+    fun stepWithLead(errorDeg: Float, velocityDegPerSec: Float, leadSeconds: Float, config: StepConfig = StepConfig()): Float {
+        val v = if (abs(velocityDegPerSec) < 1f) 0f else velocityDegPerSec
+        val predicted = errorDeg + v * leadSeconds
+        // La zone morte s'applique à l'écart prévu : un surfeur qui file doit être suivi même s'il est encore au centre.
+        return stepDegrees(predicted, config)
+    }
+
+    /**
+     * Suivi « par le bord » : tant que le surfeur (position prévue) reste dans la partie centrale de l'image, le gimbal
+     * ne bouge pas. Dès qu'il approche du bord (au-delà de [edgeFraction] du champ de chaque côté du centre), un seul
+     * pivotement le ramène au centre. Évite le balayage perpétuel droite-gauche à fort zoom.
+     */
+    fun edgeStep(errorDeg: Float, velocityDegPerSec: Float, leadSeconds: Float, hfovDeg: Float, edgeFraction: Float, maxStepDeg: Float): Float {
+        // Vitesse bornée : une mesure aberrante (cible qui saute, gimbal déplacé à la main) ne doit pas lancer un grand pas.
+        val v = if (abs(velocityDegPerSec) < 1f) 0f else velocityDegPerSec.coerceIn(-MAX_LEAD_SPEED, MAX_LEAD_SPEED)
+        val predicted = errorDeg + v * leadSeconds
+        val edge = edgeFraction * hfovDeg
+        if (abs(predicted) < edge) return 0f
+        // Jamais de pas à l'opposé du surfeur vu, et pas tant qu'il n'est pas déjà décentré (au moins 40 % de la zone libre).
+        if (errorDeg * predicted < 0f || abs(errorDeg) < 0.4f * edge) return 0f
+        return predicted.coerceIn(-maxStepDeg, maxStepDeg)
+    }
+
+    /** Durée du pivotement : douce pour les petits pas, un peu plus longue pour les grands. */
+    fun moveSeconds(stepDeg: Float): Float = (0.5f + abs(stepDeg) / 40f).coerceIn(0.5f, 1.2f)
+
+    /** Réactivité du suivi, choisie dans l'appli : plus c'est réactif, plus le gimbal corrige vite et fort. */
+    enum class FollowStyle(
+        val label: String,
+        val step: StepConfig,
+        /** Pause après un pivotement, avant de mesurer de nouveau (secondes). */
+        val settleSeconds: Float,
+        /** Anticipation : on vise là où le surfeur sera dans ce délai (secondes). */
+        val leadSeconds: Float,
+        /** Facteur sur la durée des pivotements : sous 1, ils sont plus rapides. */
+        val moveScale: Float,
+        /** Part du champ (de chaque côté du centre) où le surfeur peut évoluer sans que le gimbal bouge. */
+        val edgeFraction: Float,
+    ) {
+        SMOOTH("Doux", StepConfig(deadbandDeg = 3.5f, gain = 0.6f, maxStepDeg = 10f), 0.3f, 1.2f, 1.3f, 0.16f),
+        NORMAL("Normal", StepConfig(), 0.25f, 1.3f, 1.0f, 0.12f),
+        /** Le surfeur reste au centre de l'image : zone libre minuscule, petits pas fréquents (utile en ×10 où le champ n'est que de 8–9°). */
+        CENTER("Centré", StepConfig(deadbandDeg = 1f, gain = 0.9f, maxStepDeg = 8f), 0.15f, 1.2f, 1.0f, 0.06f),
+        REACTIVE("Réactif", StepConfig(deadbandDeg = 1.5f, gain = 1.0f, maxStepDeg = 25f), 0.2f, 1.5f, 0.75f, 0.08f),
+        ;
+
+        companion object {
+            fun fromName(name: String?): FollowStyle = entries.firstOrNull { it.name == name } ?: NORMAL
+        }
+    }
+
+    /** Limite le pas pour que le gimbal reste dans la zone de surf : [limitDeg] de chaque côté de sa position de départ. */
+    fun clampToZone(currentYawDeg: Float, stepDeg: Float, limitDeg: Float): Float =
+        (currentYawDeg + stepDeg).coerceIn(-limitDeg, limitDeg) - currentYawDeg
+
+    const val MAX_UNITS = 3000
+    /** Vitesse angulaire maximale prise en compte pour l'anticipation, en degrés par seconde. */
+    const val MAX_LEAD_SPEED = 20f
+}
