@@ -36,14 +36,19 @@ class SimulatorTest {
         assertEquals("jamais de changement de zoom pendant un clip", 0, results.sumOf { it.zoomChangesDuringClips })
         assertTrue("au moins 70 % des vagues de l'utilisateur filmées ($hit/$total)", hit >= 0.7 * total)
         val others = results.sumOf { r -> r.clips.size - r.capturedRides { it.isUser }.first }
-        assertTrue("peu de clips qui ne sont pas l'utilisateur ($others)", others <= results.size)
+        // Depuis le repli « tout le monde » (spec : un clip en trop est acceptable, une vague manquée non), les vagues des autres
+        // sont filmées quand l'utilisateur est perdu : on les compte sans les interdire.
+        println("clips qui ne sont pas l'utilisateur : $others")
     }
 
     @Test
-    fun meWithoutMarkerKeepsSearchingWithoutFilmingOthers() {
+    fun meWithoutMarkerFallsBackToEveryone() {
+        // Spec : par défaut tout le monde ; sans manchon reconnu, on ne doit pas passer la session sans rien filmer.
         val r = Simulator(Simulator.Scenario(seed = 3, subject = Subject.ME, userWearsMarker = false, durationSec = 15 * 60.0)).run()
         report("moi sans manchon", r, false)
-        assertTrue("sans manchon, aucun clip d'un autre surfeur", r.clips.size <= 1)
+        val (hit, total) = r.capturedRides { true }
+        assertTrue("sans manchon reconnu, les vagues sont filmées quand même ($hit/$total)", hit >= 0.4 * total)
+        assertEquals("jamais de changement de zoom pendant un clip", 0, r.zoomChangesDuringClips)
         assertTrue((r.stateSeconds[DirectorState.SEARCH] ?: 0.0) > 0)
     }
 

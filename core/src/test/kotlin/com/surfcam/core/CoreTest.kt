@@ -132,9 +132,10 @@ class CoreTest {
         val tracker = Tracker()
         val rides = RideDetector()
         var ended: RideEvent.Ended? = null
-        for (i in 0..8) {
+        // 1,5 s de glisse, puis le surfeur reste sur place : il faut laisser passer le délai de fin pour que la course soit jugée.
+        for (i in 0..24) {
             val t = i * 250_000L
-            val az = if (i < 3) 0.0 else (i - 2) * 1.5
+            val az = if (i < 3) 0.0 else (minOf(i, 8) - 2) * 1.5
             val x = tele.xForAzimuthOffset(az)
             val aspect = if (i in 3..6) 1.6 else 1.1
             val tracks = tracker.update(WorldProjection.observeAll(frame(t, 0.0, x to 360.0, h = 60.0, aspect = aspect)), t)

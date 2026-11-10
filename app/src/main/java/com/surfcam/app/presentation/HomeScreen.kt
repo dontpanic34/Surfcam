@@ -526,7 +526,6 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
     var message by remember { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf("") }
-    var deleteAfter by remember { mutableStateOf(false) }
     val library = remember { VideoLibrary(context) }
     val all by produceState<List<com.surfcam.app.data.library.LibraryVideo>>(emptyList()) { value = withContext(Dispatchers.IO) { library.list() } }
     val pending = exporter.pending(all)
@@ -538,7 +537,7 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
         if (working || list.isEmpty()) return
         working = true
         scope.launch {
-            message = withContext(Dispatchers.IO) { exporter.export(list, deleteAfter) { i, n -> progress = "Export : $i sur $n…" } }
+            message = withContext(Dispatchers.IO) { exporter.export(list) { i, n -> progress = "Export : $i sur $n…" } }
             working = false
             progress = ""
         }
@@ -557,10 +556,7 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
                 OutlinedButton(onClick = { run(last) }, enabled = !working && folder != null && last.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                     Text("Exporter la dernière session (${last.size})", fontSize = 13.sp)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.material3.Checkbox(checked = deleteAfter, onCheckedChange = { deleteAfter = it }, enabled = !working)
-                    Text("Libérer le téléphone : supprimer chaque vague une fois sa copie vérifiée", fontSize = 12.sp)
-                }
+                Text("L'export ne supprime rien : les vagues restent sur le téléphone.", fontSize = 12.sp, color = SurfColors.Muted)
                 if (progress.isNotEmpty()) Text(progress, fontSize = 12.sp, color = SurfColors.Foam)
                 message?.let { Text(it, fontSize = 12.sp, color = SurfColors.Warn) }
             }

@@ -92,6 +92,7 @@ class AnalysisPipeline(
     /** Cap de la caméra (degrés) à un instant donné de l'horloge des images (µs) : gyroscope horodaté. */
     @Volatile
     var headingAt: ((Long) -> Double?)? = null
+    private var lastKnownHeading = 0.0
 
     /** Champ horizontal (degrés) et zoom de l'image analysée en ce moment. */
     @Volatile
@@ -341,7 +342,9 @@ class AnalysisPipeline(
     /** Chemin du nouveau cerveau : repère fixe (cap à l'heure de l'image), pisteur, détection du surf, pilote. */
     private fun analyseWithBrain(b: com.surfcam.core.SurfBrain, detections: List<com.surfcam.app.domain.tracking.Detection>, timestampUs: Long, startedMs: Long) {
         val (hfov, zoom) = opticsProvider?.invoke() ?: return
-        val heading = headingAt?.invoke(timestampUs) ?: 0.0
+        // Cap momentanément indisponible : on garde le dernier cap connu plutôt que 0, qui ferait sauter toutes les pistes.
+        val heading = headingAt?.invoke(timestampUs) ?: lastKnownHeading
+        lastKnownHeading = heading
         val cam = com.surfcam.core.geometry.CameraModel(WIDTH, HEIGHT, hfov)
         val blob = markerColor?.let { converter.findMarkerBlob(it) }
         val frame = com.surfcam.core.model.Frame(

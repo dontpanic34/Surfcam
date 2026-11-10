@@ -83,8 +83,9 @@ data class Command(
  *
  * Mode tout le monde : attente au pic → suivi du surfeur qui part → retour au pic.
  *
- * Règle d'or : **jamais de changement de zoom pendant qu'un clip est en cours** (vague, ou marge avant/après) : le
- * changement d'objectif coupe l'image et se verrait dans le clip.
+ * Règle d'or : **jamais de changement de zoom pendant qu'un clip est en cours** (vague, ou marge avant/après), ni pendant
+ * qu'un départ est possible (ces secondes se retrouvent dans la marge avant du clip) : le changement d'objectif coupe l'image
+ * et se verrait dans le clip.
  */
 class Director(
     val subject: Subject,
@@ -139,7 +140,7 @@ class Director(
             userLastSeenUs = now
         }
         ignored.removeAll { now - it.second > config.ignoreUs }
-        val zoomLocked = clipActive || ridingTrackId != null
+        val zoomLocked = clipActive || ridingTrackId != null || candidateTrackId != null
         return when (subject) {
             Subject.EVERYONE -> everyone(frame, tracks, currentHeadingDeg, ridingTrackId, zoomLocked)
             Subject.ME -> me(frame, tracks, currentHeadingDeg, ridingTrackId, zoomLocked)
@@ -163,8 +164,7 @@ class Director(
         val now = frame.timeUs
         val idleZoom = this.idleZoom
         if (ridingId != null) {
-            // Une vague part : on zoome sur le surfeur (seul changement de zoom permis pendant un clip : le resserrement).
-            zoom = config.followZoom
+            // Une vague part : on suit le surfeur au zoom en cours (aucun changement de zoom pendant un clip).
             val t = tracks.firstOrNull { it.id == ridingId }
             if (t != null) {
                 targetId = t.id
@@ -230,6 +230,15 @@ class Director(
                 enter(DirectorState.LOST, now)
                 return hold(heading, "perdu depuis %.1f s, on garde le cadre".format(missing / 1e6))
             }
+        }
+
+        if (zoomLocked) {
+            // Clip en cours ou départ possible, utilisateur hors de vue : ni balayage ni zoom. On tourne vers le départ
+            // possible s'il y en a un, sinon on garde le cadre.
+            candidateTrackId?.let { id -> tracks.firstOrNull { it.id == id && it.isVisibleAt(now) } }?.let { c ->
+                return aimAtTrack(frame, c, heading, GimbalStyle.RIDE, "départ possible de #${c.id}")
+            }
+            return hold(heading, "clip en cours, on garde le cadre")
         }
 
         when (state) {
@@ -328,15 +337,15 @@ class Director(
             searchPositionSinceUs = now
             return if (zoomLocked) hold(heading, "accrochage abandonné") else search(frame, tracks, heading)
         }
-        return acquireStep(frame, heading, acquireDeg, t?.velocityAzDegPerSec ?: 0.0, "accrochage")
+        return acquireStep(frame, heading, acquireDeg, t?.velocityAzDegPerSec ?: 0.0, "accrochage", zoomLocked)
     }
 
     /** Centre la cible ; une fois centrée, resserre le zoom d'un cran. */
-    private fun acquireStep(frame: Frame, heading: Double, deg: Double, rate: Double, note: String): Command {
+    private fun acquireStep(frame: Frame, heading: Double, deg: Double, rate: Double, note: String, zoomLocked: Boolean = false): Command {
         val now = frame.timeUs
         val hfov = frame.camera.hfovDeg
         val error = deg - heading
-        if (abs(error) <= config.centeredFraction * hfov / 2.0 && abs(frame.zoom - zoom) < 0.05 && zoom < config.followZoom) {
+        if (!zoomLocked && abs(error) <= config.centeredFraction * hfov / 2.0 && abs(frame.zoom - zoom) < 0.05 && zoom < config.followZoom) {
             zoom = when {
                 zoom < config.searchZoom -> config.searchZoom
                 else -> config.followZoom

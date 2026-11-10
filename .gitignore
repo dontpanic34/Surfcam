@@ -11,3 +11,4 @@ local.properties
 .kotlin/
 .DS_Store
 SurfCam2-refonte.apk
+/core/build
