@@ -16,7 +16,8 @@ que lorsque quelqu'un surfe une vague.
 - Trépied sur la plage, à environ 50 à 150 m du pic (estimation, à mesurer).
 - Hub USB-C branché au téléphone, avec une batterie externe et une carte SD. Le téléphone a peu de place libre : les vidéos
   doivent finir sur la carte SD.
-- L'utilisateur porte un manchon de couleur vive au bras.
+- L'utilisateur porte un manchon orange au bras ; il est le seul à l'eau à en porter un.
+- À l'eau : de l'utilisateur seul jusqu'à une dizaine de surfeurs.
 
 ## Qui filmer
 
@@ -65,6 +66,13 @@ partir de là. Si elle ne l'a pas vu entrer, elle le cherche au pic.
 Bibliothèque, lecteur, montage, export vers le Drive, récupération des clips rejetés : on garde ce qui existe et marche,
 sans y passer de temps tant que les points 1 à 5 ne sont pas fiables.
 
+## Données de référence
+
+- Banc du 05/11 : branche `banc-2026-11-05`, dossier `banc/` (détections sur le film entier, 35 vraies vagues étiquetées,
+  rejeu du code, rapport de session, historique complet du projet).
+- Session du 06/11 (manchon orange porté) : vagues, rejets, film de session et rapports sur le Drive de l'utilisateur,
+  téléchargeables depuis le dossier partagé.
+
 ## Constats des versions précédentes à ne pas reproduire
 
 - L'analyse tournait à moins de 2 images par seconde : trop lent pour suivre un surfeur à ×5.
@@ -72,4 +80,6 @@ sans y passer de temps tant que les points 1 à 5 ne sont pas fiables.
 - Le gimbal avançait par pas suivis d'une pause, sans mesure du cap réel.
 - La détection de vague a été réglée seuil par seuil, sans mesure d'ensemble ; un apprentissage automatique des seuils a
   écarté de vraies vagues.
+- Le 06/11, l'image des clips est molle et l'horizon penche d'environ 3° : le téléobjectif n'était pas forcé, le ×5 était
+  très probablement numérique.
 - La V2 a été livrée après validation sur simulateur uniquement, sans essai sur le téléphone.
