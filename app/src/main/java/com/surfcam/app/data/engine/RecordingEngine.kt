@@ -403,8 +403,6 @@ class RecordingEngine(private val context: Context) {
         desiredZoom = clamped
         _state.update { it.copy(zoom = clamped) }
         camera?.setZoom(clamped)
-        // Zoom choisi à la main : il devient le zoom de surveillance du pilote, qui ne l'écrase plus.
-        if (!fromBrain) analysis?.brain?.director?.idleZoom = clamped.toDouble()
     }
 
     /** Mise au point sur un point touché de l'image (0 à 1), conservée jusqu'à ce qu'on repasse en automatique. */

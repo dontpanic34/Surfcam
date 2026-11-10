@@ -36,9 +36,27 @@ que lorsque quelqu'un surfe une vague.
    fin de la vague. Ramer, attendre, faire un canard ou marcher ne déclenche rien. Une vague courte ou terminée par une
    chute reste une vague : la durée n'est pas un critère.
 5. **Se replacer.** L'utilisateur disparaît souvent (canard, écume, chute, sortie du cadre). L'appli vise d'abord là où il
-   doit ressortir, puis le recherche en dézoomant sur le pic, puis rezoome en ×5 une fois retrouvé. Le pic se déplace avec
-   la marée : sa position est réestimée pendant la session.
-6. **Ne jamais changer de zoom pendant un clip.**
+   doit ressortir, puis le recherche en balayant la zone du pic avec le gimbal, toujours en ×5, sans dézoomer. Le pic se
+   déplace avec la marée : sa position est réestimée pendant la session.
+6. **Ne jamais changer de zoom d'elle-même.** Voir « Zoom » ci-dessous.
+
+## Zoom (ajout du 10/11/2026 au soir, décidé par l'utilisateur)
+
+- Aucun zoom numérique, nulle part dans ce qui est enregistré. Tout ce qui est filmé l'est en ×5 sur le téléobjectif optique.
+- Si le téléobjectif ne peut pas être ouvert, l'appli ne démarre pas l'enregistrement et le dit, au lieu de recadrer
+  l'objectif principal sans prévenir.
+- Le ×1 ou ×2 ne sert qu'à l'utilisateur, à la main, avant de lancer l'enregistrement, pour viser en regardant l'écran. Dès
+  que l'enregistrement démarre, l'appli passe en ×5 et n'en bouge plus.
+- L'objectif réellement utilisé est écrit dans le rapport de session et visible à l'écran.
+- Tournage en 1080p, 30 images par seconde.
+
+## Zone du pic (ajout du 10/11/2026 au soir, décidé par l'utilisateur)
+
+- Avant de lancer, en vue large, l'utilisateur appuie sur « Définir le pic » et trace un rectangle sur l'image : où le pic
+  commence et où il finit. L'appli convertit ce rectangle en directions (degrés).
+- L'appli attend au centre de cette zone et, quand elle cherche l'utilisateur, balaie cette zone et pas au-delà.
+- La zone suit le pic quand il se déplace (marée) : son centre se recale sur les départs de vague observés. L'utilisateur
+  peut aussi la retracer.
 
 ## Démarrage d'une session
 

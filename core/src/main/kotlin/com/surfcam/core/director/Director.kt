@@ -27,12 +27,10 @@ data class DirectorConfig(
     /** Zoom de suivi et de tournage (téléobjectif). */
     val followZoom: Double = 5.0,
     /**
-     * Mode tout le monde, comme un caméraman : on regarde tout le line-up à ce zoom, puis on zoome au zoom de suivi quand une
-     * vague part (le clip commence large et se resserre sur le surfeur). 0 = rester au zoom de suivi.
+     * Zoom de recherche. Égal au zoom de suivi : l'appli ne quitte jamais le téléobjectif (aucun zoom numérique, aucun
+     * changement d'objectif). Elle cherche en balayant la zone du pic avec le gimbal.
      */
-    val watchZoom: Double = 2.0,
-    /** Zoom de recherche : assez large pour couvrir le line-up, assez serré pour voir le manchon. */
-    val searchZoom: Double = 2.0,
+    val searchZoom: Double = 5.0,
     /** Mode moi : sans voir l'utilisateur depuis ce délai, on part le chercher (si aucun clip ne tourne). */
     val searchAfterUs: Long = 8_000_000,
     /** Mode moi, au démarrage : délai avant la première recherche si l'utilisateur n'est pas dans le champ. */
@@ -123,11 +121,20 @@ class Director(
      * @param clipActive un clip est en cours (vague ou marges) : zoom verrouillé
      */
     /**
-     * Zoom de surveillance du pic (mode tout le monde). Par défaut le zoom de suivi (×5, téléobjectif) ; le zoom choisi à la main
-     * par l'utilisateur le remplace et est respecté : le pilote ne le change plus de lui-même hors vague.
+     * Demi-largeur de la zone du pic tracée par l'utilisateur (degrés), ou null s'il n'a rien tracé. La recherche balaie cette
+     * zone et pas au-delà. Le centre de la zone est le pic, qui se recale sur les départs observés (marée) ; la largeur reste.
      */
     @Volatile
-    var idleZoom: Double = config.followZoom
+    var peakHalfWidthDeg: Double? = null
+        private set
+
+    /** L'utilisateur a tracé la zone du pic à l'écran : de [leftDeg] à [rightDeg], en cap absolu. */
+    fun setPeakZone(leftDeg: Double, rightDeg: Double, timeUs: Long) {
+        val lo = minOf(leftDeg, rightDeg)
+        val hi = maxOf(leftDeg, rightDeg)
+        peak.setByUser((lo + hi) / 2.0, timeUs)
+        peakHalfWidthDeg = (hi - lo) / 2.0
+    }
 
     /** Piste candidate à un départ (votes en cours), fournie par le détecteur de vagues. */
     var candidateTrackId: Int? = null
@@ -162,7 +169,6 @@ class Director(
 
     private fun everyone(frame: Frame, tracks: List<Track>, heading: Double, ridingId: Int?, zoomLocked: Boolean): Command {
         val now = frame.timeUs
-        val idleZoom = this.idleZoom
         if (ridingId != null) {
             // Une vague part : on suit le surfeur au zoom en cours (aucun changement de zoom pendant un clip).
             val t = tracks.firstOrNull { it.id == ridingId }
@@ -185,10 +191,7 @@ class Director(
             return hold(heading, "fin de vague, on attend avant de revenir au pic")
         }
         targetId = null
-        if (!zoomLocked) {
-            peak.update(now)
-            zoom = idleZoom
-        }
+        if (!zoomLocked) peak.update(now)
         enter(DirectorState.WAIT_AT_PEAK, now)
         return aimAt(now, heading, peak.peakDeg, 0.0, frame.camera.hfovDeg, GimbalStyle.REPOSITION, null, "attente au pic")
     }
@@ -285,19 +288,24 @@ class Director(
             }
         }
         // Balayage : pic, puis alternativement à gauche et à droite, de plus en plus loin.
-        val positions = searchPositions()
+        val hfov = frame.camera.hfovDeg.coerceAtLeast(1.0)
+        val positions = searchPositions(hfov)
         if (now - searchPositionSinceUs >= config.searchDwellUs) {
             searchIndex = (searchIndex + 1) % positions.size
             searchPositionSinceUs = now
         }
-        val hfov = frame.camera.hfovDeg.coerceAtLeast(1.0)
+        searchIndex %= positions.size
         val target = peak.peakDeg + positions[searchIndex] * config.searchStepFraction * hfov
         return aimAt(now, heading, target, 0.0, hfov, GimbalStyle.REPOSITION, null, "recherche, direction ${searchIndex + 1}/${positions.size}")
     }
 
-    private fun searchPositions(): List<Int> {
+    private fun searchPositions(hfov: Double): List<Int> {
+        // Zone tracée par l'utilisateur : juste assez de directions pour la couvrir d'un bord à l'autre, pas plus.
+        val sides = peakHalfWidthDeg?.let { half ->
+            kotlin.math.ceil(((half - hfov / 2.0) / (config.searchStepFraction * hfov)).coerceAtLeast(0.0)).toInt()
+        } ?: config.searchSidePositions
         val list = arrayListOf(0)
-        for (k in 1..config.searchSidePositions) {
+        for (k in 1..sides) {
             list += -k
             list += k
         }

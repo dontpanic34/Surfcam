@@ -20,7 +20,7 @@ class SimulatorTest {
         println("== $name")
         println("   vagues de l'utilisateur filmées : $hitUser / $totalUser · cadré pendant ses vagues : $framed")
         println("   toutes vagues filmées : $hitAll / $totalAll · clips : ${r.clips.size} · rejetés : ${r.rejected}")
-        println("   premier accrochage : ${r.firstAcquireSec?.let { "%.0f s".format(it) } ?: "jamais"} · zooms pendant un clip : ${r.zoomChangesDuringClips}")
+        println("   premier accrochage : ${r.firstAcquireSec?.let { "%.0f s".format(it) } ?: "jamais"} · changements de zoom : ${r.zoomChanges}")
         println("   temps par état : " + r.stateSeconds.entries.sortedBy { it.key.ordinal }.joinToString { "${it.key.label} %.0f s".format(it.value) })
         if (me) r.missedUserRides.forEach { println("   RATÉE $it") }
     }
@@ -33,12 +33,25 @@ class SimulatorTest {
         val total = results.sumOf { it.capturedRides { r -> r.isUser }.second }
         println("TOTAL moi : $hit / $total vagues de l'utilisateur filmées")
         assertTrue("l'utilisateur doit être trouvé à chaque session", results.all { it.firstAcquireSec != null })
-        assertEquals("jamais de changement de zoom pendant un clip", 0, results.sumOf { it.zoomChangesDuringClips })
+        assertEquals("le pilote ne change jamais de zoom", 0, results.sumOf { it.zoomChanges })
         assertTrue("au moins 70 % des vagues de l'utilisateur filmées ($hit/$total)", hit >= 0.7 * total)
         val others = results.sumOf { r -> r.clips.size - r.capturedRides { it.isUser }.first }
         // Depuis le repli « tout le monde » (spec : un clip en trop est acceptable, une vague manquée non), les vagues des autres
         // sont filmées quand l'utilisateur est perdu : on les compte sans les interdire.
         println("clips qui ne sont pas l'utilisateur : $others")
+    }
+
+    @Test
+    fun meWithDrawnPeakZoneNeverChangesZoom() {
+        // L'utilisateur trace la zone du pic (±12°) avant de lancer : la recherche balaie cette zone au téléobjectif, sans dézoom.
+        val results = (1..5).map { seed -> Simulator(Simulator.Scenario(seed = seed, subject = Subject.ME, peakZoneHalfWidthDeg = 12.0)).run() }
+        results.forEachIndexed { i, r -> report("moi + zone du pic, graine ${i + 1}", r, false) }
+        val hit = results.sumOf { it.capturedRides { r -> r.isUser }.first }
+        val total = results.sumOf { it.capturedRides { r -> r.isUser }.second }
+        println("TOTAL moi + zone : $hit / $total vagues de l'utilisateur filmées")
+        assertTrue("l'utilisateur doit être trouvé à chaque session", results.all { it.firstAcquireSec != null })
+        assertTrue("au moins 70 % des vagues de l'utilisateur filmées ($hit/$total)", hit >= 0.7 * total)
+        assertEquals("le pilote ne change jamais de zoom", 0, results.sumOf { it.zoomChanges })
     }
 
     @Test
@@ -48,7 +61,7 @@ class SimulatorTest {
         report("moi sans manchon", r, false)
         val (hit, total) = r.capturedRides { true }
         assertTrue("sans manchon reconnu, les vagues sont filmées quand même ($hit/$total)", hit >= 0.4 * total)
-        assertEquals("jamais de changement de zoom pendant un clip", 0, r.zoomChangesDuringClips)
+        assertEquals("le pilote ne change jamais de zoom", 0, r.zoomChanges)
         assertTrue((r.stateSeconds[DirectorState.SEARCH] ?: 0.0) > 0)
     }
 
@@ -62,7 +75,7 @@ class SimulatorTest {
         val totalF = results.sumOf { it.capturedRides { r -> r.filmable }.second }
         val clips = results.sumOf { it.clips.size }
         println("TOTAL tout le monde : $hit / $total vagues filmées ; filmables (départ dans le champ, caméra libre) : $hitF / $totalF ; $clips clips")
-        assertEquals(0, results.sumOf { it.zoomChangesDuringClips })
+        assertEquals("le pilote ne change jamais de zoom", 0, results.sumOf { it.zoomChanges })
         assertTrue("au moins 80 % des vagues filmables filmées ($hitF/$totalF)", hitF >= 0.8 * totalF)
         assertTrue("au moins 85 % des clips sont de vraies vagues ($hit/$clips)", hit >= 0.85 * clips)
     }

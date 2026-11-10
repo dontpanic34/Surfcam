@@ -37,6 +37,8 @@ class Simulator(val scenario: Scenario) {
         val peakDriftDegPerHour: Double = 6.0,
         /** Pic désigné par l'utilisateur au départ (peut être faux). */
         val userPeakGuessDeg: Double = 0.0,
+        /** Demi-largeur de la zone du pic tracée par l'utilisateur avant de lancer (degrés), ou null s'il n'en trace pas. */
+        val peakZoneHalfWidthDeg: Double? = null,
         /** Étalement des départs autour du pic (degrés). */
         val takeoffSpreadDeg: Double = 4.0,
         val distanceM: Double = 110.0,
@@ -93,6 +95,8 @@ class Simulator(val scenario: Scenario) {
         val log: List<String>,
         /** Une ligne par vague de l'utilisateur ratée : ce qui s'est passé. */
         val missedUserRides: List<String> = emptyList(),
+        /** Nombre total de changements de zoom demandés par le pilote pendant la session (doit rester à 0). */
+        val zoomChanges: Int = 0,
     ) {
         fun capturedRides(filter: (TrueRide) -> Boolean): Pair<Int, Int> {
             val wanted = rides.filter(filter).filter { it.endSec - it.startSec >= 3.0 }
@@ -129,6 +133,7 @@ class Simulator(val scenario: Scenario) {
             }
         }
         val brain = SurfBrain(s.subject, s.userPeakGuessDeg)
+        s.peakZoneHalfWidthDeg?.let { brain.director.setPeakZone(s.userPeakGuessDeg - it, s.userPeakGuessDeg + it, 0L) }
         val truth = ArrayList<TrueRide>()
         val openRides = HashMap<Int, TrueRide>()
 
@@ -147,6 +152,7 @@ class Simulator(val scenario: Scenario) {
         val stateSeconds = HashMap<DirectorState, Double>()
         var firstAcquire: Double? = null
         var zoomChangesDuringClips = 0
+        var zoomChanges = 0
         val log = ArrayList<String>()
         var lastState: DirectorState? = null
         val framed = java.util.IdentityHashMap<TrueRide, IntArray>() // [vu dans le cadre, total]
@@ -223,6 +229,7 @@ class Simulator(val scenario: Scenario) {
                     }
                     if (abs(cmd.zoom - zoom) > 0.01) {
                         val switchesLens = (zoom >= 5.0) != (cmd.zoom >= 5.0)
+                        zoomChanges++
                         if (clipStart != null) zoomChangesDuringClips++ // aucun changement de zoom pendant un clip, dans un sens ou dans l'autre
                         zoom = cmd.zoom
                         if (switchesLens) lensGapUntil = decisionT + s.lensSwitchGapSec
@@ -238,7 +245,7 @@ class Simulator(val scenario: Scenario) {
             val c = framed[r] ?: return@map 0.0
             if (c[1] == 0) 0.0 else c[0].toDouble() / c[1]
         }
-        val result = Result(truth, clips, rejected, userShares, stateSeconds, firstAcquire, zoomChangesDuringClips, log)
+        val result = Result(truth, clips, rejected, userShares, stateSeconds, firstAcquire, zoomChangesDuringClips, log, zoomChanges = zoomChanges)
         val captured = HashSet<TrueRide>()
         run {
             val used = HashSet<Int>()
