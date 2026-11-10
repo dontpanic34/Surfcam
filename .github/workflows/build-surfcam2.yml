@@ -20,7 +20,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -35,3 +35,4 @@ jobs:
           name: SurfCam-V2-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
