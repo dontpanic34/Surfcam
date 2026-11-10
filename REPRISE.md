@@ -1,6 +1,6 @@
 # Reprise SurfCam — état au 10/11/2026
 
-À lire en premier par la conversation qui reprend le projet. Le cahier des charges est dans `PROMPT.md` (même branche) :
+À lire en premier par la conversation qui reprend le projet. Le cahier des charges est dans `SPEC_SURFCAM_V2.md` (même branche) :
 c'est la référence de ce que l'appli doit faire. Ce fichier-ci dit où on en est, où sont les données et par quoi commencer.
 
 ## En une phrase
@@ -13,7 +13,7 @@ repartir sur une bonne base, à partir du code de la V1 et du cahier des charges
 
 | Quoi | Où |
 |---|---|
-| Cahier des charges | `PROMPT.md`, branche `claude/dazzling-mendel-1s5glk` |
+| Cahier des charges | `SPEC_SURFCAM_V2.md`, branche `claude/dazzling-mendel-1s5glk` |
 | V1 « SurfCam » (v0.96), celle qui a servi à l'eau | branche `main`, commit `cdd5d07` |
 | V2 « SurfCam 2 » (`com.surfcam.app2`), jamais validée à l'eau | branche `claude/vibrant-gates-viyb5r`, voir son `REFONTE.md` |
 | Banc du 05/11 | branche `banc-2026-11-05`, dossier `banc/` (lire `banc/LISEZMOI.md`) |
@@ -126,5 +126,5 @@ session et par clip, clips rejetés gardés et récupérables, export d'un jour 
 
 ## État de cette conversation
 
-Aucun code de l'appli modifié. Livré : `PROMPT.md` et ce fichier, sur `claude/dazzling-mendel-1s5glk`. Les deux
+Aucun code de l'appli modifié. Livré : `SPEC_SURFCAM_V2.md` et ce fichier, sur `claude/dazzling-mendel-1s5glk`. Les deux
 conversations précédentes ont été lues par leur fin et par un bilan demandé à chacune, pas en entier.
