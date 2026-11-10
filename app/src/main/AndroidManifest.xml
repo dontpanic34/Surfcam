@@ -19,7 +19,7 @@
         android:name=".SurfCamApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="SurfCam"
+        android:label="SurfCam 2"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
         <activity

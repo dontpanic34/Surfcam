@@ -36,6 +36,19 @@ class GimbalFollower(context: Context) {
     private var cmdCounter = 0
     private var lastTargetIdLogged = -1
 
+    /** Pilotage par le nouveau cerveau (:core) : quand vrai, [onFrame] ne décide plus rien, seuls les ordres reçus comptent. */
+    @Volatile
+    var externalControl = false
+
+    /** Cap (degrés, positif à droite) à l'instant [timeUs] (horloge de démarrage, µs), d'après l'historique du gyroscope. */
+    fun headingAtUs(timeUs: Long): Double? = gyro?.timeline?.at(timeUs)
+
+    /** Exécute un ordre du cerveau : [deltaDeg] (positif à droite) en [durationSec]. */
+    fun executeOrder(deltaDeg: Double, durationSec: Double, what: String) {
+        if (!started || !enabled || !link.state.value.connected) return
+        sendRotate((if (invert) -deltaDeg else deltaDeg).toFloat(), durationSec.toFloat(), what)
+    }
+
     /** Rotation réelle mesurée au gyroscope depuis le début du suivi (degrés, positif vers la droite) ; 0 sans gyroscope. */
     val gyroYawDeg: Float get() = gyro?.cumulativeDeg ?: 0f
     val gyroRateDegPerSec: Float get() = gyro?.rateDegPerSec ?: 0f
@@ -215,6 +228,7 @@ class GimbalFollower(context: Context) {
      * gimbal bouge et que l'analyse rattrape son retard.
      */
     fun onFrame(boxes: List<FollowBox>, hfovDeg: Float) {
+        if (externalControl) return
         if (!started || !enabled || !link.state.value.connected) return
         val now = SystemClock.elapsedRealtime()
         // « Attendre au pic » : le gimbal ne bouge que pour une vague (surfeur en vague) ou pour l'utilisateur (manchon reconnu) ;

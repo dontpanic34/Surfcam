@@ -39,25 +39,67 @@ class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: Shared
     var lastEndDeg: Float? = null
         private set
 
-    /** @return un compte rendu en français */
-    suspend fun run(read: () -> Float?): String {
+    /** Moyenne de l'inclinaison sur 0,5 s (le capteur de gravité tremble un peu) ; null si pas de mesure. */
+    private suspend fun settle(read: () -> Float?): Float? {
+        val values = ArrayList<Float>()
+        repeat(10) {
+            read()?.let { values += it }
+            delay(50)
+        }
+        return if (values.isEmpty()) null else values.sorted()[values.size / 2]
+    }
+
+    /**
+     * Mise à niveau en boucle fermée : mesure (gimbal immobile), ordre de roulis proportionnel à l'écart, nouvelle mesure. Le sens
+     * et l'amplitude réelle de l'ordre (degrés obtenus par degré commandé) sont appris et gardés pour les fois suivantes. S'arrête
+     * sous 0,3°, ou si le gimbal ne réagit pas deux fois de suite. Vérifie ensuite que le niveau tient (un gimbal qui revient
+     * seul à sa propre référence est signalé). Chaque étape est écrite dans le rapport via [log].
+     * @return un compte rendu en français
+     */
+    suspend fun run(read: () -> Float?, log: (String) -> Unit = {}): String {
         var sign = prefs.getInt("rollSign", 1)
-        val start = read() ?: return "Le téléphone n'a pas de capteur d'inclinaison utilisable."
+        var gain = prefs.getFloat("rollGain", 1f)
+        val start = settle(read) ?: return "Le téléphone n'a pas de capteur d'inclinaison utilisable."
         var before = start
-        repeat(6) {
-            if (abs(before) < 0.4f) return@repeat
-            link.rollBy((-before * 0.8f).coerceIn(-5f, 5f) * sign, 1.0f)
-            delay(2_500)
-            val after = read() ?: before
-            if (abs(after) > abs(before) - 0.2f) {
-                sign = -sign
-                prefs.edit().putInt("rollSign", sign).apply()
+        var noResponse = 0
+        log("niveau : départ %+.2f° (sens appris %d, amplitude %.2f)".format(start, sign, gain))
+        for (i in 1..10) {
+            if (abs(before) < 0.3f) break
+            val cmd = (-before / gain).coerceIn(-6f, 6f)
+            link.rollBy(cmd * sign, 0.8f)
+            delay(1_600)
+            val after = settle(read) ?: break
+            val moved = after - before
+            log("niveau : essai $i, ordre %+.2f° → inclinaison %+.2f° (a bougé de %+.2f°)".format(cmd, after, moved))
+            when {
+                abs(moved) < 0.15f -> {
+                    noResponse++
+                    if (noResponse >= 2) break
+                }
+                (moved > 0) != (cmd > 0) -> {
+                    sign = -sign
+                    prefs.edit().putInt("rollSign", sign).apply()
+                    log("niveau : le gimbal tourne dans l'autre sens, sens inversé")
+                    noResponse = 0
+                }
+                else -> {
+                    gain = (abs(moved) / abs(cmd)).coerceIn(0.3f, 2f)
+                    prefs.edit().putFloat("rollGain", gain).apply()
+                    noResponse = 0
+                }
             }
             before = after
         }
-        val end = read() ?: before
-        lastEndDeg = end
-        return "Horizon : %.1f° avant, %.1f° après.".format(start, end).replace('.', ',') +
-            if (abs(end) > 1f) " Le gimbal n'a pas suivi l'ordre de roulis : réglage possible dans l'appli DJI Mimo." else " C'est droit."
+        delay(3_000)
+        val held = settle(read) ?: before
+        lastEndDeg = held
+        val drift = held - before
+        log("niveau : fin %+.2f°, 3 s plus tard %+.2f°".format(before, held))
+        return when {
+            noResponse >= 2 -> "Horizon : %.1f°. Le gimbal ne répond pas à l'ordre de roulis : fais « Réglage horizontal » dans l'appli DJI Mimo.".format(held)
+            abs(drift) > 0.5f -> "Horizon : %.1f° → %.1f°, mais le gimbal revient seul vers %.1f° : sa référence est penchée (réglage horizontal dans DJI Mimo).".format(start, before, held)
+            abs(held) <= 0.5f -> "Horizon droit : %.1f° → %.1f°.".format(start, held)
+            else -> "Horizon : %.1f° → %.1f°.".format(start, held)
+        }.replace('.', ',')
     }
 }

@@ -7,7 +7,7 @@ data class SessionOptions(
     /** Téléobjectif optique 5× plutôt que l'objectif principal. */
     val tele: Boolean = false,
     /** Enregistrer toute la session, en fichiers de 2 minutes, en plus des clips de vagues (désactivé par défaut). */
-    val fullSession: Boolean = true,
+    val fullSession: Boolean = false,
     /** 1080p au lieu de la 4K : environ 2,5 fois moins de place et de chauffe. */
     val hd: Boolean = false,
     /**
@@ -38,12 +38,13 @@ data class SessionOptions(
     /** Couleur du manchon que l'utilisateur porte pour être repéré parmi les surfeurs ; null = aucune. */
     val markerColor: com.surfcam.app.domain.detection.MarkerColor? = null,
 ) {
-    val lens: Lens get() = if (tele || subject == Subject.ME) Lens.TELE else Lens.MAIN
+    // Objectif principal (caméra logique) par défaut : le nouveau pilote dézoome pour chercher puis zoome sans coupure.
+    val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
 
     /** Place approximative prise par une heure de session complète, en Go (débit vidéo × 3600 s). */
     fun gigabytesPerHour(): Int {
         val mbps = when {
-            hd -> if (tele || !fps60) 32 else 50
+            hd -> if (tele || !fps60) 50 else 70
             else -> if (tele || !fps60) 80 else 100
         }
         return Math.round(mbps * 3600f / 8f / 1000f)

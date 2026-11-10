@@ -27,7 +27,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -126,6 +125,7 @@ fun HomeScreen(
     }
     val exporter = remember { com.surfcam.app.data.library.Exporter(context) }
     var showExport by remember { mutableStateOf(false) }
+    var showExportAll by remember { mutableStateOf(false) }
     var showDiag by remember { mutableStateOf(false) }
     val waitingForCard by produceState(0) { while (true) { value = com.surfcam.app.data.storage.SdMover.pendingCount(context); delay(3_000) } }
     var sdDeclined by remember { mutableStateOf(setOf<String>()) }
@@ -142,7 +142,7 @@ fun HomeScreen(
         val leveler = HorizonLeveler(link, gp)
         val needLandscape = upright == true && !gp.getBoolean("landscapeFailed", false)
         val angle = horizon
-        val needLevel = angle != null && abs(angle) > 0.8f && !gp.getBoolean("rollFailed", false)
+        val needLevel = angle != null && abs(angle) > 0.3f
         if (gimbalState.connected && (needLandscape || needLevel)) {
             leveling = true
             notice = null
@@ -151,9 +151,10 @@ fun HomeScreen(
                     gp.edit().putBoolean("landscapeFailed", true).apply()
                     notice = "Le gimbal n'a pas tourné en paysage : fais un double appui sur son bouton M."
                 }
-                if (horizon?.let { abs(it) > 0.8f } == true && !gp.getBoolean("rollFailed", false)) {
-                    leveler.run { horizon }
-                    if (abs(leveler.lastEndDeg ?: 0f) > 1.5f) gp.edit().putBoolean("rollFailed", true).apply()
+                if (horizon?.let { abs(it) > 0.3f } == true) {
+                    val lines = ArrayList<String>()
+                    notice = leveler.run({ horizon }) { lines += it }
+                    gp.edit().putString("lastLeveling", lines.joinToString("\n")).apply()
                 }
                 leveling = false
                 onOpenCamera()
@@ -425,8 +426,19 @@ fun HomeScreen(
                         onClick = { shareNote = SessionShare.share(context, withSessionFiles = false) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Partager la dernière session (rapport + vagues)") }
+                    Button(
+                        onClick = { shareNote = SessionShare.shareEverything(context) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Partager les fichiers de la dernière session") }
                     shareNote?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
                 }
+                if (!running) {
+                    OutlinedButton(onClick = { showExportAll = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Tout exporter vers un dossier choisi")
+                    }
+                }
+                if (showExportAll) ExportAllDialog(exporter) { showExportAll = false }
+энд
 
                 Text(
                     "Réglages avancés",
@@ -520,35 +532,6 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
     val all by produceState<List<com.surfcam.app.data.library.LibraryVideo>>(emptyList()) { value = withContext(Dispatchers.IO) { library.list() } }
     val pending = exporter.pending(all)
     val last = exporter.lastSession(all)
-    var allResult by remember { mutableStateOf<String?>(null) }
-    val keepOn = androidx.compose.ui.platform.LocalView.current
-    DisposableEffect(working) {
-        keepOn.keepScreenOn = working
-        onDispose { keepOn.keepScreenOn = false }
-    }
-    val days by produceState<List<Triple<java.time.LocalDate, Int, Long>>>(emptyList()) { value = withContext(Dispatchers.IO) { exporter.days() } }
-    fun runDay(day: java.time.LocalDate?) {
-        val today = day != null
-        if (working) return
-        working = true
-        message = null
-        allResult = null
-        scope.launch {
-            val r = withContext(Dispatchers.IO) {
-                val items = exporter.everything(day)
-                if (items.isEmpty()) null else exporter.exportAll(items) { i, n, cur -> progress = "Export $i sur $n : $cur" }
-            }
-            allResult = if (r == null) "Rien à exporter ${if (today) "pour aujourd'hui" else ""}."
-            else buildString {
-                append("${r.sent} fichier(s) envoyé(s) (%.1f Go), ${r.skipped} déjà présent(s)".format(r.bytes / 1e9))
-                if (r.failed.isNotEmpty()) append(". ${r.failed.size} en échec, à relancer : ${(r.failed.filter { it.startsWith("ARRÊT") } + r.failed.filterNot { it.startsWith("ARRÊT") }).take(3).joinToString(" ; ")}")
-                append(".")
-            }
-            working = false
-            progress = ""
-        }
-    }
-    fun runAll(today: Boolean) = runDay(if (today) java.time.LocalDate.now() else null)
     val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) { exporter.setFolder(uri); folder = exporter.folderLabel() }
     }
@@ -565,7 +548,7 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
         onDismissRequest = { if (!working) onClose() },
         title = { Text("Exporter mes vagues") },
         text = {
-            Column(modifier = Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Dossier d'export : ${folder ?: "pas encore choisi"}", fontSize = 13.sp)
                 OutlinedButton(onClick = { pick.launch(null) }, enabled = !working) { Text(if (folder == null) "Choisir le dossier" else "Changer de dossier") }
                 Text("Chaque vague est copiée avec son rapport du même nom ; le rapport de la session est ajouté une fois.", fontSize = 12.sp, color = SurfColors.Muted)
@@ -575,19 +558,12 @@ private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClos
                 OutlinedButton(onClick = { run(last) }, enabled = !working && folder != null && last.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                     Text("Exporter la dernière session (${last.size})", fontSize = 13.sp)
                 }
-                Text("Tout exporter : Vagues, Rejets, Sessions entières (en parties) et Rapports, chacun dans son sous-dossier. Ce qui est déjà envoyé est ignoré : tu peux relancer après une coupure. Garde l'écran allumé.", fontSize = 12.sp, color = SurfColors.Muted)
-                Text("Exporter un jour entier (vagues, puis rejets, puis rapports, puis la session : le film s'il existe, sinon les morceaux de 2 min, sans rien assembler) :", fontSize = 12.sp, color = SurfColors.Muted)
-                days.take(10).forEach { (d, n, bytes) ->
-                    Button(onClick = { runDay(d) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) {
-                        Text("%s · %d fichiers · %.1f Go".format(d.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.FRENCH)), n, bytes / 1e9), fontSize = 13.sp)
-                    }
-                }
-                OutlinedButton(onClick = { runAll(false) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) {
-                    Text("Tout exporter : tout ce qui est sur le téléphone", fontSize = 13.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Checkbox(checked = deleteAfter, onCheckedChange = { deleteAfter = it }, enabled = !working)
+                    Text("Libérer le téléphone : supprimer chaque vague une fois sa copie vérifiée", fontSize = 12.sp)
                 }
                 if (progress.isNotEmpty()) Text(progress, fontSize = 12.sp, color = SurfColors.Foam)
                 message?.let { Text(it, fontSize = 12.sp, color = SurfColors.Warn) }
-                allResult?.let { Text(it, fontSize = 12.sp, color = SurfColors.Warn) }
             }
         },
         confirmButton = { androidx.compose.material3.TextButton(onClick = onClose, enabled = !working) { Text("Fermer") } },

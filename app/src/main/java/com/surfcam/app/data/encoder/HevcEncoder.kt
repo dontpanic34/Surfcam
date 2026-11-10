@@ -28,6 +28,25 @@ class HevcEncoder(
     @Volatile
     private var running = false
 
+    /**
+     * Débit variable si l'encodeur le permet (les images difficiles — écume, eau qui bouge — reçoivent plus de bits, les faciles
+     * moins), sinon débit constant. Le mode retenu est écrit dans le rapport.
+     */
+    private fun bitrateMode(): Int {
+        val vbr = MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR
+        val cbr = MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
+        val mode = try {
+            val info = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+                .firstOrNull { it.isEncoder && it.supportedTypes.any { t -> t.equals(MediaFormat.MIMETYPE_VIDEO_HEVC, true) } && !it.isSoftwareOnly }
+            val caps = info?.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_HEVC)?.encoderCapabilities
+            com.surfcam.app.data.engine.SessionLog.ev("encodeur", "${info?.name} · VBR ${caps?.isBitrateModeSupported(vbr)} · CBR ${caps?.isBitrateModeSupported(cbr)} · ${config.width}×${config.height} ${config.fps} i/s · ${config.bitrate / 1_000_000} Mb/s · image clé ${config.keyFrameIntervalSec} s")
+            if (caps?.isBitrateModeSupported(vbr) == true) vbr else cbr
+        } catch (_: Exception) {
+            cbr
+        }
+        return mode
+    }
+
     /** Configure et démarre l'encodeur ; renvoie la surface dans laquelle la caméra doit filmer. */
     fun start(): Surface {
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_HEVC, config.width, config.height).apply {
@@ -35,7 +54,7 @@ class HevcEncoder(
             setInteger(MediaFormat.KEY_BIT_RATE, config.bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, config.fps)
             setFloat(MediaFormat.KEY_I_FRAME_INTERVAL, config.keyFrameIntervalSec)
-            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            setInteger(MediaFormat.KEY_BITRATE_MODE, bitrateMode())
             setInteger(
                 MediaFormat.KEY_PROFILE,
                 if (config.tenBit) MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 else MediaCodecInfo.CodecProfileLevel.HEVCProfileMain,

@@ -179,12 +179,5 @@ class VideoLibrary(context: Context) {
         }
     }
 
-    /** Garde les clips rejetés les plus récents jusqu'à [maxBytes] au total ; supprime le reste. */
-    fun purgeRejected(maxBytes: Long) {
-        var total = 0L
-        for (v in listRejected()) {
-            total += v.sizeBytes
-            if (total > maxBytes) delete(v)
-        }
-    }
+    /** Les clips rejetés sont conservés automatiquement ; aucune purge n'est faite sans demande de l'utilisateur. */
 }

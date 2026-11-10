@@ -224,6 +224,8 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             },
         )
 
+        CameramanHud(state, Modifier.matchParentSize())
+
         // Pincement à deux doigts : zoom continu, comme dans l'appareil photo.
         val currentZoom by rememberUpdatedState(state.zoom)
         // Toucher l'image : mise au point sur ce point (anneau affiché 1,5 s).
@@ -1086,6 +1088,7 @@ private fun GimbalLogSection() {
         if (SessionShare.available(context)) {
             OutlinedButton(onClick = { SessionShare.share(context, withSessionFiles = false) }) { Text("Partager session : rapport + vagues", fontSize = 12.sp) }
             OutlinedButton(onClick = { SessionShare.share(context, withSessionFiles = true) }) { Text("… avec les fichiers de session (gros)", fontSize = 12.sp) }
+            OutlinedButton(onClick = { SessionShare.shareEverything(context) }) { Text("Tout exporter (test) : y compris refusées et journal", fontSize = 12.sp) }
         }
         if (exported != null) {
             OutlinedButton(onClick = {

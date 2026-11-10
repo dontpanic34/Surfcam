@@ -38,6 +38,7 @@ import com.surfcam.app.domain.reframe.PathFrame
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.domain.model.EncodedSample
 import com.surfcam.app.domain.tracking.RideStats
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -300,7 +301,6 @@ class RecordingEngine(private val context: Context) {
         val batteryLine = endBatteryLog()
         val summary = buildSummary() + (batteryLine?.let { "\n$it" } ?: "")
         Trail.mark("FIN")
-        Thread({ try { com.surfcam.app.data.library.VideoLibrary(context).purgeRejected(REJECTS_MAX_BYTES) } catch (_: Exception) {} }, "purge-rejets").start()
         SessionLog.ev("bilan", summary.replace("\n", " | "))
         SessionLog.end(context)
         _state.update { it.copy(phase = Phase.IDLE, lastSummary = summary, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, sessionPart = 0, message = null) }
@@ -393,7 +393,9 @@ class RecordingEngine(private val context: Context) {
     }
 
     @Synchronized
-    fun setZoom(ratio: Float) {
+    fun setZoom(ratio: Float) = setZoomInternal(ratio, fromBrain = false)
+
+    private fun setZoomInternal(ratio: Float, fromBrain: Boolean) {
         val s = _state.value
         var clamped = ratio.coerceIn(s.minZoom, s.maxZoom)
         // Entre ×4,2 et ×5 on colle sur le téléobjectif : un zoom hésitant juste en dessous serait numérique, donc flou.
@@ -401,6 +403,8 @@ class RecordingEngine(private val context: Context) {
         desiredZoom = clamped
         _state.update { it.copy(zoom = clamped) }
         camera?.setZoom(clamped)
+        // Zoom choisi à la main : il devient le zoom de surveillance du pilote, qui ne l'écrase plus.
+        if (!fromBrain) analysis?.brain?.director?.idleZoom = clamped.toDouble()
     }
 
     /** Mise au point sur un point touché de l'image (0 à 1), conservée jusqu'à ce qu'on repasse en automatique. */
@@ -453,6 +457,8 @@ class RecordingEngine(private val context: Context) {
     /** Le bouton « Ici le pic » : la direction actuelle du gimbal devient le point de retour entre deux vagues. */
     fun markPeak() {
         follower?.setPeakHere()
+        val now = android.os.SystemClock.elapsedRealtimeNanos() / 1_000
+        analysis?.brain?.director?.setPeakHere(follower?.headingAtUs(now) ?: 0.0, now)
         SessionLog.ev("PIC", "L'utilisateur désigne la direction actuelle comme étant le pic")
     }
 
@@ -476,7 +482,7 @@ class RecordingEngine(private val context: Context) {
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.
         val hint = (probe.sensorOrientation - rotationDegrees + 360) % 360
-        val clips = ClipRecorder(context, buffer, hint, storage, { saved, error -> onClipResult(saved, error) }, { kept -> pendingRejectStats?.let { learning.recordRejected(kept.name, it) }; pendingRejectStats = null; SessionLog.ev("clip", "rejeté (fausse alerte) mais gardé dans « Vagues rejetées » : ${kept.name} (%.1f s, ${kept.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(kept.durationSec)) })
+        val clips = ClipRecorder(context, buffer, hint, storage, { saved, error -> onClipResult(saved, error) }, { kept -> pendingRejectStats?.let { learning.recordRejected(kept.name, it) }; pendingRejectStats = null; SessionLog.clipSaved(context, kept.name, kept.durationSec); SessionLog.ev("clip", "rejeté (fausse alerte) mais gardé dans « Vagues rejetées » : ${kept.name} (%.1f s, ${kept.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(kept.durationSec)) })
         ring = buffer
         recorder = clips
         sampleCount = 0
@@ -530,12 +536,17 @@ class RecordingEngine(private val context: Context) {
                     }
                 }
                 follower?.setClipActive(_state.value.clipActive)
-                updateDutyCycle(snapshot)
-                updateWideSearch(snapshot, follower)
+                // Avec le nouveau cerveau, pas d'ancienne veille à 1 image/s (elle empêchait de mesurer les départs) ni
+                // d'ancienne recherche au manchon : le pilote du cerveau s'en charge.
+                if (analysis?.brain == null) {
+                    updateDutyCycle(snapshot)
+                    updateWideSearch(snapshot, follower)
+                }
                 logFrame(snapshot, follower)
                 val targetId = follower?.targetId
                     ?: FollowController.chooseTarget(snapshot.boxes.filter { !onlyMarkedFollow || it.marked }.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked, it.id) }, null)?.id
                     ?: -1
+                if (analysis?.brain != null) { logFrame(snapshot, follower); return }
                 val note = GimbalLog.last
                 if (_state.value.followTargetId != targetId || _state.value.followNote != note) _state.update { it.copy(followTargetId = targetId, followNote = note) }
             }
@@ -552,6 +563,24 @@ class RecordingEngine(private val context: Context) {
 
             override fun onRide(stats: RideStats) {
                 synchronized(rideStats) { rideStats += stats }
+            }
+
+            override fun onBrain(output: com.surfcam.core.BrainOutput) {
+                val cmd = output.command
+                cmd.gimbalOrder?.let { o ->
+                    follower?.executeOrder(o.deltaDeg, o.durationUs / 1e6, "${cmd.state.label} : ${cmd.note}")
+                    journalWriter?.let { w -> synchronized(w) { com.surfcam.core.journal.FrameJournal.writeEvent(w, o.startUs, "ordre", "%+.2f° en %.2f s · ${cmd.state.label} · ${cmd.note}".format(o.deltaDeg, o.durationUs / 1e6)) } }
+                }
+                if (kotlin.math.abs(cmd.zoom - _state.value.zoom) > 0.05) {
+                    SessionLog.ev("zoom", "×%.1f → ×%.1f (${cmd.state.label})".format(_state.value.zoom, cmd.zoom))
+                    zoomTo(cmd.zoom.toFloat())
+                }
+                val note = "${cmd.state.label} · ${cmd.note}"
+                if (_state.value.followNote != note) {
+                    if (cmd.state.label != lastBrainState) SessionLog.ev("pilote", note)
+                    lastBrainState = cmd.state.label
+                    _state.update { it.copy(followNote = note, followTargetId = cmd.targetTrackId ?: -1) }
+                }
             }
         }, learning.currentConfig(), config.tenBit)
         pipeline?.markerColor = options.markerColor
@@ -642,6 +671,9 @@ class RecordingEngine(private val context: Context) {
         } else {
             _state.update { it.copy(gimbalStatus = null, followEnabled = false) }
         }
+        setupBrain(options)
+        context.getSharedPreferences("gimbal", Context.MODE_PRIVATE).getString("lastLeveling", null)?.lines()?.forEach { SessionLog.ev("niveau", it) }
+        if (follower != null) autoLevel(displayRotationDegreesForLevel)
         source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
@@ -880,7 +912,7 @@ class RecordingEngine(private val context: Context) {
 
     private fun zoomTo(ratio: Float) {
         // Sur le fil principal : cet appel vient du fil d'analyse, qui ne doit jamais attendre le verrou du moteur.
-        mainHandler.post { setZoom(ratio) }
+        mainHandler.post { setZoomInternal(ratio, fromBrain = true) }
     }
 
     private fun updateWideSearch(snapshot: AnalysisSnapshot, f: GimbalFollower?) {
@@ -980,19 +1012,15 @@ class RecordingEngine(private val context: Context) {
         SessionLog.ev("chaleur", "niveau $level (statut système ${_state.value.thermalStatus})")
         thermalLevel = level
         _state.update { it.copy(thermalLevel = level) }
-        val base = _state.value.config?.bitrate ?: 0
-        // Niveau 0 : plein régime. 1 : traitement d'image rapide, analyse deux fois plus lente, débit réduit d'un tiers.
-        // 2 : en plus, analyse quatre fois plus lente et débit réduit de moitié.
-        camera?.setHighQualityProcessing(level == 0)
-        analysis?.setSlowdown(when (level) { 0 -> 1; 1 -> 2; else -> 4 })
-        if (base > 0) encoder?.setBitrate(when (level) { 0 -> base; 1 -> base * 2 / 3; else -> base / 2 })
-        val message = when (level) {
-            0 -> "Le téléphone a refroidi : qualité rétablie"
-            1 -> "Le téléphone chauffe : l'appli allège sa charge pour continuer à filmer"
-            else -> "Le téléphone chauffe fort : qualité réduite pour continuer à filmer. Mets-le à l'ombre"
+        // La chaleur ne déclenche aucun mode d'économie qui réduirait l'image ou le suivi.
+        // Android peut arrêter la session si la température atteint un seuil critique.
+        val message = if (level > 0) {
+            "Le téléphone chauffe : mets-le à l'ombre. La qualité et le suivi ne sont pas réduits."
+        } else {
+            "Le téléphone a refroidi. La qualité et le suivi restent inchangés."
         }
         _state.update { it.copy(message = message) }
-        if (level == 2) alert("SurfCam : le téléphone chauffe", message)
+        if (level > 0) alert("SurfCam : le téléphone chauffe", message)
     }
 
     /** Arrête la session proprement : les fichiers en cours sont refermés avant de couper, puis l'utilisateur est prévenu. */
@@ -1098,7 +1126,89 @@ class RecordingEngine(private val context: Context) {
         }
     }
 
+    private var journalWriter: java.io.Writer? = null
+    private val displayRotationDegreesForLevel: Int get() = lastRotation
+    private val levelScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+
+    /**
+     * Mise à niveau automatique au début de chaque session, dès que le gimbal est connecté : boucle fermée sur le capteur de
+     * gravité (HorizonLeveler). Chaque étape est écrite dans le rapport ; le résultat s'affiche sur l'écran de tournage.
+     */
+    private fun autoLevel(rotationDegrees: Int) {
+        val link = com.surfcam.app.data.gimbal.GimbalHub.link(context)
+        val prefs = context.getSharedPreferences("gimbal", Context.MODE_PRIVATE)
+        val gravity = com.surfcam.app.data.gimbal.GravityRoll(context, rotationDegrees)
+        levelScope.launch {
+            try {
+                gravity.start()
+                // Attendre la liaison (2 s au plus) et une première mesure.
+                var waited = 0
+                while ((!link.state.value.connected || gravity.rollDeg == null) && waited < 20) { kotlinx.coroutines.delay(100); waited++ }
+                if (!link.state.value.connected) { SessionLog.ev("niveau", "gimbal non connecté : pas de mise à niveau"); return@launch }
+                val report = com.surfcam.app.data.gimbal.HorizonLeveler(link, prefs).run({ gravity.rollDeg }) { SessionLog.ev("niveau", it) }
+                SessionLog.ev("niveau", report)
+                _state.update { it.copy(message = report) }
+            } catch (e: Exception) {
+                SessionLog.ev("niveau", "mise à niveau interrompue : ${e.message}")
+            } finally {
+                gravity.stop()
+            }
+        }
+    }
+    private var lastBrainState = ""
+    private var journalFile: java.io.File? = null
+
+    /** Copie le journal de capteurs dans Téléchargements/SurfCam/Journaux, pour l'envoyer et rejouer la session sur ordinateur. */
+    private fun exportJournal(file: java.io.File) {
+        try {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/SurfCam/Journaux")
+            }
+            val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
+            context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+            context.getSharedPreferences("rapport", Context.MODE_PRIVATE).edit().putString("journalUri", uri.toString()).apply()
+            SessionLog.ev("journal", "journal de capteurs copié dans Téléchargements/SurfCam/Journaux/${file.name} (${file.length() / 1024} Ko)")
+        } catch (e: Exception) {
+            SessionLog.ev("journal", "copie du journal impossible : ${e.message}")
+        }
+    }
+
+    /** Branche le nouveau cerveau (:core) sur l'analyse : cap gyroscope horodaté, optique, journal de capteurs. */
+    private fun setupBrain(options: SessionOptions) {
+        val p = analysis ?: return
+        val subject = if (options.subject == Subject.ME && options.markerColor != null) com.surfcam.core.director.Subject.ME else com.surfcam.core.director.Subject.EVERYONE
+        p.brain = com.surfcam.core.SurfBrain(subject, 0.0)
+        p.onlyMarked = false
+        follower?.externalControl = true
+        p.headingAt = { t: Long -> follower?.headingAtUs(t) }
+        p.opticsProvider = {
+            val st = _state.value
+            val focal = st.focalPx1x * st.zoom
+            if (focal > 0f) FollowController.horizontalFovDeg(focal, CaptureConfig.ANALYSIS_WIDTH).toDouble() to st.zoom.toDouble() else null
+        }
+        try {
+            val dir = java.io.File(context.filesDir, "journaux").apply { mkdirs() }
+            val name = "SurfCam-journal-" + java.text.SimpleDateFormat("yyyy-MM-dd_HH'h'mm", java.util.Locale.US).format(java.util.Date()) + ".txt"
+            val f = java.io.File(dir, name)
+            journalFile = f
+            val w = java.io.BufferedWriter(java.io.FileWriter(f), 64 * 1024)
+            w.write(com.surfcam.core.journal.FrameJournal.HEADER + "\n")
+            w.write("# sujet=$subject manchon=${options.markerColor} gimbal=${follower != null}\n")
+            journalWriter = w
+            p.journal = w
+        } catch (e: Exception) {
+            SessionLog.ev("journal", "impossible de créer le journal de capteurs : ${e.message}")
+        }
+        SessionLog.ev("cerveau", "nouveau cerveau actif · sujet $subject · règles ${p.brain?.rides?.config?.version}")
+    }
+
     private fun teardownPipeline() {
+        journalWriter?.let { w -> try { synchronized(w) { w.flush(); w.close() } } catch (_: Exception) {} }
+        journalWriter = null
+        journalFile?.let { exportJournal(it) }
+        journalFile = null
         encoder?.stop()
         encoder = null
         analysis?.release()

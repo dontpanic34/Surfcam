@@ -105,7 +105,7 @@ class LearningRepository(context: Context) {
             minStandingAspect = prefs.getFloat(KEY_ASPECT, base.minStandingAspect).coerceAtMost(base.minStandingAspect),
             // Plafonds : l'apprentissage ne voit que les clips déjà acceptés (jamais ceux que la détection a écartés) ; livré à lui-même,
             // il relevait sans cesse les seuils (durée 4,8 s, confiance 0,44 le 05/11) et écartait de vraies vagues.
-            minRideUs = prefs.getLong(KEY_DURATION, base.minRideUs).coerceIn(0L, base.minRideUs),
+            minRideUs = prefs.getLong(KEY_DURATION, base.minRideUs).coerceIn(1_500_000L, base.minRideUs),
             minTriggerConfidence = prefs.getFloat(KEY_CONFIDENCE, base.minTriggerConfidence).coerceAtMost(0.35f),
         )
     }

@@ -10,11 +10,12 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.surfcam.app"
+        // Identifiant distinct pendant la refonte : « SurfCam 2 » s'installe à côté de l'appli actuelle sans la remplacer.
+        applicationId = "com.surfcam.app2"
         minSdk = 31
         targetSdk = 37
         versionCode = 1
-        versionName = "0.2.0"
+        versionName = "2.0.0-refonte"
 
         // Le modèle d'analyse n'est fourni que pour les téléphones 64 bits (le Pixel en est un).
         ndk {
@@ -43,6 +44,8 @@ android {
 }
 
 dependencies {
+    // Le cerveau (suivi, détection du surf, pilote) : module Kotlin pur testé sur ordinateur.
+    implementation(project(":core"))
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")

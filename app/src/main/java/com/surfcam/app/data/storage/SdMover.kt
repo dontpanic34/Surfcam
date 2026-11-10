@@ -110,9 +110,9 @@ object SdMover {
             try { resolver.delete(target, null, null) } catch (_: Exception) {}
             throw e
         }
-        resolver.delete(source, null, null)
+        // Conserver la copie téléphone : la référence SurfCam interdit toute suppression automatique.
         forget(app, job)
-        StorageDiag.log("ENVOI VERS LA CARTE : « ${job.name} » copié sur la carte (${sourceSize / (1024 * 1024)} Mo) et retiré du téléphone")
+        StorageDiag.log("ENVOI VERS LA CARTE : « ${job.name} » copié sur la carte (${sourceSize / (1024 * 1024)} Mo) ; copie téléphone conservée")
         return true
     }
 

@@ -38,6 +38,7 @@ object Calibrator {
     private val features = listOf(
         Feature("vitesse minimale", { it.triggerSpeed }, { it.startSpeed }, { c, v -> c.copy(startSpeed = v) }, 0.8f, 2.2f),
         Feature("posture debout minimale", { it.triggerAspect }, { it.minStandingAspect }, { c, v -> c.copy(minStandingAspect = v) }, 0.8f, 1.6f),
+        Feature("durée minimale (s)", { it.durationUs / 1_000_000f }, { it.minRideUs / 1_000_000f }, { c, v -> c.copy(minRideUs = (v * 1_000_000f).toLong()) }, 1.5f, 2f),
         Feature("confiance minimale", { it.meanConfidence }, { it.minTriggerConfidence }, { c, v -> c.copy(minTriggerConfidence = v) }, 0f, 0.35f),
     )
 

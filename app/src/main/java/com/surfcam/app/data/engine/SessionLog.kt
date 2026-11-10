@@ -36,7 +36,8 @@ object SessionLog {
         t0 = SystemClock.elapsedRealtime()
         entries.clear()
         this.header.clear()
-        context.getSharedPreferences("rapport", Context.MODE_PRIVATE).edit().remove("files").remove("clipReports").apply()
+        context.getSharedPreferences("rapport", Context.MODE_PRIVATE).edit().remove("files").remove("clipReports").remove("journalUri")
+            .putLong("startMs", System.currentTimeMillis()).apply()
         write("RAPPORT DE SESSION · ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}")
         write(header)
         this.header += entries.map { it.second }
