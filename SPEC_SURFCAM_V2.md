@@ -122,3 +122,8 @@ sans y passer de temps tant que les points 1 à 5 ne sont pas fiables.
 - **Montre** : pas de liaison directe possible à 100 m (Bluetooth trop court, coupé par l'eau). Utilisable après coup (heures
   des vagues enregistrées par la montre, recoupées avec les clips) ou en direct seulement avec une montre 4G qui envoie sa
   position GPS par le réseau mobile.
+- **Présentation visée pour « Trier mes vagues »** (capture SurfBuddy montrée par l'utilisateur le 11/11/2026) : une rangée
+  « Choisis ton surfeur », une case par surfeur avec sa silhouette détourée (fond retiré), son nombre de vagues et leur durée
+  totale, plus une case « non classées » ; un seul appui désigne toutes les vagues de ce surfeur. Chez SurfBuddy le
+  regroupement vient de brassards GPS, pas de l'image. À construire chez nous à partir des vignettes et des étiquettes de la
+  première session exportée (dossier Silhouettes + fichier mes-vagues), en mesurant la qualité du regroupement dessus.
