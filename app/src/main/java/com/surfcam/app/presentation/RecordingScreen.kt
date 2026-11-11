@@ -213,7 +213,6 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
     val preview = state.phase == Phase.PREVIEW
     val horizon by rememberHorizonAngle()
     val device by rememberDeviceStatus()
-    val hasGimbal = remember { com.surfcam.app.data.gimbal.GimbalHub.hasSavedGimbal(context) }
     val rotationDegrees = when (LocalView.current.display?.rotation) {
         android.view.Surface.ROTATION_90 -> 90
         android.view.Surface.ROTATION_180 -> 180
@@ -337,7 +336,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 when {
                     tele && state.opticalZoom -> "×5 optique"
                     tele -> "×5 non confirmé"
-                    else -> "×" + "%.1f".format(state.zoom).replace(".0", "").replace('.', ',')
+                    else -> "×" + String.format(java.util.Locale.US, "%.1f", state.zoom).removeSuffix(".0").replace('.', ',')
                 },
                 when {
                     tele && state.opticalZoom -> SurfColors.Ok
@@ -401,7 +400,8 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                     if (drawingPeak) drawingPeak = false else { engine.clearPeakZone(); drawingPeak = true }
                 }
             }
-            if (hasGimbal && !state.clipActive && !drawingPeak) {
+            // Toujours visible : sans gimbal associé ou relié, l'appli le dit au lieu de cacher le bouton.
+            if (!state.clipActive && !drawingPeak) {
                 ActionChip(if (leveling) "Mise à niveau…" else "Mettre de niveau", highlighted = false) {
                     if (!leveling) {
                         leveling = true
@@ -434,7 +434,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 }
             }
             if (state.focusMode != com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO && (preview || running)) {
-                ActionChip("Mise au point auto", highlighted = false) { engine.setFocusMode(com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO) }
+                ActionChip("Remettre la mise au point auto", highlighted = false) { engine.setFocusMode(com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO) }
             }
             Spacer(Modifier.weight(1f))
             if (preview) ZoomPresets(state, engine)

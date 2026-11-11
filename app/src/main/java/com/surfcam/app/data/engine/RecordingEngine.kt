@@ -472,6 +472,10 @@ class RecordingEngine(private val context: Context) {
      */
     fun levelNow(rotationDegrees: Int) {
         if (_state.value.clipActive || levelingBusy) return
+        if (!com.surfcam.app.data.gimbal.GimbalHub.hasSavedGimbal(context)) {
+            _state.update { it.copy(message = "Aucun gimbal associé à l'appli : associe-le une fois depuis l'accueil (voyant Gimbal), puis réessaie.") }
+            return
+        }
         if (!com.surfcam.app.data.gimbal.GimbalHub.link(context).state.value.connected) {
             _state.update { it.copy(message = "Gimbal non connecté : allume-le, attends qu'il soit relié, puis réessaie.") }
             return
