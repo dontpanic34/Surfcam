@@ -43,9 +43,53 @@ class MyWaves(context: Context) {
         }
     }
 
+    /**
+     * Signature de couleur d'une silhouette : répartition des couleurs de ce qui n'est ni l'eau (bleu), ni l'écume (blanc), ni
+     * le néoprène (noir) — donc surtout la planche, la peau, un lycra ou un manchon. Deux vagues du même surfeur ont en général
+     * des signatures proches. null si la vignette manque ou ne montre presque que de l'eau.
+     */
+    fun signature(clipName: String): FloatArray? {
+        val bmp = silhouette(clipName) ?: return null
+        val w = bmp.width
+        val h = bmp.height
+        val pixels = IntArray(w * h)
+        bmp.getPixels(pixels, 0, w, 0, 0, w, h)
+        val hist = FloatArray(BINS * BINS * BINS)
+        var kept = 0
+        // Moitié centrale de la vignette : le surfeur y est, les bords sont surtout de l'eau.
+        for (y in h / 4 until h * 3 / 4) for (x in w / 4 until w * 3 / 4) {
+            val p = pixels[y * w + x]
+            val r = (p shr 16) and 0xFF
+            val g = (p shr 8) and 0xFF
+            val b = p and 0xFF
+            val max = maxOf(r, g, b)
+            val min = minOf(r, g, b)
+            val water = b - r > 18 && b > 80
+            val foam = min > 170
+            val wetsuit = max < 60
+            if (water || foam || wetsuit) continue
+            hist[(r * BINS / 256) * BINS * BINS + (g * BINS / 256) * BINS + (b * BINS / 256)] += 1f
+            kept++
+        }
+        if (kept < 40) return null
+        for (i in hist.indices) hist[i] /= kept
+        return hist
+    }
+
     fun mine(): Set<String> = prefs.getStringSet("moi", emptySet()) ?: emptySet()
 
     fun isMine(clipName: String): Boolean = key(clipName) in mine()
+
+    companion object {
+        private const val BINS = 5
+
+        /** Ressemblance de deux signatures, de 0 (rien de commun) à 1 (mêmes couleurs dans les mêmes proportions). */
+        fun resemblance(a: FloatArray, b: FloatArray): Float {
+            var s = 0f
+            for (i in a.indices) s += minOf(a[i], b[i])
+            return s
+        }
+    }
 
     fun setMine(clipName: String, mine: Boolean) {
         val set = HashSet(mine())

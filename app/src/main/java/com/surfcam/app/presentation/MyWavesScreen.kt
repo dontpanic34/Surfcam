@@ -81,13 +81,33 @@ fun MyWavesScreen(library: VideoLibrary, onBack: () -> Unit) {
                     TextButton(onClick = onBack) { Text("Retour") }
                 }
                 val list = waves
-                val shown = list.orEmpty().filter { it.name.take(10) == day }.filter { !onlyMine || it.name.removeSuffix(".mp4") in mine }
                 val dayAll = list.orEmpty().filter { it.name.take(10) == day }
+                // Signature de couleur de chaque silhouette du jour, calculée une fois en arrière-plan.
+                val signatures by produceState<Map<String, FloatArray>>(emptyMap(), day, waves) {
+                    value = withContext(Dispatchers.IO) {
+                        dayAll.mapNotNull { v -> store.signature(v.name)?.let { v.name.removeSuffix(".mp4") to it } }.toMap()
+                    }
+                }
+                // Dès qu'une vague est désignée, les autres sont classées par ressemblance avec les siennes : les plus
+                // probables remontent en tête, il n'y a plus qu'à descendre la liste jusqu'à ce que ce ne soit plus soi.
+                val mineSigs = dayAll.mapNotNull { signatures[it.name.removeSuffix(".mp4")]?.takeIf { _ -> it.name.removeSuffix(".mp4") in mine } }
+                val score: Map<String, Float> = if (mineSigs.isEmpty()) emptyMap() else dayAll.mapNotNull { v ->
+                    val base = v.name.removeSuffix(".mp4")
+                    val sig = signatures[base] ?: return@mapNotNull null
+                    if (base in mine) null else base to mineSigs.maxOf { MyWaves.resemblance(sig, it) }
+                }.toMap()
+                val shown = dayAll.filter { !onlyMine || it.name.removeSuffix(".mp4") in mine }.let { l ->
+                    if (score.isEmpty()) l else l.sortedWith(compareByDescending<LibraryVideo> { it.name.removeSuffix(".mp4") in mine }.thenByDescending { score[it.name.removeSuffix(".mp4")] ?: -1f }.thenBy { it.name })
+                }
                 when {
                     list == null -> Text("Recherche des vagues…", color = SurfColors.Muted)
                     list.isEmpty() -> Text("Aucune vague enregistrée pour l'instant.", color = SurfColors.Muted)
                     else -> {
-                        Text("Touche les vagues qui sont les tiennes. ${dayAll.count { it.name.removeSuffix(".mp4") in mine }} sur ${dayAll.size} ce jour-là.", color = SurfColors.Muted, fontSize = 13.sp)
+                        Text(
+                            "Touche deux ou trois vagues qui sont les tiennes : les autres se classent par ressemblance, les plus probables en premier. " +
+                                "${dayAll.count { it.name.removeSuffix(".mp4") in mine }} sur ${dayAll.size} ce jour-là.",
+                            color = SurfColors.Muted, fontSize = 13.sp,
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                             for (d in days.take(4)) FilterChip(selected = d == day, onClick = { day = d }, label = { Text(d.substring(8, 10) + "/" + d.substring(5, 7)) })
                             FilterChip(selected = onlyMine, onClick = { onlyMine = !onlyMine }, label = { Text("Les miennes") })
@@ -96,7 +116,7 @@ fun MyWavesScreen(library: VideoLibrary, onBack: () -> Unit) {
                             items(shown, key = { it.name }) { v ->
                                 val base = v.name.removeSuffix(".mp4")
                                 val isMine = base in mine
-                                WaveCell(v, store, isMine) {
+                                WaveCell(v, store, isMine, score[base]) {
                                     store.setMine(v.name, !isMine)
                                     mine = store.mine()
                                 }
@@ -111,7 +131,7 @@ fun MyWavesScreen(library: VideoLibrary, onBack: () -> Unit) {
 }
 
 @Composable
-private fun WaveCell(video: LibraryVideo, store: MyWaves, mine: Boolean, onToggle: () -> Unit) {
+private fun WaveCell(video: LibraryVideo, store: MyWaves, mine: Boolean, resemblance: Float?, onToggle: () -> Unit) {
     val context = LocalContext.current
     // La vignette de la silhouette si elle existe (vagues filmées depuis cette version), sinon une image tirée de la vidéo.
     val image by produceState<android.graphics.Bitmap?>(null, video.name) {
@@ -140,7 +160,7 @@ private fun WaveCell(video: LibraryVideo, store: MyWaves, mine: Boolean, onToggl
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
                 Text(parsed?.let { "%02dh%02d · vague %d".format(it.dateTime.hour, it.dateTime.minute, it.number) } ?: video.name.removeSuffix(".mp4"), fontSize = 12.sp)
-                Text("%.0f s".format(video.durationMs / 1000f), fontSize = 11.sp, color = SurfColors.Muted)
+                Text("%.0f s".format(video.durationMs / 1000f) + (resemblance?.let { " · ressemble à %.0f %%".format(it * 100) } ?: ""), fontSize = 11.sp, color = SurfColors.Muted)
             }
             OutlinedButton(onClick = {
                 try {

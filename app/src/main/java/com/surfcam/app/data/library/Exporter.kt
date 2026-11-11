@@ -111,6 +111,11 @@ class Exporter(context: Context) {
                 if (day == null || d == day) items += Item(folder, file.name, file.length(), d) { file.inputStream() }
             }
         }
+        // Les vignettes des silhouettes (une par vague, gardée ou rejetée) : elles servent à juger et à améliorer le tri.
+        java.io.File(appContext.filesDir, "silhouettes").listFiles()?.filter { it.isFile && it.name.endsWith(".jpg") }?.forEach { file ->
+            val d = dayOf(file.name, file.lastModified())
+            if (day == null || d == day) items += Item("Silhouettes", file.name, file.length(), d) { file.inputStream() }
+        }
         // Les vagues que l'utilisateur a désignées comme les siennes (« Trier mes vagues »), un petit fichier par jour : il dit
         // qui est sur chaque clip, ce qui sert ensuite à mesurer et à entraîner la reconnaissance.
         val mine = MyWaves(appContext).mine()
@@ -125,7 +130,7 @@ class Exporter(context: Context) {
         // Un jour où un film de session assemblé existe, ses morceaux de 2 minutes ne sont pas renvoyés en double.
         val filmDays = items.filter { it.folder == "Sessions" && VideoNaming.parse(it.name)?.isFilm == true }.map { it.day }.toSet()
         val kept = items.filter { it.folder != "Sessions" || it.day !in filmDays || VideoNaming.parse(it.name)?.isFilm == true }
-        val order = listOf("Rapports", "Journaux", "Vagues", "Rejets", "Sessions", "Autres")
+        val order = listOf("Rapports", "Journaux", "Silhouettes", "Vagues", "Rejets", "Sessions", "Autres")
         return kept.sortedBy { order.indexOf(it.folder) }
     }
 
@@ -148,7 +153,7 @@ class Exporter(context: Context) {
                 val old = here[item.name]
                 if (!item.alwaysResend && old != null && old.second >= item.size && old.second > 0L) { skipped++; continue }
                 val dirUri = DocumentsContract.buildDocumentUriUsingTree(tree, dirId)
-                val mime = if (item.name.endsWith(".mp4")) "video/mp4" else "text/plain"
+                val mime = if (item.name.endsWith(".mp4")) "video/mp4" else if (item.name.endsWith(".jpg")) "image/jpeg" else "text/plain"
                 val target = old?.let { DocumentsContract.buildDocumentUriUsingTree(tree, it.first) }
                     ?: DocumentsContract.createDocument(resolver, dirUri, mime, item.name) ?: throw IllegalStateException("création impossible")
                 val input = item.open() ?: throw IllegalStateException("lecture impossible")
