@@ -466,6 +466,19 @@ class RecordingEngine(private val context: Context) {
         return (0.5 + kotlin.math.tan(Math.toRadians(deg)) * focal / CaptureConfig.ANALYSIS_WIDTH).toFloat()
     }
 
+    /**
+     * Bouton « Mettre de niveau » : remet l'horizon à 0° avec le roulis du gimbal, tout de suite (aperçu ou session, jamais
+     * pendant un clip). Le résultat s'affiche sur le viseur et s'écrit dans le rapport.
+     */
+    fun levelNow(rotationDegrees: Int) {
+        if (_state.value.clipActive || levelingBusy) return
+        if (!com.surfcam.app.data.gimbal.GimbalHub.link(context).state.value.connected) {
+            _state.update { it.copy(message = "Gimbal non connecté : allume-le, attends qu'il soit relié, puis réessaie.") }
+            return
+        }
+        autoLevel(rotationDegrees)
+    }
+
     /** Le bouton « Ici le pic » : la direction actuelle du gimbal devient le point de retour entre deux vagues. */
     fun markPeak() {
         follower?.setPeakHere()
@@ -1187,8 +1200,8 @@ class RecordingEngine(private val context: Context) {
         /** Au-delà de cette inclinaison (degrés), l'horizon est retouché entre deux clips. */
         const val HORIZON_TOLERANCE_DEG = 0.7f
 
-        /** Avant de lancer, l'aperçu sur l'objectif principal va de ×1 à ×2, pour viser à l'œil ; rien de cela n'est enregistré. */
-        const val PREVIEW_MAX_ZOOM = 2f
+        /** Avant de lancer, l'aperçu va de ×1 à ×5, pour viser à l'œil puis voir le cadre du tournage ; rien n'est enregistré. */
+        const val PREVIEW_MAX_ZOOM = 5f
         const val SAFETY_PERIOD_MS = 5_000L
 
         // Espace : on coupe à 800 Mo (demandé), on prévient à 1,5 Go, on refuse de démarrer sous 1,5 Go.

@@ -207,14 +207,32 @@ fun RecordingScreen(
 
 @Composable
 private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: Boolean, modifier: Modifier) {
+    val context = LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val running = state.phase == Phase.RUNNING
+    val preview = state.phase == Phase.PREVIEW
+    val horizon by rememberHorizonAngle()
+    val device by rememberDeviceStatus()
+    val hasGimbal = remember { com.surfcam.app.data.gimbal.GimbalHub.hasSavedGimbal(context) }
+    val rotationDegrees = when (LocalView.current.display?.rotation) {
+        android.view.Surface.ROTATION_90 -> 90
+        android.view.Surface.ROTATION_180 -> 180
+        android.view.Surface.ROTATION_270 -> 270
+        else -> 0
+    }
+    var drawingPeak by remember { mutableStateOf(false) }
+    var leveling by remember { mutableStateOf(false) }
+    LaunchedEffect(leveling) { if (leveling) { delay(12_000); leveling = false } }
+    LaunchedEffect(state.message) { if (state.message != null) leveling = false }
+
     Box(
         modifier = modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
         AndroidView(
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
-            factory = { context ->
-                SurfaceView(context).apply {
+            factory = { ctx ->
+                SurfaceView(ctx).apply {
                     holder.setFixedSize(CaptureConfig.PREVIEW_WIDTH, CaptureConfig.PREVIEW_HEIGHT)
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(h: SurfaceHolder) = engine.setPreviewSurface(h.surface)
@@ -225,24 +243,39 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             },
         )
 
-        CameramanHud(state, Modifier.matchParentSize())
-
-        // Pincement à deux doigts : zoom continu, comme dans l'appareil photo.
-        val currentZoom by rememberUpdatedState(state.zoom)
-        // Toucher l'image : mise au point sur ce point (anneau affiché 1,5 s).
-        var ring by remember { mutableStateOf<Offset?>(null) }
-        val rotationDegrees = when (LocalView.current.display?.rotation) {
-            android.view.Surface.ROTATION_90 -> 90
-            android.view.Surface.ROTATION_180 -> 180
-            android.view.Surface.ROTATION_270 -> 270
-            else -> 0
-        }
-        LaunchedEffect(ring) {
-            if (ring != null) {
-                delay(1_500)
-                ring = null
+        // Un seul horizon : une ligne en pointillés au centre de l'image, verte quand le téléphone est de niveau.
+        if (hasCamera) horizon?.takeIf { kotlin.math.abs(it) <= 30f }?.let { angle ->
+            val color = levelColor(angle)
+            Canvas(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                val c = Offset(size.width / 2, size.height / 2)
+                val half = size.width * 0.3f
+                val a = Math.toRadians(-angle.toDouble())
+                val dx = (kotlin.math.cos(a) * half).toFloat()
+                val dy = (kotlin.math.sin(a) * half).toFloat()
+                drawLine(color.copy(alpha = 0.9f), Offset(c.x - dx, c.y - dy), Offset(c.x + dx, c.y + dy), strokeWidth = 2.dp.toPx(),
+                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(14.dp.toPx(), 8.dp.toPx())))
+                drawLine(Color.White.copy(alpha = 0.4f), Offset(c.x - 14.dp.toPx(), c.y), Offset(c.x + 14.dp.toPx(), c.y), strokeWidth = 1.5.dp.toPx())
             }
         }
+
+        // Cadres des surfeurs vus par la détection ; en rouge celui qui surfe.
+        state.analysis?.let { snapshot ->
+            Canvas(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                for (box in snapshot.boxes) {
+                    drawRect(
+                        color = if (box.riding) SurfColors.Alert else SurfColors.Aqua.copy(alpha = 0.8f),
+                        topLeft = Offset(box.left * size.width, box.top * size.height),
+                        size = Size((box.right - box.left) * size.width, (box.bottom - box.top) * size.height),
+                        style = Stroke(width = if (box.riding) 2.5.dp.toPx() else 1.dp.toPx()),
+                    )
+                }
+            }
+        }
+
+        // Toucher l'image : mise au point sur ce point. Pincer : zoom, avant de lancer seulement.
+        val currentZoom by rememberUpdatedState(state.zoom)
+        var ring by remember { mutableStateOf<Offset?>(null) }
+        LaunchedEffect(ring) { if (ring != null) { delay(1_500); ring = null } }
         Box(
             Modifier
                 .fillMaxSize()
@@ -260,232 +293,189 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 }
                 .pointerInput(Unit) {
                     detectTransformGestures { _, _, zoomChange, _ ->
-                        // Pendant la session le zoom ne change plus par un geste involontaire : seules les pastilles agissent.
                         if (zoomChange != 1f && engine.state.value.phase != Phase.RUNNING) engine.setZoom(currentZoom * zoomChange)
                     }
                 },
         )
         ring?.let { p ->
-            Canvas(Modifier.fillMaxSize()) {
-                drawCircle(SurfColors.Warn, radius = 34.dp.toPx(), center = p, style = Stroke(width = 2.dp.toPx()))
-            }
+            Canvas(Modifier.fillMaxSize()) { drawCircle(SurfColors.Warn, radius = 34.dp.toPx(), center = p, style = Stroke(width = 2.dp.toPx())) }
         }
-        if (state.phase == Phase.PREVIEW) PeakZoneTool(engine, state)
-        if (state.phase == Phase.RUNNING) {
-            // Phase de test : la décision du suivi en clair, et un bouton pour repérer un problème dans le rapport.
-            val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-            var flagged by remember { mutableStateOf(0) }
-            if (state.followNote.isNotEmpty()) {
-                InfoChip(
-                    state.followNote,
-                    Color(0xFFFFE600),
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
-                )
-            }
-            val ctx = LocalContext.current
-            var talking by remember { mutableStateOf(false) }
-            val askMic = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
-                if (ok) talking = com.surfcam.app.data.engine.VoiceNote.start(ctx)
-            }
-            DisposableEffect(Unit) { onDispose { com.surfcam.app.data.engine.VoiceNote.stop(ctx); talking = false } }
-            InfoChip(
-                if (talking) "● Je t'écoute… toucher pour finir" else "🎙 Note vocale",
-                if (talking) SurfColors.Alert else Color.White,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 12.dp, top = 84.dp)
-                    .clickable {
-                        if (talking) {
-                            com.surfcam.app.data.engine.VoiceNote.stop(ctx)
-                            talking = false
-                        } else if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                            talking = com.surfcam.app.data.engine.VoiceNote.start(ctx)
-                        } else {
-                            askMic.launch(android.Manifest.permission.RECORD_AUDIO)
-                        }
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                    },
-            )
-            if (state.gimbalStatus != null) {
-                var peakSet by remember { mutableStateOf(false) }
-                InfoChip(
-                    if (peakSet) "📍 Pic mémorisé" else "📍 Ici le pic",
-                    if (peakSet) SurfColors.Ok else Color.White,
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = 12.dp, top = 124.dp)
-                        .clickable {
-                            engine.markPeak()
-                            peakSet = true
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                        },
-                )
-            }
-            InfoChip(
-                if (flagged > 0) "⚑ Problème noté ($flagged)" else "⚑ Problème ici",
-                Color.White,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(12.dp)
-                    .clickable {
-                        engine.markProblem()
-                        flagged++
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                    },
-            )
-        }
-        if (state.phase == Phase.PREVIEW && com.surfcam.app.data.gimbal.GimbalHub.hasSavedGimbal(LocalContext.current)) {
-            // Avant de démarrer : le pic est la direction où le gimbal est tourné au moment du démarrage.
-            InfoChip(
-                "📍 Le pic = ce cadre : oriente le gimbal, puis démarre",
-                SurfColors.Ok,
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp, top = 84.dp),
-            )
-        }
-        // La mise au point automatique est le cas normal : la pastille n'apparaît que si elle a été changée (toucher l'image).
-        if ((state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) && state.focusMode != com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO) {
-            val label = when (state.focusMode) {
-                com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO -> "Focus : auto"
-                com.surfcam.app.data.camera.Camera2Source.FocusMode.POINT -> "Focus : point · toucher pour repasser en auto"
-                com.surfcam.app.data.camera.Camera2Source.FocusMode.INFINITY -> "Focus : infini · toucher pour repasser en auto"
-            }
-            InfoChip(
-                label,
-                SurfColors.Foam,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(12.dp)
-                    .clickable { engine.setFocusMode(com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO) },
-            )
-        }
-
-        // Cadres des surfeurs suivis par la détection, posés sur la même zone que l'image.
-        state.analysis?.let { snapshot ->
-            Canvas(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                for (box in snapshot.boxes) {
-                    drawRect(
-                        color = if (box.marked) SurfColors.Ok else if (box.riding) SurfColors.Alert else SurfColors.Aqua,
-                        topLeft = Offset(box.left * size.width, box.top * size.height),
-                        size = Size((box.right - box.left) * size.width, (box.bottom - box.top) * size.height),
-                        style = Stroke(width = if (box.riding || box.marked) 3.dp.toPx() else 1.5.dp.toPx()),
-                    )
-                }
-                // Cadre jaune : le surfeur que l'appli suit en ce moment (aide au réglage, à retirer ensuite).
-                snapshot.boxes.firstOrNull { it.id == state.followTargetId }?.let { box ->
-                    drawRect(
-                        color = Color(0xFFFFE600),
-                        topLeft = Offset(box.left * size.width - 4.dp.toPx(), box.top * size.height - 4.dp.toPx()),
-                        size = Size((box.right - box.left) * size.width + 8.dp.toPx(), (box.bottom - box.top) * size.height + 8.dp.toPx()),
-                        style = Stroke(width = 4.dp.toPx()),
-                    )
-                }
-            }
-        }
+        if (preview) PeakZoneTool(engine, state, drawingPeak) { drawingPeak = false }
 
         if (!hasCamera) {
-            Text(
-                "Autorise l'accès à la caméra pour voir l'image",
-                color = SurfColors.Muted,
-                style = MaterialTheme.typography.bodyLarge,
-            )
+            Text("Autorise l'accès à la caméra pour voir l'image", color = SurfColors.Muted, style = MaterialTheme.typography.bodyLarge)
         }
 
-        // Distance estimée du surfeur le plus grand dans l'image, et zoom qui le rendrait bien lisible.
-        val target = state.analysis?.boxes?.maxByOrNull { it.bottom - it.top }
-        if (state.phase == Phase.PREVIEW && target != null && state.focalPx1x > 0f) {
-            val heightPx = (target.bottom - target.top) * CaptureConfig.ANALYSIS_HEIGHT
-            val distance = DistanceEstimator.distanceMeters(state.focalPx1x * state.zoom, heightPx)
-            if (distance != null) {
-                val advised = DistanceEstimator.recommendedZoom(
-                    state.zoom, heightPx, CaptureConfig.ANALYSIS_HEIGHT.toFloat(), state.minZoom, state.maxZoom,
-                )
-                val change = kotlin.math.abs(advised - state.zoom) / state.zoom > 0.2f
-                val hint = if (change) " · conseil : ×${advised.toInt()} (toucher pour appliquer)" else " · bonne taille"
-                InfoChip(
-                    "Surfeur à ≈ ${DistanceEstimator.rounded(distance)} m$hint",
-                    if (change) SurfColors.Warn else SurfColors.Ok,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 64.dp)
-                        .clickable(enabled = change) { engine.setZoom(advised) },
-                )
-            }
-        }
-
-        val horizon by rememberHorizonAngle()
-        if (hasCamera && state.phase != Phase.RUNNING) horizon?.takeIf { kotlin.math.abs(it) <= 30f }?.let { angle ->
-            HorizonLevel(angle)
-            Text(
-                levelLabel(angle),
-                color = levelColor(angle),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.align(Alignment.Center).offset(y = (-16).dp),
-            )
-        }
-
-        // Un point de couleur et, dessous, ce qu'il veut dire en quelques mots.
-        val (label, color) = statusPill(state)
-        Pill(label, color, modifier = Modifier.align(Alignment.TopStart).padding(12.dp))
-
-        Column(
-            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+        // ---- Bandeau du haut : état à gauche ; objectif, niveau et batterie à droite. ----
+        Row(
+            Modifier.align(Alignment.TopStart).fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val device by rememberDeviceStatus()
-            // Pendant la session : durée et nombre de vagues. Sinon : température et batterie, en une pastille discrète.
-            if (state.phase == Phase.RUNNING) {
+            if (state.clipActive) {
+                Row(
+                    Modifier.clip(RoundedCornerShape(50)).background(SurfColors.Alert).padding(horizontal = 11.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(Color.White))
+                    Spacer(Modifier.width(6.dp))
+                    Text("REC", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                val (label, color) = statusPill(state)
+                Pill(label, color)
+            }
+            if (running) {
                 var now by remember { mutableStateOf(System.currentTimeMillis()) }
                 LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(1_000) } }
                 val secs = ((now - state.startedAtMs).coerceAtLeast(0L) / 1000).toInt()
-                InfoChip(
-                    "%d:%02d:%02d · %d vague%s".format(secs / 3600, secs / 60 % 60, secs % 60, state.waves, if (state.waves > 1) "s" else ""),
-                    SurfColors.Foam,
-                )
+                InfoChip("%d:%02d:%02d · %d vague%s".format(secs / 3600, secs / 60 % 60, secs % 60, state.waves, if (state.waves > 1) "s" else ""), SurfColors.Foam)
+            }
+            Spacer(Modifier.weight(1f))
+            val tele = state.lens == com.surfcam.app.data.camera.Lens.TELE
+            InfoChip(
+                when {
+                    tele && state.opticalZoom -> "×5 optique"
+                    tele -> "×5 non confirmé"
+                    else -> "×" + "%.1f".format(state.zoom).replace(".0", "").replace('.', ',')
+                },
+                when {
+                    tele && state.opticalZoom -> SurfColors.Ok
+                    tele -> SurfColors.Alert
+                    else -> SurfColors.Foam
+                },
+            )
+            horizon?.takeIf { kotlin.math.abs(it) <= 30f }?.let { angle ->
+                InfoChip("Niveau " + "%+.1f°".format(angle).replace('.', ','), levelColor(angle))
             }
             device?.let { d ->
                 val t = d.temperatureC
                 val hot = state.thermalStatus > PowerManager.THERMAL_STATUS_LIGHT
                 val low = d.batteryPercent in 0..15 && !d.charging
-                // Rien à signaler pendant la session : la pastille ne s'affiche qu'en préparation ou en cas de souci.
-                if (state.phase != Phase.RUNNING || hot || low || (t != null && t >= 40f)) {
+                if (!running || hot || low || (t != null && t >= 40f)) {
                     val color = when {
                         low -> SurfColors.Alert
                         t != null && hot -> if (temperatureColor(t) == SurfColors.Ok) thermalColor(state.thermalStatus) else temperatureColor(t)
                         t != null -> temperatureColor(t)
                         else -> SurfColors.Foam
                     }
-                    InfoChip((t?.let { "%.0f°".format(it) } ?: "") + (if (d.batteryPercent >= 0) " · ${d.batteryPercent} %" else ""), color)
+                    InfoChip((t?.let { "%.0f° · ".format(it) } ?: "") + (if (d.batteryPercent >= 0) "${d.batteryPercent} %" else ""), color)
                 }
             }
         }
 
+        // ---- Messages, sous le bandeau du haut, centrés. ----
         val notice = banner(state)
-        // Le message de fin de session se retire tout seul après quelques secondes, ou d'un toucher.
-        LaunchedEffect(notice?.first) {
-            if (notice != null) {
-                delay(15_000)
-                engine.dismissNotice()
+        LaunchedEffect(notice?.first) { if (notice != null) { delay(15_000); engine.dismissNotice() } }
+        Column(
+            Modifier.align(Alignment.TopCenter).padding(top = 58.dp).fillMaxWidth(0.62f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (running && state.followNote.isNotEmpty()) InfoChip(state.followNote, SurfColors.Foam)
+            notice?.let { (text, color) ->
+                Text(
+                    text, color = color, fontSize = 13.sp, maxLines = 3, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { engine.dismissNotice() }
+                        .background(SurfColors.Night.copy(alpha = 0.9f)).padding(horizontal = 14.dp, vertical = 8.dp),
+                )
             }
         }
-        notice?.let { (text, color) ->
-            Text(
-                text,
-                color = color,
-                fontSize = 13.sp,
-                maxLines = 3,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 96.dp, start = 24.dp, end = 24.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { engine.dismissNotice() }
-                    .background(Color(0xE60B1620))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-            )
+
+        // ---- Bandeau du bas : actions à gauche, zoom à droite (avant de lancer). ----
+        Row(
+            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (preview) {
+                val zone by engine.peakZone.collectAsStateWithLifecycle()
+                ActionChip(
+                    when {
+                        drawingPeak -> "Annuler"
+                        zone != null -> "Pic : %.0f° · retracer".format(zone!!.second - zone!!.first)
+                        else -> "Définir le pic"
+                    },
+                    highlighted = zone != null && !drawingPeak,
+                ) {
+                    if (drawingPeak) drawingPeak = false else { engine.clearPeakZone(); drawingPeak = true }
+                }
+            }
+            if (hasGimbal && !state.clipActive && !drawingPeak) {
+                ActionChip(if (leveling) "Mise à niveau…" else "Mettre de niveau", highlighted = false) {
+                    if (!leveling) {
+                        leveling = true
+                        engine.levelNow(rotationDegrees)
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    }
+                }
+            }
+            if (running) {
+                var talking by remember { mutableStateOf(false) }
+                var flagged by remember { mutableStateOf(0) }
+                val askMic = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+                    if (ok) talking = com.surfcam.app.data.engine.VoiceNote.start(context)
+                }
+                DisposableEffect(Unit) { onDispose { com.surfcam.app.data.engine.VoiceNote.stop(context); talking = false } }
+                ActionChip(if (talking) "● Finir la note" else "Note vocale", highlighted = talking) {
+                    if (talking) {
+                        com.surfcam.app.data.engine.VoiceNote.stop(context)
+                        talking = false
+                    } else if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        talking = com.surfcam.app.data.engine.VoiceNote.start(context)
+                    } else {
+                        askMic.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+                ActionChip(if (flagged > 0) "Problème noté ($flagged)" else "Problème ici", highlighted = false) {
+                    engine.markProblem()
+                    flagged++
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                }
+            }
+            if (state.focusMode != com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO && (preview || running)) {
+                ActionChip("Mise au point auto", highlighted = false) { engine.setFocusMode(com.surfcam.app.data.camera.Camera2Source.FocusMode.AUTO) }
+            }
+            Spacer(Modifier.weight(1f))
+            if (preview) ZoomPresets(state, engine)
         }
-        if (state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) {
-            ZoomSelector(state, engine, Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
+    }
+}
+
+/** Un bouton posé sur l'image : pastille sombre, texte clair ; claire quand l'action est en cours ou faite. */
+@Composable
+private fun ActionChip(text: String, highlighted: Boolean, onClick: () -> Unit) {
+    Text(
+        text,
+        color = if (highlighted) SurfColors.Night else SurfColors.Foam,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (highlighted) SurfColors.Foam else SurfColors.Night.copy(alpha = 0.82f))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}
+
+/** Avant de lancer : ×1, ×2 et ×5 pour viser. Pendant le tournage, l'appli est toujours au ×5 optique. */
+@Composable
+private fun ZoomPresets(state: EngineState, engine: RecordingEngine) {
+    val presets = listOf(1f, 2f, 5f).filter { it <= state.maxZoom + 0.01f }
+    Row(
+        Modifier.clip(RoundedCornerShape(50)).background(SurfColors.Night.copy(alpha = 0.82f)).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        for (ratio in presets) {
+            val selected = kotlin.math.abs(state.zoom - ratio) / ratio < 0.06f
+            Box(
+                Modifier.size(38.dp).clip(CircleShape).background(if (selected) SurfColors.Foam else Color.Transparent).clickable { engine.setZoom(ratio) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("×" + ratio.toInt(), color = if (selected) SurfColors.Night else SurfColors.Foam, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }
@@ -511,9 +501,8 @@ private fun Pill(text: String, color: Color, modifier: Modifier = Modifier) {
  * droit comptent ; ils sont convertis en directions. La zone reste dessinée sur l'aperçu.
  */
 @Composable
-private fun androidx.compose.foundation.layout.BoxScope.PeakZoneTool(engine: RecordingEngine, state: EngineState) {
+private fun androidx.compose.foundation.layout.BoxScope.PeakZoneTool(engine: RecordingEngine, state: EngineState, drawing: Boolean, onDone: () -> Unit) {
     val zone by engine.peakZone.collectAsStateWithLifecycle()
-    var drawing by remember { mutableStateOf(false) }
     var from by remember { mutableStateOf<Offset?>(null) }
     var to by remember { mutableStateOf<Offset?>(null) }
     // Zone déjà tracée : bande dessinée à sa place pour le zoom courant (state.zoom relu à chaque recomposition).
@@ -547,7 +536,7 @@ private fun androidx.compose.foundation.layout.BoxScope.PeakZoneTool(engine: Rec
                             if (a != null && b != null && size.width > 0) engine.setPeakZoneFromPreview(a.x / size.width, b.x / size.width)
                             from = null
                             to = null
-                            drawing = false
+                            onDone()
                         },
                         onDragCancel = { from = null; to = null },
                     )
@@ -563,22 +552,8 @@ private fun androidx.compose.foundation.layout.BoxScope.PeakZoneTool(engine: Rec
                 drawRect(SurfColors.Warn, topLeft = tl, size = sz, style = Stroke(width = 2.dp.toPx()))
             }
         }
-        InfoChip("Trace un rectangle du début à la fin du pic", SurfColors.Warn, modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
+        InfoChip("Trace un rectangle du début à la fin du pic", SurfColors.Warn, modifier = Modifier.align(Alignment.Center))
     }
-    InfoChip(
-        when {
-            drawing -> "✕ Annuler"
-            z != null -> "📍 Pic : %.0f° de large · retracer".format(z.second - z.first)
-            else -> "📍 Définir le pic"
-        },
-        if (z != null && !drawing) SurfColors.Ok else Color.White,
-        modifier = Modifier
-            .align(Alignment.CenterStart)
-            .padding(start = 12.dp)
-            .clickable {
-                if (drawing) { drawing = false; from = null; to = null } else { engine.clearPeakZone(); drawing = true }
-            },
-    )
 }
 
 @Composable
