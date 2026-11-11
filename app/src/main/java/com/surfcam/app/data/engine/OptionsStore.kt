@@ -21,8 +21,9 @@ class OptionsStore(context: Context) {
             lockExposure = prefs.getBoolean("lockExposure", d.lockExposure),
             followGimbal = prefs.getBoolean("followGimbal", d.followGimbal),
             ledBlink = prefs.getBoolean("ledBlink", d.ledBlink),
-            subject = if (prefs.getString("subject", null) == "ME") Subject.ME else Subject.EVERYONE,
-            markerColor = com.surfcam.app.domain.detection.MarkerColor.fromName(prefs.getString("markerColor", null)),
+            // Le manchon est abandonné : l'appli filme tout le monde, et l'on désigne ses vagues après la session.
+            subject = Subject.EVERYONE,
+            markerColor = null,
         )
     }
 

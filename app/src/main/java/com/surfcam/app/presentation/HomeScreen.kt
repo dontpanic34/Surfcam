@@ -164,13 +164,7 @@ fun HomeScreen(
         }
     }
 
-    val who = when {
-        options.subject == Subject.ME && options.markerColor != null -> "me"
-        else -> "all"
-    }
-    val firstColor = options.markerColor ?: MarkerColor.ORANGE
     val qualityName = "1080p 30 i/s · ×5 optique"
-    val whoName = if (who == "me") "moi d'abord" else "tout le monde"
     val gimbalName = if (gimbalState.connected) "gimbal connecté" else if (GimbalHub.hasSavedGimbal(context)) "gimbal éteint" else "sans gimbal"
 
     SurfCamTheme {
@@ -349,7 +343,7 @@ fun HomeScreen(
                 if (running) {
                     BigButton("Retourner à la caméra", "Session en cours", enabled = true, onClick = onOpenCamera)
                 } else {
-                    BigButton(if (leveling) "Redressement du gimbal…" else "Filmer", "$qualityName · $whoName · $gimbalName", enabled = !leveling, onClick = { if (external && (storageChecking || storageProblem != null)) showSdBlock = true else openCamera() })
+                    BigButton(if (leveling) "Redressement du gimbal…" else "Filmer", "$qualityName · tout le monde · $gimbalName", enabled = !leveling, onClick = { if (external && (storageChecking || storageProblem != null)) showSdBlock = true else openCamera() })
                     notice?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
                 }
 
@@ -357,32 +351,6 @@ fun HomeScreen(
                 Text("1080p · 30 images/s · téléobjectif ×5 optique, sans zoom numérique · ≈ ${options.gigabytesPerHour()} Go/h en session complète", color = SurfColors.Muted, fontSize = 13.sp)
 
                 // Qui filmer.
-                Heading("Qui filmer")
-                Segmented(
-                    listOf(Triple("all", "Tout le monde", ""), Triple("me", "Moi d'abord", "manchon")),
-                    who, enabled = !running,
-                ) { id ->
-                    onOptionsChange(
-                        if (id == "me") options.copy(subject = Subject.ME, markerColor = firstColor)
-                        else options.copy(subject = Subject.EVERYONE, markerColor = null),
-                    )
-                }
-                if (who != "all") {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Couleur de mon manchon", color = SurfColors.Muted, fontSize = 13.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            for (c in MarkerColor.entries) {
-                                val tone = when (c) { MarkerColor.YELLOW -> Color(0xFFE4FF3B); MarkerColor.GREEN -> Color(0xFFA9FF45); MarkerColor.ORANGE -> Color(0xFFFF7A2A) }
-                                Box(
-                                    Modifier.size(34.dp).clip(CircleShape).background(tone)
-                                        .border(if (options.markerColor == c) 3.dp else 0.dp, SurfColors.Foam, CircleShape)
-                                        .clickable { onOptionsChange(options.copy(markerColor = c)) },
-                                )
-                            }
-                        }
-                    }
-                }
-
                 // Vidéos.
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceVariant)

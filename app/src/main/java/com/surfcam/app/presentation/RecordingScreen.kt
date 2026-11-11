@@ -940,7 +940,6 @@ internal fun InfoDialog(
                 if (portrait) {
                     Column(Modifier.weight(1f).padding(top = 10.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         QualitySection(options, running, onOptionsChange)
-                        WhoSection(options, running, onOptionsChange)
                         SessionSection(options, running, onOptionsChange)
                         AdvancedHeader(advanced) { advanced = !advanced }
                         if (advanced) AdvancedSections(state, options, onOptionsChange, engine, running, onOpenGimbal)
@@ -954,7 +953,6 @@ internal fun InfoDialog(
                 } else {
                     Row(Modifier.weight(1f).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Column(Modifier.weight(1f).fillMaxHeight()) { QualitySection(options, running, onOptionsChange) }
-                        Column(Modifier.weight(1f).fillMaxHeight()) { WhoSection(options, running, onOptionsChange) }
                         Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             SessionSection(options, running, onOptionsChange)
                             AdvancedHeader(false) { advanced = true }
@@ -989,33 +987,6 @@ internal fun QualitySection(options: SessionOptions, running: Boolean, onOptions
         Text("1080p · 30 images/s · téléobjectif ×5 optique", color = SurfColors.Foam, fontSize = 13.sp)
         Text(
             "Aucun zoom numérique : tout est filmé au téléobjectif. Session complète ≈ ${options.gigabytesPerHour()} Go/h.",
-            color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
-        )
-    }
-}
-
-@Composable
-internal fun WhoSection(options: SessionOptions, running: Boolean, onOptionsChange: (SessionOptions) -> Unit) {
-    Section("Qui filmer") {
-        val mode = if (options.subject == com.surfcam.app.data.engine.Subject.ME && options.markerColor != null) 1 else 0
-        val firstColor = options.markerColor ?: com.surfcam.app.domain.detection.MarkerColor.ORANGE
-        Choice(listOf("Tout le monde", "Moi d'abord"), mode, !running) {
-            onOptionsChange(
-                if (it == 0) options.copy(subject = com.surfcam.app.data.engine.Subject.EVERYONE, markerColor = null)
-                else options.copy(subject = com.surfcam.app.data.engine.Subject.ME, markerColor = firstColor),
-            )
-        }
-        if (mode != 0) {
-            Text("Couleur de mon manchon", color = SurfColors.Muted, fontSize = 12.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                for (c in com.surfcam.app.domain.detection.MarkerColor.entries) {
-                    FilterChip(selected = options.markerColor == c, onClick = { onOptionsChange(options.copy(markerColor = c)) }, label = { Text(c.label) })
-                }
-            }
-        }
-        Text(
-            if (mode == 1) "Filme tout le monde tant que ton manchon n'est pas reconnu ; dès qu'il l'est, te suit et ne filme que tes vagues. Si elle te perd, elle refilme tout le monde en te cherchant."
-            else "Filme et suit tous les surfeurs.",
             color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
         )
     }

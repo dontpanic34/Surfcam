@@ -25,6 +25,17 @@ que lorsque quelqu'un surfe une vague.
 - Dès qu'elle reconnaît l'utilisateur à son manchon, elle se concentre sur lui : elle le suit et filme ses vagues en priorité.
 - Si elle le perd durablement, elle revient au mode tout le monde en continuant à le chercher.
 
+## Décision du 11/11/2026 : le manchon est abandonné
+
+Cette décision de l'utilisateur remplace tout ce qui, dans ce document, parle du manchon (matériel, « Qui filmer », point 2 de
+la liste ci-dessous, « Démarrage d'une session »).
+
+- L'appli filme tout le monde : n'importe quel surfeur qui part sur une vague. Elle ne cherche plus à reconnaître l'utilisateur
+  pendant la session, et il n'y a plus de réglage « Qui filmer ».
+- L'utilisateur retrouve ses vagues après la session, dans « Trier mes vagues » : l'appli montre les surfeurs (silhouettes) et
+  il désigne lequel il est. Cible : un seul appui par surfeur, comme sur le site SurfBuddy, qui trie par l'image seule des
+  vidéos déposées, sans manchon ni brassard.
+
 ## Ce que l'appli doit savoir faire, par ordre d'importance
 
 1. **Ne pas manquer une vague.** C'est le pire échec. Un clip en trop est acceptable, une vague manquée ne l'est pas.
