@@ -76,9 +76,14 @@ fun CameramanHud(state: EngineState, modifier: Modifier = Modifier) {
         // Objectif et enregistrement, en haut à droite.
         Row(Modifier.align(Alignment.TopEnd).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             if (state.clipActive) {
-                Box(Modifier.size(10.dp).background(SurfColors.Alert, CircleShape))
-                Spacer(Modifier.width(6.dp))
-                HudChip("REC", SurfColors.Alert)
+                Row(
+                    Modifier.background(SurfColors.Alert, RoundedCornerShape(50)).padding(horizontal = 11.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(8.dp).background(Color.White, CircleShape))
+                    Spacer(Modifier.width(6.dp))
+                    Text("REC", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
                 Spacer(Modifier.width(8.dp))
             }
             // Pendant le tournage, l'image vient du téléobjectif : ×5 par rapport à l'objectif principal.
@@ -97,9 +102,9 @@ fun CameramanHud(state: EngineState, modifier: Modifier = Modifier) {
 private fun HudChip(text: String, color: Color, modifier: Modifier = Modifier) {
     Box(
         modifier
-            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .background(SurfColors.Night.copy(alpha = 0.8f), RoundedCornerShape(50))
+            .padding(horizontal = 11.dp, vertical = 5.dp),
     ) {
-        Text(text, color = color, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium)
     }
 }

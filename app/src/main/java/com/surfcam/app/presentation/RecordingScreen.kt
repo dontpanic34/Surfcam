@@ -587,10 +587,11 @@ private fun InfoChip(text: String, color: Color, modifier: Modifier = Modifier) 
         text,
         color = color,
         fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xCC0B1620))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .clip(RoundedCornerShape(50))
+            .background(SurfColors.Night.copy(alpha = 0.8f))
+            .padding(horizontal = 11.dp, vertical = 5.dp),
     )
 }
 
@@ -796,7 +797,7 @@ private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: 
             color = if (state.opticalZoom) SurfColors.Ok else SurfColors.Alert,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
+            modifier = modifier.clip(RoundedCornerShape(50)).background(SurfColors.Night.copy(alpha = 0.8f)).padding(horizontal = 12.dp, vertical = 4.dp),
         )
         return
     }
@@ -817,7 +818,7 @@ private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: 
                 color = SurfColors.Warn,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(SurfColors.Night.copy(alpha = 0.8f)).padding(horizontal = 12.dp, vertical = 4.dp),
             )
         }
         if (!state.opticalZoom && state.zoom > 5.05f && (state.config?.width ?: 9999) <= 1920) {
@@ -826,7 +827,7 @@ private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: 
                 color = SurfColors.Foam,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(SurfColors.Night.copy(alpha = 0.8f)).padding(horizontal = 12.dp, vertical = 4.dp),
             )
         } else if (!state.opticalZoom && state.zoom > 1.05f) {
             Text(
@@ -834,7 +835,7 @@ private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: 
                 color = SurfColors.Warn,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(SurfColors.Night.copy(alpha = 0.8f)).padding(horizontal = 12.dp, vertical = 4.dp),
             )
         }
         if (rulerVisible && maxZ > minZ) {
@@ -843,7 +844,7 @@ private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: 
                 color = SurfColors.Warn,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(SurfColors.Night.copy(alpha = 0.8f)).padding(horizontal = 12.dp, vertical = 4.dp),
             )
             Canvas(
                 Modifier
@@ -1055,7 +1056,7 @@ internal fun AdvancedSections(
 private fun PresetCard(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-            .border(2.dp, if (selected) SurfColors.Aqua else Color(0xFF27414F), RoundedCornerShape(14.dp))
+            .border(2.dp, if (selected) SurfColors.Aqua else SurfColors.Line, RoundedCornerShape(14.dp))
             .clickable(onClick = onClick).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -347,35 +348,22 @@ fun HomeScreen(
                     notice?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
                 }
 
-                Heading("Vidéo")
-                Text("1080p · 30 images/s · téléobjectif ×5 optique, sans zoom numérique · ≈ ${options.gigabytesPerHour()} Go/h en session complète", color = SurfColors.Muted, fontSize = 13.sp)
-
-                // Qui filmer.
-                // Vidéos.
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable(onClick = onOpenLibrary).padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column {
-                        Text("Mes vidéos", color = SurfColors.Foam, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                        Text(if (videoCount == 0) "Rien d'enregistré pour l'instant" else "$videoCount vidéo${if (videoCount > 1) "s" else ""} · vagues, sessions, films", color = SurfColors.Muted, fontSize = 13.sp)
-                    }
-                    Text("›", color = SurfColors.Aqua, fontSize = 26.sp)
-                }
-
-                if (!running) {
-                    OutlinedButton(onClick = onOpenMine, modifier = Modifier.fillMaxWidth()) { Text("Trier mes vagues (désigner les miennes)") }
-                }
-                if (!running && rejectCount > 0) {
-                    OutlinedButton(onClick = onOpenRejects, modifier = Modifier.fillMaxWidth()) {
-                        Text("Vagues rejetées ($rejectCount) : récupérer les bonnes")
-                    }
-                }
-                if (!running) {
-                    Button(onClick = { showExportAll = true }, modifier = Modifier.fillMaxWidth()) { Text("Exporter une journée") }
+                Heading("Après la session")
+                ListCard {
+                    if (!running) ListRow("Trier mes vagues", "Désigner les miennes", "›", onClick = onOpenMine)
+                    ListRow("Mes vidéos", if (videoCount == 0) "Rien d'enregistré pour l'instant" else "Vagues, sessions", if (videoCount > 0) "$videoCount ›" else "›", onClick = onOpenLibrary)
+                    if (!running && rejectCount > 0) ListRow("Vagues rejetées", "Récupérer les bonnes", "$rejectCount ›", onClick = onOpenRejects)
+                    if (!running) ListRow("Exporter une journée", "Vers le dossier choisi (Drive)", "›", onClick = { showExportAll = true })
                 }
                 if (showExportAll) ExportDayDialog(exporter) { showExportAll = false }
+
+                Heading("Pendant la session")
+                ListCard {
+                    SwitchRow("Garder toute la session", "≈ ${options.gigabytesPerHour()} Go par heure", options.fullSession, enabled = !running) { onOptionsChange(options.copy(fullSession = it)) }
+                    SwitchRow("Écran noir après 1 min", "Économise la batterie", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = it)) }
+                    SwitchRow("Flash clignotant", "Pour voir de l'eau que ça filme", options.ledBlink) { onOptionsChange(options.copy(ledBlink = it)) }
+                }
+                Text("1080p · 30 images/s · téléobjectif ×5 optique, sans zoom numérique", color = SurfColors.Muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
 
                 Text(
                     "Réglages avancés",
@@ -395,41 +383,81 @@ private fun Heading(text: String) {
 @Composable
 private fun RoundButton(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit, draw: DrawScope.(Color) -> Unit) {
     Box(
-        Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant).border(1.dp, Color(0xFF27414F), CircleShape).clickable(onClick = onClick),
+        Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant).border(1.dp, SurfColors.Line, CircleShape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Canvas(Modifier.size(size * 0.55f)) { draw(SurfColors.Foam) } }
 }
 
-/** Un voyant de l'état « prêt » : icône, valeur, légende ; bord orange si un souci, pointillé si éteint. */
+/** Une carte qui regroupe des lignes, séparées par un filet. */
+@Composable
+private fun ListCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surface), content = content)
+}
+
+/** Une ligne de liste : titre, précision, et à droite un compteur ou un chevron. */
+@Composable
+private fun ListRow(title: String, detail: String, trailing: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = SurfColors.Foam, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(detail, color = SurfColors.Muted, fontSize = 12.sp)
+        }
+        Text(trailing, color = SurfColors.Muted, fontSize = 15.sp)
+    }
+    Box(Modifier.fillMaxWidth().padding(start = 16.dp).height(1.dp).background(SurfColors.Line.copy(alpha = 0.6f)))
+}
+
+/** Une ligne de liste avec un interrupteur. */
+@Composable
+private fun SwitchRow(title: String, detail: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(enabled = enabled) { onChange(!checked) }.padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = if (enabled) SurfColors.Foam else SurfColors.Muted, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(detail, color = SurfColors.Muted, fontSize = 12.sp)
+        }
+        androidx.compose.material3.Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+    }
+    Box(Modifier.fillMaxWidth().padding(start = 16.dp).height(1.dp).background(SurfColors.Line.copy(alpha = 0.6f)))
+}
+
+/** Un voyant de l'état « prêt » : icône, valeur, légende ; bord orange s'il y a un souci, estompé s'il est éteint. */
 @Composable
 private fun Light(modifier: Modifier, health: Health, value: String, caption: String, onClick: (() -> Unit)? = null, icon: DrawScope.(Color) -> Unit) {
-    val border = when (health) { Health.OK -> Color(0x733DDC97); Health.WARN -> SurfColors.Warn; Health.OFF -> Color(0xFF27414F) }
-    val tint = if (health == Health.WARN) SurfColors.Warn else SurfColors.Foam
+    val border = if (health == Health.WARN) SurfColors.Warn else Color.Transparent
+    val tint = when (health) { Health.WARN -> SurfColors.Warn; Health.OFF -> SurfColors.Muted; Health.OK -> SurfColors.Foam }
     Column(
-        modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant).border(1.dp, border, RoundedCornerShape(16.dp))
+        modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface).border(1.dp, border, RoundedCornerShape(14.dp))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(vertical = 12.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Canvas(Modifier.size(22.dp)) { icon(tint) }
-        Text(value, color = tint, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Canvas(Modifier.size(20.dp)) { icon(tint) }
+        Text(value, color = tint, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         Text(caption, color = SurfColors.Muted, fontSize = 10.sp, maxLines = 1, textAlign = TextAlign.Center)
     }
 }
 
+/** Le geste principal : un grand bouton clair, avec le rond rouge d'enregistrement à droite. */
 @Composable
 private fun BigButton(title: String, subtitle: String, enabled: Boolean, onClick: () -> Unit) {
+    val ground = if (enabled) SurfColors.Foam else SurfColors.Card
+    val ink = if (enabled) SurfColors.Night else SurfColors.Muted
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
-            .background(Brush.linearGradient(if (enabled) listOf(SurfColors.Aqua, Color(0xFF1FB7C7)) else listOf(Color(0xFF2B5B5A), Color(0xFF24474F))))
-            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 18.dp, vertical = 18.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(ground)
+            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 20.dp, vertical = 18.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Box(Modifier.size(46.dp).border(3.dp, SurfColors.OnAqua, CircleShape), contentAlignment = Alignment.Center) {
-            Box(Modifier.size(26.dp).clip(CircleShape).background(SurfColors.OnAqua))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = ink, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = ink.copy(alpha = 0.72f), fontSize = 13.sp)
         }
-        Column {
-            Text(title, color = SurfColors.OnAqua, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
-            Text(subtitle, color = SurfColors.OnAqua.copy(alpha = 0.8f), fontSize = 13.sp)
+        Box(Modifier.size(48.dp).border(3.dp, ink, CircleShape), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(28.dp).clip(CircleShape).background(if (enabled) SurfColors.Alert else SurfColors.Muted))
         }
     }
 }
@@ -438,7 +466,7 @@ private fun BigButton(title: String, subtitle: String, enabled: Boolean, onClick
 @Composable
 private fun Segmented(items: List<Triple<String, String, String>>, selected: String, enabled: Boolean, onSelect: (String) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant).border(1.dp, Color(0xFF27414F), RoundedCornerShape(16.dp)).padding(4.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant).border(1.dp, SurfColors.Line, RoundedCornerShape(16.dp)).padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         for ((id, title, sub) in items) {
