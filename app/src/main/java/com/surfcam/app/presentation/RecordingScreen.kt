@@ -1031,7 +1031,6 @@ internal fun AdvancedSections(
             OutlinedButton(onClick = onOpenGimbal) { Text("Essai et calibrage du gimbal") }
         }
     }
-    GimbalLogSection()
     if (state.phase == Phase.RUNNING) DiagnosticSection(state)
     if (state.phase == Phase.RUNNING) {
         Section("Test manuel") {
@@ -1074,61 +1073,6 @@ private fun Help(title: String, text: String) {
 }
 
 /** Journal des décisions du suivi : à copier ou partager pour comprendre pourquoi le gimbal a bougé. */
-@Composable
-private fun GimbalLogSection() {
-    val context = LocalContext.current
-    var text by remember { mutableStateOf(com.surfcam.app.data.gimbal.GimbalLog.tail(40)) }
-    Section("Rapport de test") {
-        Text(
-            if (text.isEmpty()) "Vide : le journal se remplit pendant une session avec le gimbal." else text,
-            color = SurfColors.Muted, fontSize = 10.sp, lineHeight = 13.sp,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { text = com.surfcam.app.data.gimbal.GimbalLog.tail(40) }) { Text("Actualiser", fontSize = 12.sp) }
-            OutlinedButton(onClick = {
-                val full = com.surfcam.app.data.gimbal.GimbalLog.tail(800)
-                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_SUBJECT, "Journal du gimbal SurfCam")
-                    putExtra(android.content.Intent.EXTRA_TEXT, full)
-                }
-                context.startActivity(android.content.Intent.createChooser(send, "Partager le journal").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            }) { Text("Partager", fontSize = 12.sp) }
-        }
-        val exported = com.surfcam.app.data.engine.SessionLog.lastExport(context)
-        Text(
-            if (exported != null) "Dernier rapport complet : Téléchargements/SurfCam/${exported.second}" else "Le rapport complet de chaque session est enregistré dans Téléchargements/SurfCam à l'arrêt.",
-            color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
-        )
-        val notes = com.surfcam.app.data.engine.VoiceNote.recentNotes(context)
-        if (notes.isNotEmpty()) {
-            OutlinedButton(onClick = {
-                val send = android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
-                    type = "audio/*"
-                    putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, ArrayList(notes))
-                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(android.content.Intent.createChooser(send, "Partager les notes vocales").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            }) { Text("Partager les notes vocales (${notes.size})", fontSize = 12.sp) }
-        }
-        if (SessionShare.available(context)) {
-            OutlinedButton(onClick = { SessionShare.share(context, withSessionFiles = false) }) { Text("Partager session : rapport + vagues", fontSize = 12.sp) }
-            OutlinedButton(onClick = { SessionShare.share(context, withSessionFiles = true) }) { Text("… avec les fichiers de session (gros)", fontSize = 12.sp) }
-            OutlinedButton(onClick = { SessionShare.shareEverything(context) }) { Text("Tout exporter (test) : y compris refusées et journal", fontSize = 12.sp) }
-        }
-        if (exported != null) {
-            OutlinedButton(onClick = {
-                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_STREAM, exported.first)
-                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(android.content.Intent.createChooser(send, "Partager le rapport").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            }) { Text("Partager le rapport complet", fontSize = 12.sp) }
-        }
-    }
-}
-
 @Composable
 private fun DiagnosticSection(state: EngineState) {
     Section("Diagnostic de la détection") {

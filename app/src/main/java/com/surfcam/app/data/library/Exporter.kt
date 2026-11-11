@@ -91,7 +91,7 @@ class Exporter(context: Context) {
         }
         // Rapports de session et journaux de capteurs (ceux qui permettent de rejouer la session) : dans Téléchargements et
         // dans le dossier privé de l'appli ; chaque nom n'est pris qu'une fois.
-        for ((prefix, folder, privateDir) in listOf(Triple("SurfCam-rapport-", "Rapports", "rapports"), Triple("SurfCam-journal-", "Journaux", "journaux"))) {
+        for ((prefix, folder, privateDir) in listOf(Triple("SurfCam-rapport-", "Rapports", "rapports"), Triple("SurfCam-journal-", "Journaux", "journaux"), Triple("SurfCam-note-", "Notes vocales", "notes"))) {
             val names = HashSet<String>()
             try {
                 resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
@@ -130,7 +130,7 @@ class Exporter(context: Context) {
         // Un jour où un film de session assemblé existe, ses morceaux de 2 minutes ne sont pas renvoyés en double.
         val filmDays = items.filter { it.folder == "Sessions" && VideoNaming.parse(it.name)?.isFilm == true }.map { it.day }.toSet()
         val kept = items.filter { it.folder != "Sessions" || it.day !in filmDays || VideoNaming.parse(it.name)?.isFilm == true }
-        val order = listOf("Rapports", "Journaux", "Silhouettes", "Vagues", "Rejets", "Sessions", "Autres")
+        val order = listOf("Rapports", "Journaux", "Notes vocales", "Silhouettes", "Vagues", "Rejets", "Sessions", "Autres")
         return kept.sortedBy { order.indexOf(it.folder) }
     }
 
@@ -153,7 +153,7 @@ class Exporter(context: Context) {
                 val old = here[item.name]
                 if (!item.alwaysResend && old != null && old.second >= item.size && old.second > 0L) { skipped++; continue }
                 val dirUri = DocumentsContract.buildDocumentUriUsingTree(tree, dirId)
-                val mime = if (item.name.endsWith(".mp4")) "video/mp4" else if (item.name.endsWith(".jpg")) "image/jpeg" else "text/plain"
+                val mime = if (item.name.endsWith(".mp4")) "video/mp4" else if (item.name.endsWith(".jpg")) "image/jpeg" else if (item.name.endsWith(".m4a")) "audio/mp4" else "text/plain"
                 val target = old?.let { DocumentsContract.buildDocumentUriUsingTree(tree, it.first) }
                     ?: DocumentsContract.createDocument(resolver, dirUri, mime, item.name) ?: throw IllegalStateException("création impossible")
                 val input = item.open() ?: throw IllegalStateException("lecture impossible")
