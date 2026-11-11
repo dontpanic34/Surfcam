@@ -154,7 +154,7 @@ fun HomeScreen(
                 }
                 if (horizon?.let { abs(it) > 0.3f } == true) {
                     val lines = ArrayList<String>()
-                    notice = leveler.run({ horizon }) { lines += it }
+                    notice = leveler.run({ horizon }, log = { lines += it })
                     gp.edit().putString("lastLeveling", lines.joinToString("\n")).apply()
                 }
                 leveling = false

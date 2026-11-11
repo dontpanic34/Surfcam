@@ -16,10 +16,16 @@ class GravityRoll(context: Context, private val rotationDegrees: Int) : SensorEv
     private val sensor = manager.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
     private var gx = 0f
     private var gy = 0f
+    private var gz = 0f
     private var started = false
 
     @Volatile
     var rollDeg: Float? = null
+        private set
+
+    /** Bascule avant/arrière du téléphone (degrés) : sert à repérer un ordre qui incline de haut en bas au lieu de tourner. */
+    @Volatile
+    var pitchDeg: Float? = null
         private set
 
     fun start() {
@@ -30,10 +36,11 @@ class GravityRoll(context: Context, private val rotationDegrees: Int) : SensorEv
 
     override fun onSensorChanged(e: SensorEvent) {
         if (!started) {
-            gx = e.values[0]; gy = e.values[1]; started = true
+            gx = e.values[0]; gy = e.values[1]; gz = e.values[2]; started = true
         } else {
             gx += 0.2f * (e.values[0] - gx)
             gy += 0.2f * (e.values[1] - gy)
+            gz += 0.2f * (e.values[2] - gz)
         }
         val theta = when (rotationDegrees) {
             90 -> atan2(-gy, gx)
@@ -42,6 +49,7 @@ class GravityRoll(context: Context, private val rotationDegrees: Int) : SensorEv
             else -> atan2(gx, gy)
         }
         rollDeg = Math.toDegrees(theta.toDouble()).toFloat()
+        pitchDeg = Math.toDegrees(kotlin.math.atan2(gz.toDouble(), kotlin.math.hypot(gx.toDouble(), gy.toDouble()))).toFloat()
     }
 
     override fun onAccuracyChanged(s: Sensor?, accuracy: Int) = Unit

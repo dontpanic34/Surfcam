@@ -11,7 +11,12 @@ import kotlin.math.abs
  */
 class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: SharedPreferences) {
     init {
-        link.rollSlot = prefs.getInt("rollSlot", 2)
+        // Constaté le 11/11/2026 : le deuxième champ de l'ordre incline le téléphone de haut en bas (tangage). Le roulis est donc
+        // le troisième. Les réglages appris avant cette correction (avec le mauvais axe) sont oubliés une fois.
+        if (!prefs.getBoolean("rollAxisV2", false)) {
+            prefs.edit().remove("rollGain").remove("rollSign").putInt("rollSlot", 3).putBoolean("rollAxisV2", true).apply()
+        }
+        link.rollSlot = prefs.getInt("rollSlot", 3)
     }
 
     /**
@@ -59,7 +64,7 @@ class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: Shared
      * seul à sa propre référence est signalé). Chaque étape est écrite dans le rapport via [log].
      * @return un compte rendu en français
      */
-    suspend fun run(read: () -> Float?, log: (String) -> Unit = {}): String {
+    suspend fun run(read: () -> Float?, log: (String) -> Unit = {}, readPitch: (() -> Float?)? = null): String {
         var sign = prefs.getInt("rollSign", 1)
         var gain = prefs.getFloat("rollGain", 1f)
         val start = settle(read) ?: return "Le téléphone n'a pas de capteur d'inclinaison utilisable."
@@ -70,11 +75,30 @@ class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: Shared
         for (i in 1..10) {
             if (abs(before) < 0.3f) break
             val cmd = (-before / gain).coerceIn(-6f, 6f)
+            val pitchBefore = readPitch?.let { settle(it) }
             link.rollBy(cmd * sign, 0.8f)
             delay(1_600)
             val after = settle(read) ?: break
             val moved = after - before
-            log("niveau : essai $i, ordre %+.2f° → inclinaison %+.2f° (a bougé de %+.2f°)".format(cmd, after, moved))
+            val pitchMoved = if (pitchBefore != null) readPitch?.let { settle(it) }?.minus(pitchBefore) else null
+            log("niveau : essai $i, ordre %+.2f° (champ ${link.rollSlot}) → inclinaison %+.2f° (a bougé de %+.2f°)%s".format(cmd, after, moved,
+                pitchMoved?.let { " · haut/bas %+.2f°".format(it) } ?: ""))
+            // Mauvais axe : le téléphone a basculé de haut en bas au lieu de tourner sur le côté. On annule ce mouvement et on
+            // passe à l'autre champ de l'ordre.
+            if (pitchMoved != null && abs(pitchMoved) > 1f && abs(pitchMoved) > 2 * abs(moved)) {
+                link.rollBy(-cmd * sign, 0.8f)
+                delay(1_600)
+                if (slotSwitched) {
+                    log("niveau : les deux variantes de l'ordre inclinent le téléphone de haut en bas")
+                    noResponse = 2
+                    break
+                }
+                link.rollSlot = if (link.rollSlot == 2) 3 else 2
+                slotSwitched = true
+                log("niveau : mauvais axe (haut/bas), essai de l'autre champ de l'ordre (champ ${link.rollSlot})")
+                before = settle(read) ?: break
+                continue
+            }
             when {
                 abs(moved) < 0.15f -> {
                     noResponse++

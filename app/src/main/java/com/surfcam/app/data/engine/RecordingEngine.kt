@@ -956,7 +956,7 @@ class RecordingEngine(private val context: Context) {
         val sign = prefs.getInt("rollSign", 1)
         val gain = prefs.getFloat("rollGain", 1f).coerceIn(0.3f, 2f)
         val cmd = (-roll / gain).coerceIn(-3f, 3f)
-        link.rollSlot = prefs.getInt("rollSlot", 2)
+        link.rollSlot = prefs.getInt("rollSlot", 3)
         link.rollBy(cmd * sign, 0.8f)
         SessionLog.ev("niveau", "horizon penché de %+.1f° pendant la session : retouche de %+.1f°".format(roll, cmd))
     }
@@ -1106,7 +1106,7 @@ class RecordingEngine(private val context: Context) {
                 // Chaque étape va au rapport ; elle est aussi gardée, pour être recopiée dans le rapport de la session suivante
                 // quand la mise à niveau a été faite à l'aperçu (hors session).
                 val lines = ArrayList<String>()
-                val report = com.surfcam.app.data.gimbal.HorizonLeveler(link, prefs).run({ gravity.rollDeg }) { SessionLog.ev("niveau", it); lines += it }
+                val report = com.surfcam.app.data.gimbal.HorizonLeveler(link, prefs).run({ gravity.rollDeg }, { SessionLog.ev("niveau", it); lines += it }, readPitch = { gravity.pitchDeg })
                 prefs.edit().putString("lastLeveling", (lines + report).joinToString("\n")).apply()
                 SessionLog.ev("niveau", report)
                 _state.update { it.copy(message = report) }

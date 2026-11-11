@@ -139,7 +139,7 @@ class OsmoMobileLink(private val context: Context) {
     /** Fait pivoter le téléphone autour de l'axe de la caméra (degrés, signé) pour redresser l'horizon. */
     /** Champ de l'ordre qui porte le roulis (2 ou 3), appris par la mise à niveau et gardé dans les préférences du gimbal. */
     @Volatile
-    var rollSlot = 2
+    var rollSlot = 3
 
     fun rollBy(degrees: Float, seconds: Float) {
         val packet = DjiPackets.rollBy((degrees * 10).toInt().coerceIn(-1000, 1000), (seconds * 10).toInt().coerceIn(1, 255), rollSlot)
