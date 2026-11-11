@@ -101,3 +101,17 @@ sans y passer de temps tant que les points 1 à 5 ne sont pas fiables.
 - Le 06/11, l'image des clips est molle et l'horizon penche d'environ 3° : le téléobjectif n'était pas forcé, le ×5 était
   très probablement numérique.
 - La V2 a été livrée après validation sur simulateur uniquement, sans essai sur le téléphone.
+
+## Pistes gardées en tête (pas encore décidées)
+
+- **Vue large en coulisse** (idée de l'utilisateur, 11/11/2026) : pendant que le téléobjectif filme en ×5, l'objectif principal
+  analyse tout le pic (×1 ou ×2, jamais enregistré) pour repérer un départ hors du champ du téléobjectif et y tourner le gimbal.
+  Ne sert pas à reconnaître le manchon (moins d'un pixel en vue large). À faire seulement après : l'essai de l'appli au
+  téléobjectif, la mesure de la vitesse réelle du modèle accéléré, et un test sur le téléphone montrant que les deux objectifs
+  s'ouvrent en même temps.
+- **Qualité d'image** : si l'image au téléobjectif reste en dessous de l'appli Google, remettre le HDR 10 bits et/ou la 4K
+  (le code caméra sait encore les faire, seuls les réglages ont été retirés).
+- **Modèle de détection** : le remplacer par un modèle entraîné sur les films de l'utilisateur (surfeurs petits, allongés, dans
+  l'écume). Chantier à part.
+- **Manchon** : sa couleur vire au rouge-rosé dans l'eau et l'appli ne le reconnaît plus ; à régler sur le film entier du 06/11,
+  ou remplacer par un repère plus grand et toujours hors de l'eau.
