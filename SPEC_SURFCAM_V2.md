@@ -115,3 +115,10 @@ sans y passer de temps tant que les points 1 à 5 ne sont pas fiables.
   l'écume). Chantier à part.
 - **Manchon** : sa couleur vire au rouge-rosé dans l'eau et l'appli ne le reconnaît plus ; à régler sur le film entier du 06/11,
   ou remplacer par un repère plus grand et toujours hors de l'eau.
+- **Reeve** (reeve-app.com, iPhone, lu le 11/11/2026) : même principe que SurfCam (trépied à 50-150 m, gimbals DJI dont l'OM 4,
+  sans bracelet ni montre, tout sur le téléphone). Deux choix à retenir : elle filme tout le monde et trie les vagues par
+  surfeur après la session (l'utilisateur associe les siennes en quelques gestes) au lieu de reconnaître quelqu'un en direct ;
+  et elle conseille un champ un peu large plutôt que serré pour mieux suivre chaque vague.
+- **Montre** : pas de liaison directe possible à 100 m (Bluetooth trop court, coupé par l'eau). Utilisable après coup (heures
+  des vagues enregistrées par la montre, recoupées avec les clips) ou en direct seulement avec une montre 4G qui envoie sa
+  position GPS par le réseau mobile.
