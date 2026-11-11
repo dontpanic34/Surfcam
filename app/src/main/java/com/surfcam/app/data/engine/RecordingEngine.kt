@@ -672,6 +672,7 @@ class RecordingEngine(private val context: Context) {
             _state.update { it.copy(gimbalStatus = null, followEnabled = false) }
         }
         setupBrain(options)
+        SessionLog.ev("détecteur", com.surfcam.app.data.analysis.OnnxPersonDetector.choiceReport(context) ?: "modèle sur le processeur (pas encore chronométré)")
         context.getSharedPreferences("gimbal", Context.MODE_PRIVATE).getString("lastLeveling", null)?.lines()?.forEach { SessionLog.ev("niveau", it) }
         if (follower != null) autoLevel(displayRotationDegreesForLevel)
         // Horizon surveillé pendant toute la session : mesuré, écrit dans le rapport, et retouché entre deux clips s'il dérive.

@@ -10,8 +10,8 @@ import com.surfcam.app.domain.naming.VideoNaming
 import java.util.Locale
 
 /**
- * Exporte les vagues dans un dossier choisi une fois pour toutes (carte SD, dossier synchronisé avec Drive, clé USB…), avec
- * pour chaque vague son petit rapport du même nom, et le rapport de la session une seule fois.
+ * Exporte une journée entière dans un dossier choisi une fois pour toutes (dossier du Drive, carte SD, clé USB…) : vagues,
+ * rejets, sessions, rapports et journaux de capteurs, rangés par sous-dossier. Ne supprime jamais rien sur le téléphone.
  */
 class Exporter(context: Context) {
     private val appContext = context.applicationContext
@@ -31,90 +31,48 @@ class Exporter(context: Context) {
         prefs.edit().putString("tree", tree.toString()).apply()
     }
 
-    private fun done(): Set<String> = prefs.getStringSet("done", emptySet()) ?: emptySet()
-
-    private fun markDone(name: String) {
-        prefs.edit().putStringSet("done", done() + name).apply()
-    }
-
     private fun isWave(name: String): Boolean {
         val p = VideoNaming.parse(name) ?: return false
         return !p.isSession && !p.isFilm && !p.isMontage
     }
 
-    /** Les vagues pas encore exportées, de la plus ancienne à la plus récente. */
-    fun pending(all: List<LibraryVideo>): List<LibraryVideo> =
-        all.filter { !it.pending && isWave(it.name) && it.name.removeSuffix(".mp4") !in done() }.sortedBy { it.modifiedMs }
+    /** Un fichier à exporter : sous-dossier de destination, nom, taille, jour auquel il appartient. */
+    class Item(val folder: String, val name: String, val size: Long, val day: java.time.LocalDate, val open: () -> java.io.InputStream?)
 
-    /** Les vagues de la dernière session, même déjà exportées. */
-    fun lastSession(all: List<LibraryVideo>): List<LibraryVideo> {
-        val names = SessionLog.sessionFiles(appContext).toSet()
-        return all.filter { !it.pending && isWave(it.name) && it.name.removeSuffix(".mp4") in names }.sortedBy { it.modifiedMs }
-    }
+    /** Ce qu'il y a à exporter pour un jour donné, pour la liste des jours. */
+    class DaySummary(val day: java.time.LocalDate, val waves: Int, val rejects: Int, val sessions: Int, val reports: Int, val bytes: Long)
 
-    /** Copie les vagues [videos] et leurs rapports dans le dossier d'export. Renvoie un message de bilan. */
-    fun export(videos: List<LibraryVideo>, deleteAfter: Boolean = false, onProgress: (Int, Int) -> Unit): String {
-        val tree = folder() ?: return "Choisis d'abord le dossier d'export."
-        val parent = try {
-            DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
-        } catch (e: Exception) {
-            return "Dossier d'export illisible : choisis-le de nouveau."
-        }
-        var copied = 0
-        var reports = 0
-        var failure: String? = null
-        var deleted = 0
-        val library = VideoLibrary(appContext)
-        for ((i, v) in videos.withIndex()) {
-            onProgress(i, videos.size)
+    private val dayInName = Regex("(20\\d{2})-(\\d{2})-(\\d{2})")
+
+    /**
+     * Jour auquel appartient un fichier : la date écrite dans son nom (celle de la prise de vue), sinon sa date de modification.
+     * La date de modification seule ne suffit pas : un fichier déplacé plus tard vers la carte SD la voit changer.
+     */
+    private fun dayOf(name: String, modifiedMs: Long): java.time.LocalDate {
+        dayInName.find(name)?.let { m ->
             try {
-                val target = copy(v.uri, parent, v.name.removeSuffix(".mp4") + ".mp4", "video/mp4")
-                markDone(v.name.removeSuffix(".mp4"))
-                copied++
-                // L'export conserve toujours l'original sur le téléphone, même si deleteAfter est demandé.
-                val report = findDownload(v.name.removeSuffix(".mp4") + " - rapport.txt")
-                if (report != null) {
-                    copy(report, parent, v.name.removeSuffix(".mp4") + " - rapport.txt", "text/plain")
-                    reports++
-                }
-            } catch (e: Exception) {
-                failure = "${e.javaClass.simpleName} : ${e.message}"
+                return java.time.LocalDate.of(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt())
+            } catch (_: Exception) {
             }
         }
-        // Le rapport complet de la session, une seule fois.
-        SessionLog.lastExport(appContext)?.let { (uri, name) ->
-            if (name !in done()) {
-                try {
-                    copy(uri, parent, name, "text/plain")
-                    markDone(name)
-                } catch (_: Exception) {
-                }
-            }
-        }
-        onProgress(videos.size, videos.size)
-        return buildString {
-            append("$copied vague(s) exportée(s) avec $reports rapport(s)")
-            if (deleteAfter) append(". La copie originale est conservée sur le téléphone")
-            if (failure != null) append(". Un fichier n'a pas pu être copié ($failure)")
-            append(".")
-        }
+        return java.time.Instant.ofEpochMilli(modifiedMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
     }
 
-    // ---------------------------------------------------------------------------------------------------------------
-    // Export complet rétabli depuis la V1 : conserve vagues, rejets, rapports et sessions sans supprimer les sources.
-    // ---------------------------------------------------------------------------------------------------------------
-
-    class Item(val folder: String, val name: String, val size: Long, val open: () -> java.io.InputStream?)
-
-    fun everything(today: Boolean): List<Item> = everything(if (today) java.time.LocalDate.now() else null)
+    /** Les jours où l'appli a enregistré quelque chose, du plus récent au plus ancien. */
+    fun days(): List<DaySummary> = everything(null).groupBy { it.day }.map { (day, items) ->
+        DaySummary(
+            day,
+            waves = items.count { it.folder == "Vagues" && it.name.endsWith(".mp4") },
+            rejects = items.count { it.folder == "Rejets" && it.name.endsWith(".mp4") },
+            sessions = items.count { it.folder == "Sessions" },
+            reports = items.count { it.name.endsWith(".txt") },
+            bytes = items.sumOf { it.size.coerceAtLeast(0L) },
+        )
+    }.sortedByDescending { it.day }
 
     fun everything(day: java.time.LocalDate?): List<Item> {
         val library = VideoLibrary(appContext)
-        val zone = java.time.ZoneId.systemDefault()
-        val start = (day ?: java.time.LocalDate.now()).atStartOfDay(zone).toInstant().toEpochMilli()
-        val end = (day ?: java.time.LocalDate.now()).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        fun inDay(ms: Long) = day == null || ms in start until end
-        val videos = (library.list() + library.listRejected()).filter { !it.pending && inDay(it.modifiedMs) }
+        val videos = (library.list() + library.listRejected()).filter { !it.pending && (day == null || dayOf(it.name, it.modifiedMs) == day) }
             .groupBy { it.name }.values.map { copies -> copies.maxBy { it.sizeBytes } }.sortedBy { it.modifiedMs }
         val items = ArrayList<Item>()
         for (v in videos) {
@@ -125,30 +83,38 @@ class Exporter(context: Context) {
                 isWave(v.name) -> "Vagues"
                 else -> "Autres"
             }
-            items += Item(folder, "$base.mp4", v.sizeBytes) { resolver.openInputStream(v.uri) }
+            val d = dayOf(v.name, v.modifiedMs)
+            items += Item(folder, "$base.mp4", v.sizeBytes, d) { resolver.openInputStream(v.uri) }
             if (folder == "Vagues" || folder == "Rejets") {
-                findDownload("$base - rapport.txt")?.let { report -> items += Item(folder, "$base - rapport.txt", sizeOf(report)) { resolver.openInputStream(report) } }
+                findDownload("$base - rapport.txt")?.let { report -> items += Item(folder, "$base - rapport.txt", sizeOf(report), d) { resolver.openInputStream(report) } }
             }
         }
-        val names = HashSet<String>()
-        try {
-            resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME, MediaStore.Downloads.SIZE, MediaStore.Downloads.DATE_MODIFIED),
-                "${MediaStore.Downloads.DISPLAY_NAME} LIKE ?", arrayOf("SurfCam-rapport-%"), null)?.use { cursor ->
-                while (cursor.moveToNext()) {
-                    if (!inDay(cursor.getLong(3) * 1000L)) continue
-                    val name = cursor.getString(1) ?: continue
-                    val uri = android.content.ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0))
-                    if (names.add(name)) items += Item("Rapports", name, cursor.getLong(2)) { resolver.openInputStream(uri) }
+        // Rapports de session et journaux de capteurs (ceux qui permettent de rejouer la session) : dans Téléchargements et
+        // dans le dossier privé de l'appli ; chaque nom n'est pris qu'une fois.
+        for ((prefix, folder, privateDir) in listOf(Triple("SurfCam-rapport-", "Rapports", "rapports"), Triple("SurfCam-journal-", "Journaux", "journaux"))) {
+            val names = HashSet<String>()
+            try {
+                resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME, MediaStore.Downloads.SIZE, MediaStore.Downloads.DATE_MODIFIED),
+                    "${MediaStore.Downloads.DISPLAY_NAME} LIKE ?", arrayOf("$prefix%"), null)?.use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(1) ?: continue
+                        val d = dayOf(name, cursor.getLong(3) * 1000L)
+                        if (day != null && d != day) continue
+                        val uri = android.content.ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0))
+                        if (names.add(name)) items += Item(folder, name, cursor.getLong(2), d) { resolver.openInputStream(uri) }
+                    }
                 }
+            } catch (_: Exception) { }
+            java.io.File(appContext.filesDir, privateDir).listFiles()?.filter { it.isFile && it.name !in names }?.forEach { file ->
+                val d = dayOf(file.name, file.lastModified())
+                if (day == null || d == day) items += Item(folder, file.name, file.length(), d) { file.inputStream() }
             }
-        } catch (_: Exception) { }
-        java.io.File(appContext.filesDir, "rapports").listFiles()?.filter { it.isFile && it.name !in names && inDay(it.lastModified()) }?.forEach { file ->
-            items += Item("Rapports", file.name, file.length()) { file.inputStream() }
         }
-        val hasFilm = items.any { it.folder == "Sessions" && VideoNaming.parse(it.name)?.isFilm == true }
-        val kept = if (hasFilm) items.filter { it.folder != "Sessions" || VideoNaming.parse(it.name)?.isFilm == true } else items
-        val order = listOf("Vagues", "Rejets", "Rapports", "Sessions", "Autres")
+        // Un jour où un film de session assemblé existe, ses morceaux de 2 minutes ne sont pas renvoyés en double.
+        val filmDays = items.filter { it.folder == "Sessions" && VideoNaming.parse(it.name)?.isFilm == true }.map { it.day }.toSet()
+        val kept = items.filter { it.folder != "Sessions" || it.day !in filmDays || VideoNaming.parse(it.name)?.isFilm == true }
+        val order = listOf("Rapports", "Journaux", "Vagues", "Rejets", "Sessions", "Autres")
         return kept.sortedBy { order.indexOf(it.folder) }
     }
 
@@ -210,14 +176,6 @@ class Exporter(context: Context) {
     private fun sizeOf(uri: Uri): Long = try {
         resolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_SIZE), null, null, null)?.use { if (it.moveToFirst()) it.getLong(0) else -1L } ?: -1L
     } catch (_: Exception) { -1L }
-
-    private fun copy(source: Uri, parent: Uri, displayName: String, mime: String): Uri {
-        val target = DocumentsContract.createDocument(resolver, parent, mime, displayName) ?: throw IllegalStateException("création impossible : $displayName")
-        resolver.openInputStream(source)?.use { input ->
-            resolver.openOutputStream(target, "w")?.use { output -> input.copyTo(output) } ?: throw IllegalStateException("écriture impossible : $displayName")
-        } ?: throw IllegalStateException("lecture impossible : $displayName")
-        return target
-    }
 
     private fun findDownload(displayName: String): Uri? = try {
         resolver.query(

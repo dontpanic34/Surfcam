@@ -124,7 +124,6 @@ fun HomeScreen(
         storageChecking = false
     }
     val exporter = remember { com.surfcam.app.data.library.Exporter(context) }
-    var showExport by remember { mutableStateOf(false) }
     var showExportAll by remember { mutableStateOf(false) }
     var showDiag by remember { mutableStateOf(false) }
     val waitingForCard by produceState(0) { while (true) { value = com.surfcam.app.data.storage.SdMover.pendingCount(context); delay(3_000) } }
@@ -191,7 +190,6 @@ fun HomeScreen(
                 },
             )
         }
-        if (showExport) ExportDialog(exporter = exporter, onClose = { showExport = false })
         if (showDiag) StorageDiagDialog(volumeName = storages.firstOrNull { it.name == options.storage && external }?.name ?: storages.firstOrNull { it.removable }?.name, onClose = { showDiag = false })
         if (sdOffer != null) {
             val free = sdOffer.freeBytes?.let { " (${it / 1_000_000_000L} Go libres)" } ?: ""
@@ -403,26 +401,9 @@ fun HomeScreen(
                     }
                 }
                 if (!running) {
-                    OutlinedButton(onClick = { showExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Exporter mes vagues (avec leurs rapports)") }
+                    Button(onClick = { showExportAll = true }, modifier = Modifier.fillMaxWidth()) { Text("Exporter une journée") }
                 }
-                if (!running && SessionShare.available(context)) {
-                    var shareNote by remember { mutableStateOf<String?>(null) }
-                    OutlinedButton(
-                        onClick = { shareNote = SessionShare.share(context, withSessionFiles = false) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Partager la dernière session (rapport + vagues)") }
-                    Button(
-                        onClick = { shareNote = SessionShare.shareEverything(context) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Partager les fichiers de la dernière session") }
-                    shareNote?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
-                }
-                if (!running) {
-                    OutlinedButton(onClick = { showExportAll = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Tout exporter vers un dossier choisi")
-                    }
-                }
-                if (showExportAll) ExportAllDialog(exporter) { showExportAll = false }
+                if (showExportAll) ExportDayDialog(exporter) { showExportAll = false }
 
                 Text(
                     "Réglages avancés",
@@ -502,80 +483,43 @@ private fun Segmented(items: List<Triple<String, String, String>>, selected: Str
     }
 }
 
-/** Exporte les vagues, avec leurs rapports, dans le dossier choisi (carte SD, dossier synchronisé, clé USB…). */
+/**
+ * Exporter une journée : on choisit le dossier (une fois), puis un jour dans la liste. Tout ce que l'appli a enregistré ce
+ * jour-là part dans le dossier : rapports, journaux, vagues, rejets, sessions. Rien n'est supprimé du téléphone ; un fichier
+ * déjà présent et complet dans le dossier n'est pas renvoyé.
+ */
 @Composable
-private fun ExportDialog(exporter: com.surfcam.app.data.library.Exporter, onClose: () -> Unit) {
-    val context = LocalContext.current
+private fun ExportDayDialog(exporter: com.surfcam.app.data.library.Exporter, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     var folder by remember { mutableStateOf(exporter.folderLabel()) }
     var message by remember { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf("") }
-    val library = remember { VideoLibrary(context) }
-    val all by produceState<List<com.surfcam.app.data.library.LibraryVideo>>(emptyList()) { value = withContext(Dispatchers.IO) { library.list() } }
-    val pending = exporter.pending(all)
-    val last = exporter.lastSession(all)
+    var days by remember { mutableStateOf<List<com.surfcam.app.data.library.Exporter.DaySummary>?>(null) }
+    LaunchedEffect(Unit) { days = withContext(Dispatchers.IO) { try { exporter.days() } catch (_: Exception) { emptyList() } } }
     val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) { exporter.setFolder(uri); folder = exporter.folderLabel() }
     }
-    fun run(list: List<com.surfcam.app.data.library.LibraryVideo>) {
-        if (working || list.isEmpty()) return
-        working = true
-        scope.launch {
-            message = withContext(Dispatchers.IO) { exporter.export(list) { i, n -> progress = "Export : $i sur $n…" } }
-            working = false
-            progress = ""
-        }
-    }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = { if (!working) onClose() },
-        title = { Text("Exporter mes vagues") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Dossier d'export : ${folder ?: "pas encore choisi"}", fontSize = 13.sp)
-                OutlinedButton(onClick = { pick.launch(null) }, enabled = !working) { Text(if (folder == null) "Choisir le dossier" else "Changer de dossier") }
-                Text("Chaque vague est copiée avec son rapport du même nom ; le rapport de la session est ajouté une fois.", fontSize = 12.sp, color = SurfColors.Muted)
-                Button(onClick = { run(pending) }, enabled = !working && folder != null && pending.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-                    Text("Exporter les vagues pas encore exportées (${pending.size})", fontSize = 13.sp)
-                }
-                OutlinedButton(onClick = { run(last) }, enabled = !working && folder != null && last.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-                    Text("Exporter la dernière session (${last.size})", fontSize = 13.sp)
-                }
-                Text("L'export ne supprime rien : les vagues restent sur le téléphone.", fontSize = 12.sp, color = SurfColors.Muted)
-                if (progress.isNotEmpty()) Text(progress, fontSize = 12.sp, color = SurfColors.Foam)
-                message?.let { Text(it, fontSize = 12.sp, color = SurfColors.Warn) }
-            }
-        },
-        confirmButton = { androidx.compose.material3.TextButton(onClick = onClose, enabled = !working) { Text("Fermer") } },
-    )
-}
-
-/** Copie tout (vagues, rejets, rapports, sessions) vers le dossier choisi. Ne supprime jamais rien sur le téléphone. */
-@Composable
-private fun ExportAllDialog(exporter: com.surfcam.app.data.library.Exporter, onClose: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    var folder by remember { mutableStateOf(exporter.folderLabel()) }
-    var message by remember { mutableStateOf<String?>(null) }
-    var working by remember { mutableStateOf(false) }
-    var progress by remember { mutableStateOf("") }
-    val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) { exporter.setFolder(uri); folder = exporter.folderLabel() }
-    }
-    fun run(today: Boolean) {
+    val dayFormat = remember { java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", java.util.Locale.FRENCH) }
+    fun gigabytes(bytes: Long) = if (bytes >= 1_000_000_000L) "%.1f Go".format(bytes / 1e9).replace('.', ',') else "${bytes / 1_000_000L} Mo"
+    fun run(day: java.time.LocalDate) {
         if (working) return
         working = true
         message = null
         scope.launch {
             message = withContext(Dispatchers.IO) {
                 try {
-                    val items = exporter.everything(today)
-                    if (items.isEmpty()) "Rien à exporter."
+                    val items = exporter.everything(day)
+                    if (items.isEmpty()) "Rien à exporter pour ce jour."
                     else {
-                        val r = exporter.exportAll(items) { i, n, name -> progress = "Export : $i sur $n… $name" }
+                        val r = exporter.exportAll(items) { i, n, name -> progress = "${i + 1} sur $n · $name" }
                         buildString {
-                            append("${r.sent} fichier(s) copié(s), ${r.skipped} déjà présent(s)")
-                            if (r.failed.isNotEmpty()) append(", ${r.failed.size} échec(s) : ${r.failed.take(3).joinToString(" ; ")}")
-                            append(". Aucun fichier supprimé du téléphone.")
+                            append("${day.format(dayFormat)} : ${r.sent} fichier(s) copié(s), ${r.skipped} déjà présent(s)")
+                            if (r.failed.isNotEmpty()) {
+                                append(", ${r.failed.size} échec(s) : ${r.failed.take(2).joinToString(" ; ")}")
+                                if (r.failed.any { it.contains("ENOSPC") }) append(". Le téléphone est plein (l'appli Drive garde une copie en attente d'envoi) : laisse-la finir d'envoyer, puis relance, les fichiers déjà partis ne seront pas renvoyés")
+                            }
+                            append(". Rien n'a été supprimé du téléphone.")
                         }
                     }
                 } catch (e: Exception) {
@@ -588,14 +532,28 @@ private fun ExportAllDialog(exporter: com.surfcam.app.data.library.Exporter, onC
     }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = { if (!working) onClose() },
-        title = { Text("Tout exporter") },
+        title = { Text("Exporter une journée") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Dossier d'export : ${folder ?: "pas encore choisi"}", fontSize = 13.sp)
                 OutlinedButton(onClick = { pick.launch(null) }, enabled = !working) { Text(if (folder == null) "Choisir le dossier" else "Changer de dossier") }
-                Text("Vagues, rejets, rapports et sessions sont copiés ; rien n'est supprimé du téléphone.", fontSize = 12.sp, color = SurfColors.Muted)
-                Button(onClick = { run(true) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) { Text("Exporter aujourd'hui", fontSize = 13.sp) }
-                OutlinedButton(onClick = { run(false) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) { Text("Exporter tout l'historique", fontSize = 13.sp) }
+                Text("Touche un jour : rapports, journaux, vagues, rejets et sessions de ce jour sont copiés. Rien n'est supprimé du téléphone.", fontSize = 12.sp, color = SurfColors.Muted)
+                val list = days
+                when {
+                    list == null -> Text("Recherche des journées…", fontSize = 12.sp, color = SurfColors.Muted)
+                    list.isEmpty() -> Text("Rien n'a encore été enregistré.", fontSize = 12.sp, color = SurfColors.Muted)
+                    else -> for (d in list) {
+                        OutlinedButton(onClick = { run(d.day) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Text(d.day.format(dayFormat).replaceFirstChar { it.uppercase() }, fontSize = 14.sp)
+                                Text(
+                                    "${d.waves} vague(s) · ${d.rejects} rejet(s) · ${d.sessions} fichier(s) de session · ${d.reports} rapport(s) · ${gigabytes(d.bytes)}",
+                                    fontSize = 11.sp, color = SurfColors.Muted,
+                                )
+                            }
+                        }
+                    }
+                }
                 if (progress.isNotEmpty()) Text(progress, fontSize = 12.sp, color = SurfColors.Foam)
                 message?.let { Text(it, fontSize = 12.sp, color = SurfColors.Warn) }
             }
