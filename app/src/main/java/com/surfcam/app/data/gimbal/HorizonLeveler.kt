@@ -10,6 +10,9 @@ import kotlin.math.abs
  * faux : on l'inverse et on s'en souvient. S'arrête sous 0,4° ou après six essais.
  */
 class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: SharedPreferences) {
+    init {
+        link.rollSlot = prefs.getInt("rollSlot", 2)
+    }
 
     /**
      * Met le téléphone en paysage avec l'axe de roulis, comme le double appui sur M : s'il est tenu en portrait, on le
@@ -62,6 +65,7 @@ class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: Shared
         val start = settle(read) ?: return "Le téléphone n'a pas de capteur d'inclinaison utilisable."
         var before = start
         var noResponse = 0
+        var slotSwitched = false
         log("niveau : départ %+.2f° (sens appris %d, amplitude %.2f)".format(start, sign, gain))
         for (i in 1..10) {
             if (abs(before) < 0.3f) break
@@ -74,17 +78,24 @@ class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: Shared
             when {
                 abs(moved) < 0.15f -> {
                     noResponse++
-                    if (noResponse >= 2) break
+                    if (noResponse >= 2) {
+                        if (slotSwitched) break
+                        // Aucune réaction : l'ordre a peut-être visé le tangage. On essaie l'autre champ de l'ordre.
+                        link.rollSlot = if (link.rollSlot == 2) 3 else 2
+                        slotSwitched = true
+                        noResponse = 0
+                        log("niveau : aucune réaction, essai de l'autre variante de l'ordre de roulis (champ ${link.rollSlot})")
+                    }
                 }
                 (moved > 0) != (cmd > 0) -> {
                     sign = -sign
-                    prefs.edit().putInt("rollSign", sign).apply()
+                    prefs.edit().putInt("rollSign", sign).putInt("rollSlot", link.rollSlot).apply()
                     log("niveau : le gimbal tourne dans l'autre sens, sens inversé")
                     noResponse = 0
                 }
                 else -> {
                     gain = (abs(moved) / abs(cmd)).coerceIn(0.3f, 2f)
-                    prefs.edit().putFloat("rollGain", gain).apply()
+                    prefs.edit().putFloat("rollGain", gain).putInt("rollSlot", link.rollSlot).apply()
                     noResponse = 0
                 }
             }
@@ -96,7 +107,7 @@ class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: Shared
         val drift = held - before
         log("niveau : fin %+.2f°, 3 s plus tard %+.2f°".format(before, held))
         return when {
-            noResponse >= 2 -> "Horizon : %.1f°. Le gimbal ne répond pas à l'ordre de roulis : fais « Réglage horizontal » dans l'appli DJI Mimo.".format(held)
+            noResponse >= 2 -> "Horizon : %.1f°. Le gimbal n'a réagi à aucune des deux variantes de l'ordre de roulis. Envoie-moi le rapport : je dois corriger l'ordre.".format(held)
             abs(drift) > 0.5f -> "Horizon : %.1f° → %.1f°, mais le gimbal revient seul vers %.1f° : sa référence est penchée (réglage horizontal dans DJI Mimo).".format(start, before, held)
             abs(held) <= 0.5f -> "Horizon droit : %.1f° → %.1f°.".format(start, held)
             else -> "Horizon : %.1f° → %.1f°.".format(start, held)
