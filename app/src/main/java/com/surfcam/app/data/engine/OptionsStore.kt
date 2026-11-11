@@ -19,6 +19,7 @@ class OptionsStore(context: Context) {
             sleepScreen = prefs.getBoolean("sleepScreen", d.sleepScreen),
             doNotDisturb = prefs.getBoolean("doNotDisturb", d.doNotDisturb),
             lockExposure = prefs.getBoolean("lockExposure", d.lockExposure),
+            hdr = prefs.getBoolean("hdr10", d.hdr),
             followGimbal = prefs.getBoolean("followGimbal", d.followGimbal),
             ledBlink = prefs.getBoolean("ledBlink", d.ledBlink),
             // Le manchon est abandonné : l'appli filme tout le monde, et l'on désigne ses vagues après la session.
@@ -34,6 +35,7 @@ class OptionsStore(context: Context) {
             .putBoolean("sleepScreen", o.sleepScreen)
             .putBoolean("doNotDisturb", o.doNotDisturb)
             .putBoolean("lockExposure", o.lockExposure)
+            .putBoolean("hdr10", o.hdr)
             .putBoolean("followGimbal", o.followGimbal)
             .putBoolean("ledBlink", o.ledBlink)
             .putString("subject", o.subject.name)

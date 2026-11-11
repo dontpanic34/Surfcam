@@ -362,6 +362,11 @@ fun HomeScreen(
                     SwitchRow("Garder toute la session", "≈ ${options.gigabytesPerHour()} Go par heure", options.fullSession, enabled = !running) { onOptionsChange(options.copy(fullSession = it)) }
                     SwitchRow("Écran noir après 1 min", "Économise la batterie", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = it)) }
                     SwitchRow("Flash clignotant", "Pour voir de l'eau que ça filme", options.ledBlink) { onOptionsChange(options.copy(ledBlink = it)) }
+                    SwitchRow("Image HDR 10 bits (à l'essai)", "Comme l'appli Google : moins de bruit, plus de nuances", options.hdr, enabled = !running) {
+                        // Un refus passé de la caméra est oublié : on lui redonne sa chance à chaque fois qu'on rallume l'option.
+                        if (it) context.getSharedPreferences("camera", android.content.Context.MODE_PRIVATE).edit().putBoolean("hdr_broken", false).apply()
+                        onOptionsChange(options.copy(hdr = it))
+                    }
                 }
                 Text("1080p · 30 images/s · téléobjectif ×5 optique, sans zoom numérique", color = SurfColors.Muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
 

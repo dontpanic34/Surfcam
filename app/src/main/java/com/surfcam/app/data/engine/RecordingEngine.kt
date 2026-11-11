@@ -211,7 +211,7 @@ class RecordingEngine(private val context: Context) {
         lastOptions = options
         SessionLog.start(
             context,
-            "Options : 1080p 30 i/s téléobjectif ×5 optique · session complète=${options.fullSession} " +
+            "Options : 1080p 30 i/s téléobjectif ×5 optique · HDR 10 bits demandé=${options.hdr} · session complète=${options.fullSession} " +
                 "qui=${options.subject}/${options.markerColor ?: "-"} stockage=${options.storage} " +
                 "expo verrouillée=${options.lockExposure} LED=${options.ledBlink}",
         )
@@ -489,10 +489,11 @@ class RecordingEngine(private val context: Context) {
     private fun tryStart(source: Camera2Source, maxFps: Int, rotationDegrees: Int, options: SessionOptions): Boolean {
         // Toujours le téléobjectif optique, en 1080p : si le téléphone ne le donne pas, la sonde échoue et la session ne démarre
         // pas (jamais de repli silencieux sur l'objectif principal recadré).
-        val probe: CameraProbe = source.probe(maxFps, Lens.TELE, hd = true, hdr = false)
+        val probe: CameraProbe = source.probe(maxFps, Lens.TELE, hd = true, hdr = options.hdr)
         SessionLog.ev("objectif", "téléobjectif optique : caméra ${probe.cameraId}${probe.physicalId?.let { " (objectif physique $it)" } ?: ""} · ${probe.config.width}×${probe.config.height} à ${probe.config.fps} i/s · zoom numérique impossible (plage ×%.1f à ×%.1f)".format(probe.minZoom, probe.maxZoom))
         val config = probe.config
         _state.update { it.copy(hdrText = probe.hdrText) }
+        SessionLog.ev("objectif", "HDR 10 bits : ${probe.hdrText}")
         Trail.mark("sonde ok ${config.width}x${config.height} ${config.fps}i/s 10bits=${config.tenBit} · HDR ${probe.hdrText}")
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.

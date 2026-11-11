@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
             .putExtra(RecordingService.EXTRA_STORAGE, options.storage)
             .putExtra(RecordingService.EXTRA_DND, options.doNotDisturb)
             .putExtra(RecordingService.EXTRA_LOCK_EXPOSURE, options.lockExposure)
+            .putExtra(RecordingService.EXTRA_HDR, options.hdr)
             .putExtra(RecordingService.EXTRA_FOLLOW_GIMBAL, options.followGimbal)
             .putExtra(RecordingService.EXTRA_LED, options.ledBlink)
             .putExtra(RecordingService.EXTRA_SUBJECT, options.subject.name)

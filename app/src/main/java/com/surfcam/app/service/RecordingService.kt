@@ -41,6 +41,7 @@ class RecordingService : Service() {
             fullSession = intent?.getBooleanExtra(EXTRA_FULL_SESSION, false) == true,
             storage = intent?.getStringExtra(EXTRA_STORAGE) ?: "external_primary",
             lockExposure = intent?.getBooleanExtra(EXTRA_LOCK_EXPOSURE, false) == true,
+            hdr = intent?.getBooleanExtra(EXTRA_HDR, false) == true,
             followGimbal = intent?.getBooleanExtra(EXTRA_FOLLOW_GIMBAL, false) == true,
             ledBlink = intent?.getBooleanExtra(EXTRA_LED, true) != false,
             subject = if (intent?.getStringExtra(EXTRA_SUBJECT) == "ME") com.surfcam.app.data.engine.Subject.ME else com.surfcam.app.data.engine.Subject.EVERYONE,
@@ -100,6 +101,7 @@ class RecordingService : Service() {
         const val EXTRA_STORAGE = "storage"
         const val EXTRA_DND = "dnd"
         const val EXTRA_LOCK_EXPOSURE = "lock_exposure"
+        const val EXTRA_HDR = "hdr10"
         const val EXTRA_FOLLOW_GIMBAL = "follow_gimbal"
         const val EXTRA_LED = "led"
         const val EXTRA_SUBJECT = "subject"

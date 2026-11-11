@@ -17,6 +17,11 @@ data class SessionOptions(
     val lockExposure: Boolean = false,
     /** Le gimbal DJI enregistré fait pivoter le téléphone pour garder le surfeur au centre. */
     val followGimbal: Boolean = false,
+    /**
+     * Vidéo HDR 10 bits (HLG), comme l'appli Google Caméra : plus de nuances dans les hautes lumières, et le téléphone y
+     * applique en général un meilleur traitement du bruit. À l'essai : si la caméra la refuse, la session repart sans.
+     */
+    val hdr: Boolean = false,
     /** La LED du flash clignote brièvement toutes les 15 s pendant la session, pour voir de loin que ça filme. */
     val ledBlink: Boolean = true,
     /** Qui filmer : tout le monde, ou seulement moi (repéré par la couleur de mon manchon, en ×5 optique). */
