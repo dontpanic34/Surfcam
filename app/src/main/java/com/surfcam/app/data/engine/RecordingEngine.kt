@@ -679,6 +679,9 @@ class RecordingEngine(private val context: Context) {
         if (follower != null) autoLevel(displayRotationDegreesForLevel)
         // Horizon surveillé pendant toute la session : mesuré, écrit dans le rapport, et retouché entre deux clips s'il dérive.
         sessionGravity?.stop()
+        rollBeforeNudge = null
+        nudgesThatWorsened = 0
+        horizonGivenUp = false
         sessionGravity = com.surfcam.app.data.gimbal.GravityRoll(context, displayRotationDegreesForLevel).also { it.start() }
         lastRelevelMs = android.os.SystemClock.elapsedRealtime()
         source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
@@ -908,17 +911,41 @@ class RecordingEngine(private val context: Context) {
      */
     private fun keepHorizonLevel(nowMs: Long, clipActive: Boolean) {
         val roll = sessionGravity?.rollDeg ?: return
-        if (follower == null || levelingBusy || clipActive || kotlin.math.abs(roll) <= HORIZON_TOLERANCE_DEG || nowMs - lastRelevelMs < 20_000) return
+        if (follower == null || levelingBusy || clipActive || horizonGivenUp) return
+        val prefs = context.getSharedPreferences("gimbal", Context.MODE_PRIVATE)
+        // Garde-fou : la retouche précédente a-t-elle aggravé l'inclinaison ? Une fois : le sens appris était faux, on
+        // l'inverse. Deux fois : on arrête les retouches pour cette session plutôt que de pencher de plus en plus.
+        val before = rollBeforeNudge
+        if (before != null && nowMs - lastRelevelMs >= 8_000) {
+            rollBeforeNudge = null
+            if (kotlin.math.abs(roll) > kotlin.math.abs(before) + 0.3f) {
+                nudgesThatWorsened++
+                if (nudgesThatWorsened >= 2) {
+                    horizonGivenUp = true
+                    SessionLog.ev("niveau", "les retouches aggravent l'inclinaison (%+.1f° → %+.1f°) : retouches arrêtées pour cette session".format(before, roll))
+                    return
+                }
+                prefs.edit().putInt("rollSign", -prefs.getInt("rollSign", 1)).apply()
+                SessionLog.ev("niveau", "la retouche a aggravé l'inclinaison (%+.1f° → %+.1f°) : sens de roulis inversé".format(before, roll))
+            } else {
+                nudgesThatWorsened = 0
+            }
+        }
+        if (kotlin.math.abs(roll) <= HORIZON_TOLERANCE_DEG || nowMs - lastRelevelMs < 20_000) return
         val link = com.surfcam.app.data.gimbal.GimbalHub.link(context)
         if (!link.state.value.connected) return
         lastRelevelMs = nowMs
-        val prefs = context.getSharedPreferences("gimbal", Context.MODE_PRIVATE)
+        rollBeforeNudge = roll
         val sign = prefs.getInt("rollSign", 1)
         val gain = prefs.getFloat("rollGain", 1f).coerceIn(0.3f, 2f)
         val cmd = (-roll / gain).coerceIn(-3f, 3f)
         link.rollBy(cmd * sign, 0.8f)
         SessionLog.ev("niveau", "horizon penché de %+.1f° pendant la session : retouche de %+.1f°".format(roll, cmd))
     }
+
+    private var rollBeforeNudge: Float? = null
+    private var nudgesThatWorsened = 0
+    private var horizonGivenUp = false
 
     private fun applyThermalLevel(level: Int) {
         SessionLog.ev("chaleur", "niveau $level (statut système ${_state.value.thermalStatus})")

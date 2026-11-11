@@ -1,34 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Icône SurfCam : un objectif (anneau clair) dans lequel roule une vague, et le point rouge d'enregistrement. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Cadre de visée, discret -->
+    <!-- La vague, découpée par le rond de l'objectif -->
+    <group>
+        <clip-path android:pathData="M54,32 A22,22 0 1,0 54,76 A22,22 0 1,0 54,32 Z" />
+        <path
+            android:fillColor="#3CC8B4"
+            android:pathData="M28,58 C36,47 45,47 53,56 C61,65 69,64 82,51 L82,82 L28,82 Z" />
+        <path
+            android:fillColor="#1F8F86"
+            android:pathData="M28,67 C38,59 46,61 54,67 C62,73 70,71 82,62 L82,82 L28,82 Z" />
+    </group>
+    <!-- L'anneau de l'objectif -->
     <path
-        android:strokeColor="#4F6B7A"
-        android:strokeWidth="2.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M32,40 L32,34 L38,34 M70,34 L76,34 L76,40 M76,68 L76,74 L70,74 M38,74 L32,74 L32,68" />
-    <!-- Crête de la vague qui s'enroule -->
+        android:strokeColor="#EEF4F6"
+        android:strokeWidth="5"
+        android:pathData="M54,30 A24,24 0 1,0 54,78 A24,24 0 1,0 54,30 Z" />
+    <!-- Le point rouge d'enregistrement -->
     <path
-        android:strokeColor="#2BD9C4"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M35,62 C37,50 46,43 56,43 C64,43 70,48 70,55 C70,60 65,62 62,59 C60,57 61,54 64,54" />
-    <!-- Lignes d'eau -->
-    <path
-        android:strokeColor="#E9F3F5"
-        android:strokeWidth="3"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M35,67 C40,64 44,70 49,67 C54,64 58,70 63,67 C66,65 69,65 71,66" />
-    <path
-        android:strokeColor="#7FB5C0"
-        android:strokeWidth="2.6"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M41,73 C45,71 48,75 52,73 C56,71 59,75 63,73" />
+        android:fillColor="#FF5A52"
+        android:pathData="M72,31.5 A5.5,5.5 0 1,0 72,42.5 A5.5,5.5 0 1,0 72,31.5 Z" />
 </vector>
