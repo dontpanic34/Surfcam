@@ -372,6 +372,13 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (running && state.followNote.isNotEmpty()) InfoChip(state.followNote, SurfColors.Foam)
+            if (preview && notice == null && horizon?.let { kotlin.math.abs(it) > 1.5f && kotlin.math.abs(it) <= 30f } == true) {
+                Text(
+                    com.surfcam.app.data.gimbal.OsmoMobileLink.ROLL_ADVICE, color = SurfColors.Warn, fontSize = 12.sp, maxLines = 3,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(SurfColors.Night.copy(alpha = 0.9f)).padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
             notice?.let { (text, color) ->
                 Text(
                     text, color = color, fontSize = 13.sp, maxLines = 3, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -400,8 +407,8 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                     if (drawingPeak) drawingPeak = false else { engine.clearPeakZone(); drawingPeak = true }
                 }
             }
-            // Toujours visible : sans gimbal associé ou relié, l'appli le dit au lieu de cacher le bouton.
-            if (!state.clipActive && !drawingPeak) {
+            // Le gimbal ne se laisse pas commander en roulis (mesuré) : le bouton n'existe que si cela redevient possible.
+            if (com.surfcam.app.data.gimbal.OsmoMobileLink.ROLL_COMMAND_WORKS && !state.clipActive && !drawingPeak) {
                 ActionChip(if (leveling) "Mise à niveau…" else "Mettre de niveau", highlighted = false) {
                     if (!leveling) {
                         leveling = true

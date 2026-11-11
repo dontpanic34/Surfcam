@@ -138,3 +138,8 @@ sans y passer de temps tant que les points 1 à 5 ne sont pas fiables.
   totale, plus une case « non classées » ; un seul appui désigne toutes les vagues de ce surfeur. Chez SurfBuddy le
   regroupement vient de brassards GPS, pas de l'image. À construire chez nous à partir des vignettes et des étiquettes de la
   première session exportée (dossier Silhouettes + fichier mes-vagues), en mesurant la qualité du regroupement dessus.
+- **Horizon et Osmo Mobile 4** (mesuré le 11/11/2026, rapport 22h51) : l'ordre de rotation relative a trois champs ; le 1er
+  tourne à gauche/droite, le 3e incline de haut en bas, le 2e ne fait rien. Le gimbal n'accepte donc aucun ordre de roulis :
+  c'est lui qui tient l'horizon (mode Suivi), et sa référence se corrige par « Réglage horizontal » dans DJI Mimo. L'appli
+  n'envoie plus d'ordre de roulis. Piste restante si l'image reste penchée : redresser l'image elle-même (rotation, donc
+  léger recadrage), à décider par l'utilisateur.

@@ -25,6 +25,7 @@ class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: Shared
      * paysage à la fin. [isPortrait] : vrai si le téléphone est physiquement debout, null si inconnu.
      */
     suspend fun toLandscape(isPortrait: () -> Boolean?): Boolean {
+        if (!OsmoMobileLink.ROLL_COMMAND_WORKS) return isPortrait() != true
         if (isPortrait() != true) return true
         val sign = prefs.getInt("landSign", 1)
         link.rollBy(90f * sign, 2.0f)
@@ -65,6 +66,11 @@ class HorizonLeveler(private val link: OsmoMobileLink, private val prefs: Shared
      * @return un compte rendu en français
      */
     suspend fun run(read: () -> Float?, log: (String) -> Unit = {}, readPitch: (() -> Float?)? = null): String {
+        if (!OsmoMobileLink.ROLL_COMMAND_WORKS) {
+            val now = settle(read)
+            lastEndDeg = now
+            return (if (now != null) "Horizon : %+.1f°. ".format(now).replace('.', ',') else "") + OsmoMobileLink.ROLL_ADVICE
+        }
         var sign = prefs.getInt("rollSign", 1)
         var gain = prefs.getFloat("rollGain", 1f)
         val start = settle(read) ?: return "Le téléphone n'a pas de capteur d'inclinaison utilisable."

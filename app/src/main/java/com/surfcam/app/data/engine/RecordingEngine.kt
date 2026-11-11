@@ -693,7 +693,7 @@ class RecordingEngine(private val context: Context) {
         setupBrain(options)
         SessionLog.ev("détecteur", com.surfcam.app.data.analysis.OnnxPersonDetector.choiceReport(context) ?: "modèle sur le processeur (pas encore chronométré)")
         context.getSharedPreferences("gimbal", Context.MODE_PRIVATE).getString("lastLeveling", null)?.lines()?.forEach { SessionLog.ev("niveau", it) }
-        if (follower != null) autoLevel(displayRotationDegreesForLevel)
+        if (follower != null && com.surfcam.app.data.gimbal.OsmoMobileLink.ROLL_COMMAND_WORKS) autoLevel(displayRotationDegreesForLevel)
         // Horizon surveillé pendant toute la session : mesuré, écrit dans le rapport, et retouché entre deux clips s'il dérive.
         sessionGravity?.stop()
         rollBeforeNudge = null
@@ -927,6 +927,7 @@ class RecordingEngine(private val context: Context) {
      * démarrage, et au plus une fois toutes les 20 s. Un seul petit ordre de roulis, avec le sens et l'amplitude appris.
      */
     private fun keepHorizonLevel(nowMs: Long, clipActive: Boolean) {
+        if (!com.surfcam.app.data.gimbal.OsmoMobileLink.ROLL_COMMAND_WORKS) return
         val roll = sessionGravity?.rollDeg ?: return
         if (follower == null || levelingBusy || clipActive || horizonGivenUp) return
         val prefs = context.getSharedPreferences("gimbal", Context.MODE_PRIVATE)

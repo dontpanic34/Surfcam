@@ -142,6 +142,9 @@ class OsmoMobileLink(private val context: Context) {
     var rollSlot = 3
 
     fun rollBy(degrees: Float, seconds: Float) {
+        // Mesuré le 11/11/2026 : l'Osmo Mobile 4 ignore le roulis de cet ordre (le champ 2 ne fait rien, le champ 3 incline de
+        // haut en bas). Plus aucun ordre de roulis n'est envoyé : il ferait basculer le téléphone au lieu de le redresser.
+        if (!ROLL_COMMAND_WORKS) return
         val packet = DjiPackets.rollBy((degrees * 10).toInt().coerceIn(-1000, 1000), (seconds * 10).toInt().coerceIn(1, 255), rollSlot)
         send(packet, force = true)
     }
@@ -257,6 +260,12 @@ class OsmoMobileLink(private val context: Context) {
     }
 
     companion object {
+        /** Le gimbal accepte-t-il qu'on le fasse tourner sur le côté (roulis) ? Non pour l'Osmo Mobile 4 (mesuré le 11/11/2026). */
+        const val ROLL_COMMAND_WORKS = false
+
+        /** Ce qu'on dit à l'utilisateur quand l'horizon penche. */
+        const val ROLL_ADVICE = "L'Osmo Mobile 4 ne se laisse pas pencher sur le côté depuis l'appli : c'est lui qui tient l'horizon. " +
+            "Mets-le en mode Suivi (pas FPV) ; s'il reste penché, fais une fois « Réglage horizontal » dans l'appli DJI Mimo."
         val SERVICE: UUID = UUID.fromString("0000fff0-0000-1000-8000-00805f9b34fb")
         val NOTIFY: UUID = UUID.fromString("0000fff4-0000-1000-8000-00805f9b34fb")
         val WRITE: UUID = UUID.fromString("0000fff5-0000-1000-8000-00805f9b34fb")
