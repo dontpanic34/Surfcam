@@ -29,12 +29,9 @@ import com.surfcam.app.data.storage.StorageTarget
 import com.surfcam.app.domain.buffer.EncodedRingBuffer
 import com.surfcam.app.data.gimbal.GimbalFollower
 import com.surfcam.app.data.gimbal.GimbalLog
-import com.surfcam.app.data.reframe.PathStore
 import com.surfcam.app.domain.gimbal.FollowBox
 import com.surfcam.app.domain.gimbal.FollowController
 import com.surfcam.app.domain.clip.ClipAction
-import com.surfcam.app.domain.reframe.PathBox
-import com.surfcam.app.domain.reframe.PathFrame
 import com.surfcam.app.domain.model.CaptureConfig
 import com.surfcam.app.domain.model.EncodedSample
 import com.surfcam.app.domain.tracking.RideStats
@@ -119,15 +116,6 @@ class RecordingEngine(private val context: Context) {
     val state: StateFlow<EngineState> = _state.asStateFlow()
 
     /** Mémoire de l'apprentissage : jugements de l'utilisateur sur les clips automatiques, et réglages qui en découlent. */
-    // Chemin des surfeurs vus pendant les dernières secondes (horloge de la vidéo), pour recadrer les clips après coup.
-    private class PathCapture(val encodedUs: Long, val boxes: List<PathBox>)
-
-    private val pathCaptures = ArrayDeque<PathCapture>()
-    private val pathStore = PathStore(context)
-
-    @Volatile
-    private var reframeOn = false
-
     private var follower: GimbalFollower? = null
 
     @Volatile
@@ -222,19 +210,14 @@ class RecordingEngine(private val context: Context) {
         lastOptions = options
         SessionLog.start(
             context,
-            "Options : 4K=${!options.hd} 60i/s=${options.fps60} tele=${options.tele} HDR=${options.hdr} session complète=${options.fullSession} " +
-                "qui=${options.subject}/${options.markerColor ?: "-"} stockage=${options.storage} recadrage=${options.reframe} " +
+            "Options : 1080p 30 i/s téléobjectif ×5 optique · session complète=${options.fullSession} " +
+                "qui=${options.subject}/${options.markerColor ?: "-"} stockage=${options.storage} " +
                 "expo verrouillée=${options.lockExposure} LED=${options.ledBlink}",
         )
         learning.currentConfig().let { SessionLog.ev("réglages", "détection de vague : vitesse de départ ${it.startSpeed} longueurs de corps/s, arrêt sous ${it.stopSpeed}, part horizontale ≥ ${it.minHorizontalShare}, rapport h/l ≥ ${it.minStandingAspect}, durée minimale ${it.minRideUs / 1_000_000f} s, confiance ≥ ${it.minTriggerConfidence}") }
-        Trail.mark("DEMARRAGE hdr=${options.hdr} tele=${options.tele} fps60=${options.fps60} 4K=${!options.hd}")
+        Trail.mark("DEMARRAGE 1080p 30 i/s téléobjectif")
         clipsSaved = 0
         waveCounter = 0
-        standby = false
-        lastBusyAtMs = 0L
-        widePhase = WidePhase.OFF
-        wideEndedAtMs = 0L
-        ignoredBlobs.clear()
         activeIntervalMs = CaptureConfig.ANALYSIS_INTERVAL_MS
         // Le support choisi doit être branché ; sinon on enregistre sur le téléphone, en le disant.
         val storageMessage = if (options.storage == StorageTarget.PHONE || storage.available().any { it.name == options.storage }) {
@@ -249,7 +232,7 @@ class RecordingEngine(private val context: Context) {
         }
         _state.value = EngineState(
             phase = Phase.STARTING,
-            lens = options.lens,
+            lens = Lens.TELE,
             zoom = desiredZoom,
             fullSession = options.fullSession,
             message = storageMessage,
@@ -268,11 +251,11 @@ class RecordingEngine(private val context: Context) {
             power.addThermalStatusListener(mainExecutor, thermalListener)
 
             source = Camera2Source(context)
-            val firstTry = tryStart(source, if (options.fps60) 60 else 30, displayRotationDegrees, options)
+            val firstTry = tryStart(source, 30, displayRotationDegrees, options)
             if (!firstTry) {
                 teardownPipeline()
                 if (!tryStart(source, 30, displayRotationDegrees, options)) {
-                    throw IllegalStateException("L'encodeur H.265 refuse la 4K sur ce téléphone")
+                    throw IllegalStateException("L'encodeur vidéo H.265 n'a pas démarré")
                 }
             }
             camera = source
@@ -308,7 +291,9 @@ class RecordingEngine(private val context: Context) {
 
     /** Ouvre la caméra en aperçu seul, sans rien enregistrer, pour cadrer avant de démarrer la session. */
     @Synchronized
-    fun startPreview(lens: Lens) {
+    /** Aperçu avant de lancer : objectif principal, de ×1 à ×2, pour viser à l'œil. Rien n'est enregistré. */
+    fun startPreview() {
+        val lens = Lens.MAIN
         val current = _state.value
         if (current.phase == Phase.STARTING || current.phase == Phase.RUNNING || current.phase == Phase.ERROR) return
         if (current.phase == Phase.PREVIEW && current.lens == lens) return
@@ -332,13 +317,14 @@ class RecordingEngine(private val context: Context) {
             })
             previewPipeline.markerColor = OptionsStore(context).load().markerColor
             analysis = previewPipeline
-            val zoom = desiredZoom.coerceIn(probe.minZoom, probe.maxZoom)
+            val previewMax = minOf(probe.maxZoom, PREVIEW_MAX_ZOOM)
+            val zoom = desiredZoom.coerceIn(probe.minZoom, previewMax)
             _state.value = EngineState(
                 phase = Phase.PREVIEW,
                 lens = lens,
                 zoom = zoom,
                 minZoom = probe.minZoom,
-                maxZoom = probe.maxZoom,
+                maxZoom = previewMax,
                 focalPx1x = probe.focalPx1x,
                 endedReason = current.endedReason,
                 lastSummary = current.lastSummary,
@@ -393,13 +379,9 @@ class RecordingEngine(private val context: Context) {
     }
 
     @Synchronized
-    fun setZoom(ratio: Float) = setZoomInternal(ratio, fromBrain = false)
-
-    private fun setZoomInternal(ratio: Float, fromBrain: Boolean) {
+    fun setZoom(ratio: Float) {
         val s = _state.value
-        var clamped = ratio.coerceIn(s.minZoom, s.maxZoom)
-        // Entre ×4,2 et ×5 on colle sur le téléobjectif : un zoom hésitant juste en dessous serait numérique, donc flou.
-        if (s.maxZoom >= 4.95f && clamped >= 4.2f && clamped < 5.4f) clamped = 5f
+        val clamped = ratio.coerceIn(s.minZoom, if (s.phase == Phase.PREVIEW) minOf(s.maxZoom, PREVIEW_MAX_ZOOM) else s.maxZoom)
         desiredZoom = clamped
         _state.update { it.copy(zoom = clamped) }
         camera?.setZoom(clamped)
@@ -473,7 +455,10 @@ class RecordingEngine(private val context: Context) {
     }
 
     private fun tryStart(source: Camera2Source, maxFps: Int, rotationDegrees: Int, options: SessionOptions): Boolean {
-        val probe: CameraProbe = source.probe(maxFps, options.lens, options.hd, options.hdr)
+        // Toujours le téléobjectif optique, en 1080p : si le téléphone ne le donne pas, la sonde échoue et la session ne démarre
+        // pas (jamais de repli silencieux sur l'objectif principal recadré).
+        val probe: CameraProbe = source.probe(maxFps, Lens.TELE, hd = true, hdr = false)
+        SessionLog.ev("objectif", "téléobjectif optique : caméra ${probe.cameraId}${probe.physicalId?.let { " (objectif physique $it)" } ?: ""} · ${probe.config.width}×${probe.config.height} à ${probe.config.fps} i/s · zoom numérique impossible (plage ×%.1f à ×%.1f)".format(probe.minZoom, probe.maxZoom))
         val config = probe.config
         _state.update { it.copy(hdrText = probe.hdrText) }
         Trail.mark("sonde ok ${config.width}x${config.height} ${config.fps}i/s 10bits=${config.tenBit} · HDR ${probe.hdrText}")
@@ -523,7 +508,6 @@ class RecordingEngine(private val context: Context) {
 
             override fun onSnapshot(snapshot: AnalysisSnapshot) {
                 _state.update { it.copy(analysis = snapshot) }
-                if (reframeOn) capturePath(snapshot)
                 follower?.let { f ->
                     val focal = _state.value.focalPx1x * _state.value.zoom
                     if (focal > 0f) {
@@ -534,12 +518,6 @@ class RecordingEngine(private val context: Context) {
                     }
                 }
                 follower?.setClipActive(_state.value.clipActive)
-                // Avec le nouveau cerveau, pas d'ancienne veille à 1 image/s (elle empêchait de mesurer les départs) ni
-                // d'ancienne recherche au manchon : le pilote du cerveau s'en charge.
-                if (analysis?.brain == null) {
-                    updateDutyCycle(snapshot)
-                    updateWideSearch(snapshot, follower)
-                }
                 logFrame(snapshot, follower)
                 val targetId = follower?.targetId
                     ?: FollowController.chooseTarget(snapshot.boxes.filter { !onlyMarkedFollow || it.marked }.map { FollowBox((it.left + it.right) / 2f, it.bottom - it.top, it.riding, it.marked, it.id) }, null)?.id
@@ -569,10 +547,7 @@ class RecordingEngine(private val context: Context) {
                     follower?.executeOrder(o.deltaDeg, o.durationUs / 1e6, "${cmd.state.label} : ${cmd.note}")
                     journalWriter?.let { w -> synchronized(w) { com.surfcam.core.journal.FrameJournal.writeEvent(w, o.startUs, "ordre", "%+.2f° en %.2f s · ${cmd.state.label} · ${cmd.note}".format(o.deltaDeg, o.durationUs / 1e6)) } }
                 }
-                if (kotlin.math.abs(cmd.zoom - _state.value.zoom) > 0.05) {
-                    SessionLog.ev("zoom", "×%.1f → ×%.1f (${cmd.state.label})".format(_state.value.zoom, cmd.zoom))
-                    zoomTo(cmd.zoom.toFloat())
-                }
+                // Le zoom demandé par le cerveau est ignoré : la session tourne sur le téléobjectif, sans zoom possible.
                 val note = "${cmd.state.label} · ${cmd.note}"
                 if (_state.value.followNote != note) {
                     if (cmd.state.label != lastBrainState) SessionLog.ev("pilote", note)
@@ -631,9 +606,7 @@ class RecordingEngine(private val context: Context) {
         encoder = enc
         Trail.mark("encodeur démarré")
 
-        // À 60 i/s le téléobjectif n'est pas utilisable : au-delà de ×2 ce ne serait que du zoom numérique, flou et pixelisé.
-        val maxZoomForFps = if (options.fps60 && probe.config.fps >= 60 && !options.tele) minOf(probe.maxZoom, 2f) else probe.maxZoom
-        val startZoom = desiredZoom.coerceIn(probe.minZoom, maxZoomForFps)
+        val startZoom = probe.minZoom
         _state.update {
             it.copy(
                 phase = Phase.RUNNING,
@@ -644,13 +617,11 @@ class RecordingEngine(private val context: Context) {
                 maxFpsAtSize = probe.maxFpsAtSize,
                 zoom = startZoom,
                 minZoom = probe.minZoom,
-                maxZoom = maxZoomForFps,
+                maxZoom = probe.maxZoom,
                 focalPx1x = probe.focalPx1x,
             )
         }
         source.lockExposure = options.lockExposure
-        reframeOn = options.reframe
-        synchronized(pathCaptures) { pathCaptures.clear() }
         follower?.stop()
         follower = null
         if (com.surfcam.app.data.gimbal.GimbalHub.hasSavedGimbal(context)) {
@@ -677,10 +648,6 @@ class RecordingEngine(private val context: Context) {
                 _state.update { it.copy(locked = locked) }
             }
 
-            override fun onZoomKind(optical: Boolean) {
-                _state.update { it.copy(opticalZoom = optical) }
-            }
-
             override fun onStabilization(active: Boolean) {
                 _state.update { it.copy(stabilized = active) }
             }
@@ -699,13 +666,20 @@ class RecordingEngine(private val context: Context) {
                         releaseCamera()
                         teardownPipeline()
                         _state.update { it.copy(phase = Phase.IDLE) }
-                        start(rotation, opts.copy(hdr = false))
+                        start(rotation, opts)
                     }
                 }, "hdr-restart").start()
             }
 
             override fun onLensInfo(text: String) {
                 _state.update { it.copy(lensInfo = text) }
+                // Preuve dans le rapport : l'objectif réellement actif et sa focale, à chaque changement.
+                SessionLog.ev("objectif", "actif : $text")
+            }
+
+            override fun onZoomKind(optical: Boolean) {
+                _state.update { it.copy(opticalZoom = optical) }
+                if (!optical) SessionLog.ev("objectif", "ATTENTION : l'image ne vient pas du téléobjectif optique")
             }
 
             override fun onAnalysisUnavailable() {
@@ -741,34 +715,10 @@ class RecordingEngine(private val context: Context) {
         }
     }
 
-    private fun capturePath(snapshot: AnalysisSnapshot) {
-        val encodedUs = snapshot.timestampUs - snapshot.clockOffsetMs * 1_000
-        // Si le manchon de l'utilisateur est reconnu, on ne garde que lui : le recadrage suivra sa silhouette.
-        val marked = snapshot.boxes.filter { it.marked }
-        val boxes = (marked.ifEmpty { snapshot.boxes }).map { PathBox(it.left, it.top, it.right, it.bottom, it.riding) }
-        synchronized(pathCaptures) {
-            pathCaptures.addLast(PathCapture(encodedUs, boxes))
-            while (pathCaptures.isNotEmpty() && pathCaptures.first().encodedUs < encodedUs - PATH_KEEP_US) pathCaptures.removeFirst()
-        }
-    }
-
-    /** Range le chemin du surfeur pendant le clip qui vient d'être enregistré, pour pouvoir le recadrer plus tard. */
-    private fun savePath(clipName: String) {
-        val start = clipStartPtsUs
-        val end = ring?.newestPtsUs() ?: return
-        if (start < 0) return
-        val frames = synchronized(pathCaptures) {
-            pathCaptures.filter { it.encodedUs in (start - 1_000_000)..(end + 1_000_000) }
-                .map { PathFrame((it.encodedUs - start) / 1_000, it.boxes) }
-        }
-        if (frames.any { it.boxes.isNotEmpty() }) pathStore.save(clipName, frames)
-    }
-
     private fun onClipResult(saved: SavedClip?, error: String?) {
         saved?.let { SessionLog.clipSaved(context, it.name, it.durationSec) }
         SessionLog.ev("clip", if (saved != null) "enregistré : ${saved.name} (%.1f s, ${saved.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(saved.durationSec) else if (error != null) "échec : $error" else "clip rejeté (fausse alerte)")
         if (saved != null) clipsSaved++
-        if (saved != null && reframeOn) savePath(saved.name)
         // Un clip automatique réussi est mémorisé avec ses caractéristiques : l'utilisateur pourra le juger.
         val stats = synchronized(rideStats) { rideStats.firstOrNull().also { rideStats.clear() } }
         if (saved != null && currentClipAuto && stats != null) learning.record(saved.name, stats)
@@ -873,108 +823,7 @@ class RecordingEngine(private val context: Context) {
         }
     }
 
-    // Veille / éveil de l'analyse : 1 image par seconde tant que personne n'est en vue, cadence normale dès qu'un surfeur apparaît.
     private var activeIntervalMs = CaptureConfig.ANALYSIS_INTERVAL_MS
-    private var lastBusyAtMs = 0L
-    private var standby = false
-
-    private fun updateDutyCycle(snapshot: AnalysisSnapshot) {
-        val now = android.os.SystemClock.elapsedRealtime()
-        // « Occupé » = quelqu'un bouge (ou une vague, un clip, une recherche) : des surfeurs qui attendent assis sur leur planche ne réveillent pas l'analyse.
-        if (snapshot.maxSpeedBodyPerSec >= BUSY_SPEED || snapshot.riding || _state.value.clipActive || widePhase != WidePhase.OFF) lastBusyAtMs = now
-        val wantStandby = lastBusyAtMs != 0L && now - lastBusyAtMs > STANDBY_AFTER_MS || (lastBusyAtMs == 0L && snapshot.frames > 10)
-        if (wantStandby != standby) {
-            standby = wantStandby
-            analysis?.setBaseIntervalMs(if (standby) STANDBY_INTERVAL_MS else activeIntervalMs)
-            SessionLog.ev("veille", if (standby) "personne ne bouge depuis ${STANDBY_AFTER_MS / 1000} s : analyse à 1 image/s" else "quelqu'un bouge (%.1f longueurs de corps/s) : analyse à pleine cadence".format(snapshot.maxSpeedBodyPerSec))
-        }
-    }
-
-    // ------------------------------------------------------------------------------------------
-    // Recherche en zoom large : quand l'utilisateur (manchon choisi) n'est plus vu depuis un moment, l'appli dézoome,
-    // cherche la tache de couleur de son manchon, pivote dessus, zoome pour confirmer, puis reprend en zoom normal.
-    // ------------------------------------------------------------------------------------------
-
-    private enum class WidePhase { OFF, WIDE, CONFIRM }
-
-    private var widePhase = WidePhase.OFF
-    private var wideSinceMs = 0L
-    private var wideEndedAtMs = 0L
-    private var confirmSinceMs = 0L
-    private var zoomBeforeWide = 5f
-    private var centeredFrames = 0
-    private var wideAttempts = 0
-    private var lastBlob: Pair<Float, Float>? = null
-    private val ignoredBlobs = ArrayList<Triple<Float, Float, Long>>()
-    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-
-    private fun zoomTo(ratio: Float) {
-        // Sur le fil principal : cet appel vient du fil d'analyse, qui ne doit jamais attendre le verrou du moteur.
-        mainHandler.post { setZoomInternal(ratio, fromBrain = true) }
-    }
-
-    private fun updateWideSearch(snapshot: AnalysisSnapshot, f: GimbalFollower?) {
-        val opts = lastOptions
-        val enabled = opts?.searchWide == true && opts.markerColor != null && f != null && _state.value.phase == Phase.RUNNING
-        val now = android.os.SystemClock.elapsedRealtime()
-        val st = _state.value
-        when (widePhase) {
-            WidePhase.OFF -> {
-                if (!enabled || f == null || st.clipActive) return
-                if (f.markedSeenRecently && f.lostForMs > WIDE_AFTER_MS && now - wideEndedAtMs > WIDE_COOLDOWN_MS && st.zoom >= 4f) {
-                    zoomBeforeWide = st.zoom
-                    widePhase = WidePhase.WIDE
-                    wideSinceMs = now
-                    wideAttempts = 0
-                    centeredFrames = 0
-                    analysis?.scanBlob = true
-                    f.passive = true
-                    zoomTo(WIDE_ZOOM)
-                    SessionLog.ev("recherche", "plus de surfeur depuis ${f.lostForMs / 1000} s : je dézoome (×%.0f → ×%.0f) pour chercher ton manchon".format(zoomBeforeWide, WIDE_ZOOM))
-                }
-            }
-            WidePhase.WIDE -> {
-                if (!enabled || f == null || st.clipActive) { endWideSearch(f, false, "interrompue (clip en cours ou option coupée)"); return }
-                if (now - wideSinceMs > WIDE_TIMEOUT_MS) { endWideSearch(f, false, "manchon introuvable après ${WIDE_TIMEOUT_MS / 1000} s"); return }
-                if (snapshot.blobX < 0f) { centeredFrames = 0; return }
-                ignoredBlobs.removeAll { it.third < now }
-                if (ignoredBlobs.any { kotlin.math.abs(it.first - snapshot.blobX) < 0.08f && kotlin.math.abs(it.second - snapshot.blobY) < 0.12f }) return
-                val hfov = FollowController.horizontalFovDeg(st.focalPx1x * st.zoom, CaptureConfig.ANALYSIS_WIDTH)
-                if (f.centerOn(snapshot.blobX, hfov)) centeredFrames++ else centeredFrames = 0
-                SessionLog.ev("recherche", "tache de la couleur du manchon à x=%.2f y=%.2f (densité ${snapshot.blobCount})%s".format(snapshot.blobX, snapshot.blobY, if (centeredFrames > 0) " · centrée" else " · je pivote dessus"))
-                if (centeredFrames >= 2) {
-                    lastBlob = snapshot.blobX to snapshot.blobY
-                    widePhase = WidePhase.CONFIRM
-                    confirmSinceMs = now
-                    zoomTo(zoomBeforeWide)
-                    SessionLog.ev("recherche", "je zoome (×%.0f) pour confirmer que c'est toi".format(zoomBeforeWide))
-                }
-            }
-            WidePhase.CONFIRM -> {
-                if (!enabled || f == null) { endWideSearch(f, false, "interrompue"); return }
-                if (snapshot.boxes.any { it.marked }) { endWideSearch(f, true, "manchon confirmé en zoom ×%.0f : on filme".format(zoomBeforeWide)); return }
-                if (now - confirmSinceMs > CONFIRM_MS) {
-                    lastBlob?.let { ignoredBlobs += Triple(it.first, it.second, now + IGNORE_MS) }
-                    wideAttempts++
-                    if (wideAttempts >= MAX_WIDE_ATTEMPTS) { endWideSearch(f, false, "${MAX_WIDE_ATTEMPTS} taches écartées : ce n'était pas toi"); return }
-                    widePhase = WidePhase.WIDE
-                    centeredFrames = 0
-                    zoomTo(WIDE_ZOOM)
-                    SessionLog.ev("recherche", "pas confirmé : cette tache n'est pas ton manchon, je dézoome et je cherche ailleurs")
-                }
-            }
-        }
-    }
-
-    private fun endWideSearch(f: GimbalFollower?, success: Boolean, why: String) {
-        SessionLog.ev("recherche", (if (success) "réussie : " else "terminée : ") + why)
-        analysis?.scanBlob = false
-        f?.passive = false
-        f?.resetLost()
-        if (!success && _state.value.zoom < zoomBeforeWide - 0.1f) zoomTo(zoomBeforeWide)
-        widePhase = WidePhase.OFF
-        wideEndedAtMs = android.os.SystemClock.elapsedRealtime()
-    }
 
     private var lastFrameLogMs = 0L
     private var lastTickLogMs = 0L
@@ -1184,7 +1033,7 @@ class RecordingEngine(private val context: Context) {
         p.opticsProvider = {
             val st = _state.value
             val focal = st.focalPx1x * st.zoom
-            if (focal > 0f) FollowController.horizontalFovDeg(focal, CaptureConfig.ANALYSIS_WIDTH).toDouble() to st.zoom.toDouble() else null
+            if (focal > 0f) FollowController.horizontalFovDeg(focal, CaptureConfig.ANALYSIS_WIDTH).toDouble() to OPTICAL_ZOOM else null
         }
         try {
             val dir = java.io.File(context.filesDir, "journaux").apply { mkdirs() }
@@ -1225,7 +1074,12 @@ class RecordingEngine(private val context: Context) {
 
     private companion object {
         const val STATS_EVERY = 30L
-        const val PATH_KEEP_US = 25_000_000L
+
+        /** Le téléobjectif vaut ×5 par rapport à l'objectif principal : c'est le zoom annoncé au cerveau, il ne change jamais. */
+        const val OPTICAL_ZOOM = 5.0
+
+        /** Avant de lancer, l'aperçu sur l'objectif principal va de ×1 à ×2, pour viser à l'œil ; rien de cela n'est enregistré. */
+        const val PREVIEW_MAX_ZOOM = 2f
         const val SAFETY_PERIOD_MS = 5_000L
 
         // Espace : on coupe à 800 Mo (demandé), on prévient à 1,5 Go, on refuse de démarrer sous 1,5 Go.
@@ -1235,17 +1089,7 @@ class RecordingEngine(private val context: Context) {
         const val STOP_BATTERY_PERCENT = 3
         const val SEVERE_LIMIT_MS = 600_000L
         const val FOLLOW_ANALYSIS_INTERVAL_MS = 250L
-        const val STANDBY_INTERVAL_MS = 1000L
         const val REJECTS_MAX_BYTES = 1_500_000_000L
-        const val BUSY_SPEED = 0.35f
-        const val WIDE_ZOOM = 2f
-        const val WIDE_AFTER_MS = 8_000L
-        const val WIDE_COOLDOWN_MS = 25_000L
-        const val WIDE_TIMEOUT_MS = 25_000L
-        const val CONFIRM_MS = 4_500L
-        const val IGNORE_MS = 45_000L
-        const val MAX_WIDE_ATTEMPTS = 3
-        const val STANDBY_AFTER_MS = 6_000L
         const val ALERT_CHANNEL = "alertes"
         const val ALERT_ID = 2
     }

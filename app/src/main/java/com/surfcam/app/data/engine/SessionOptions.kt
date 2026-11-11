@@ -1,20 +1,12 @@
 package com.surfcam.app.data.engine
 
-import com.surfcam.app.data.camera.Lens
-
-/** Choix faits avant de démarrer une session. */
+/**
+ * Choix faits avant de démarrer une session. La prise de vue n'est pas un choix : toujours le téléobjectif optique ×5, en 1080p
+ * à 30 images/s, sans zoom numérique (voir SPEC_SURFCAM_V2.md, « Zoom »).
+ */
 data class SessionOptions(
-    /** Téléobjectif optique 5× plutôt que l'objectif principal. */
-    val tele: Boolean = false,
     /** Enregistrer toute la session, en fichiers de 2 minutes, en plus des clips de vagues (désactivé par défaut). */
     val fullSession: Boolean = false,
-    /** 1080p au lieu de la 4K : environ 2,5 fois moins de place et de chauffe. */
-    val hd: Boolean = false,
-    /**
-     * 60 images/s au lieu de 30. Le téléobjectif du Pixel ne filme pas à 60 i/s : à 60, le zoom reste sur l'objectif
-     * principal (recadrage numérique). À 30, le zoom peut basculer sur le téléobjectif vers ×5.
-     */
-    val fps60: Boolean = false,
     /** Volume MediaStore où enregistrer : "external_primary" (téléphone) ou le nom d'une carte SD / clé USB branchée. */
     val storage: String = "external_primary",
     /** Écran noir après 1 minute sans toucher pendant une session (économie d'énergie) ; un toucher le réveille. */
@@ -23,32 +15,17 @@ data class SessionOptions(
     val doNotDisturb: Boolean = true,
     /** Fige l'exposition après convergence. Par défaut elle reste automatique pour suivre les nuages. */
     val lockExposure: Boolean = false,
-    /** Mode recadrage : on filme large (×1) ; l'app garde le chemin du surfeur et sait recadrer chaque clip après coup. */
-    val reframe: Boolean = false,
     /** Le gimbal DJI enregistré fait pivoter le téléphone pour garder le surfeur au centre. */
     val followGimbal: Boolean = false,
-    /** Vidéo HDR 10 bits (HLG, couleurs étendues), comme Google Caméra ; sans effet si le téléphone ne sait pas (30 i/s seulement). */
-    val hdr: Boolean = false,
     /** La LED du flash clignote brièvement toutes les 15 s pendant la session, pour voir de loin que ça filme. */
     val ledBlink: Boolean = true,
-    /** Quand l'appli ne te voit plus (manchon choisi), elle dézoome, repère ton manchon, te confirme en zoomant et reprend en ×5. */
-    val searchWide: Boolean = true,
     /** Qui filmer : tout le monde, ou seulement moi (repéré par la couleur de mon manchon, en ×5 optique). */
     val subject: Subject = Subject.EVERYONE,
     /** Couleur du manchon que l'utilisateur porte pour être repéré parmi les surfeurs ; null = aucune. */
     val markerColor: com.surfcam.app.domain.detection.MarkerColor? = null,
 ) {
-    // Objectif principal (caméra logique) par défaut : le nouveau pilote dézoome pour chercher puis zoome sans coupure.
-    val lens: Lens get() = if (tele) Lens.TELE else Lens.MAIN
-
-    /** Place approximative prise par une heure de session complète, en Go (débit vidéo × 3600 s). */
-    fun gigabytesPerHour(): Int {
-        val mbps = when {
-            hd -> if (tele || !fps60) 50 else 70
-            else -> if (tele || !fps60) 80 else 100
-        }
-        return Math.round(mbps * 3600f / 8f / 1000f)
-    }
+    /** Place approximative prise par une heure de session complète, en Go (1080p, 30 images/s, 50 Mb/s). */
+    fun gigabytesPerHour(): Int = Math.round(50 * 3600f / 8f / 1000f)
 }
 
 enum class Subject { EVERYONE, ME }

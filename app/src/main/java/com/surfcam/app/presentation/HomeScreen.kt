@@ -165,13 +165,12 @@ fun HomeScreen(
     }
 
     val who = when {
-        options.subject == Subject.ME -> "me"
-        options.markerColor != null -> "priority"
+        options.subject == Subject.ME && options.markerColor != null -> "me"
         else -> "all"
     }
     val firstColor = options.markerColor ?: MarkerColor.ORANGE
-    val qualityName = (if (options.hd) "1080p" else "4K") + " " + (if (options.fps60) "60" else "30") + " i/s" + if (options.hdr && !options.hd) " HDR" else ""
-    val whoName = when (who) { "me" -> "seulement moi"; "priority" -> "moi d'abord"; else -> "tout le monde" }
+    val qualityName = "1080p 30 i/s · ×5 optique"
+    val whoName = if (who == "me") "moi d'abord" else "tout le monde"
     val gimbalName = if (gimbalState.connected) "gimbal connecté" else if (GimbalHub.hasSavedGimbal(context)) "gimbal éteint" else "sans gimbal"
 
     SurfCamTheme {
@@ -355,32 +354,18 @@ fun HomeScreen(
                     notice?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
                 }
 
-                // Définition et cadence.
                 Heading("Vidéo")
-                Segmented(
-                    listOf(
-                        Triple("4k", "4K", "≈ ${options.copy(hd = false).gigabytesPerHour()} Go/h"),
-                        Triple("hd", "1080p", "≈ ${options.copy(hd = true).gigabytesPerHour()} Go/h"),
-                    ),
-                    if (options.hd) "hd" else "4k", enabled = !running,
-                ) { id -> onOptionsChange(options.copy(hd = id == "hd", hdr = if (id == "hd") false else options.hdr)) }
-                Segmented(
-                    listOf(Triple("30", "30 i/s", "zoom ×5 optique"), Triple("60", "60 i/s", "zoom limité à ×2")),
-                    if (options.fps60) "60" else "30", enabled = !running,
-                ) { id -> onOptionsChange(options.copy(fps60 = id == "60")) }
+                Text("1080p · 30 images/s · téléobjectif ×5 optique, sans zoom numérique · ≈ ${options.gigabytesPerHour()} Go/h en session complète", color = SurfColors.Muted, fontSize = 13.sp)
 
                 // Qui filmer.
                 Heading("Qui filmer")
                 Segmented(
-                    listOf(Triple("all", "Tout le monde", ""), Triple("priority", "Moi d'abord", ""), Triple("me", "Seulement moi", "")),
+                    listOf(Triple("all", "Tout le monde", ""), Triple("me", "Moi d'abord", "manchon")),
                     who, enabled = !running,
                 ) { id ->
                     onOptionsChange(
-                        when (id) {
-                            "me" -> options.copy(subject = Subject.ME, markerColor = firstColor)
-                            "priority" -> options.copy(subject = Subject.EVERYONE, markerColor = firstColor)
-                            else -> options.copy(subject = Subject.EVERYONE, markerColor = null)
-                        },
+                        if (id == "me") options.copy(subject = Subject.ME, markerColor = firstColor)
+                        else options.copy(subject = Subject.EVERYONE, markerColor = null),
                     )
                 }
                 if (who != "all") {

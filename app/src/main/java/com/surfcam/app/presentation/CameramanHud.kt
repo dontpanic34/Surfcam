@@ -81,11 +81,13 @@ fun CameramanHud(state: EngineState, modifier: Modifier = Modifier) {
                 HudChip("REC", SurfColors.Alert)
                 Spacer(Modifier.width(8.dp))
             }
-            val zoomText = "×%.1f".format(state.zoom).replace(".0", "").replace('.', ',')
+            // Pendant le tournage, l'image vient du téléobjectif : ×5 par rapport à l'objectif principal.
+            val shownZoom = if (state.lens == com.surfcam.app.data.camera.Lens.TELE) state.zoom * 5f else state.zoom
+            val zoomText = "×%.1f".format(shownZoom).replace(".0", "").replace('.', ',')
             val optical = state.opticalZoom
             HudChip(
                 if (optical) "$zoomText optique" else "$zoomText numérique",
-                if (optical) SurfColors.Ok else if (state.zoom >= 4.9f) SurfColors.Alert else SurfColors.Muted,
+                if (optical) SurfColors.Ok else if (shownZoom >= 4.9f) SurfColors.Alert else SurfColors.Muted,
             )
         }
     }

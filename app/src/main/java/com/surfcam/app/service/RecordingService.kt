@@ -38,17 +38,11 @@ class RecordingService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
         acquireWakeLock()
         val options = SessionOptions(
-            tele = intent?.getBooleanExtra(EXTRA_TELE, false) == true,
             fullSession = intent?.getBooleanExtra(EXTRA_FULL_SESSION, false) == true,
-            hd = intent?.getBooleanExtra(EXTRA_HD, false) == true,
             storage = intent?.getStringExtra(EXTRA_STORAGE) ?: "external_primary",
-            fps60 = intent?.getBooleanExtra(EXTRA_FPS60, false) == true,
             lockExposure = intent?.getBooleanExtra(EXTRA_LOCK_EXPOSURE, false) == true,
-            reframe = intent?.getBooleanExtra(EXTRA_REFRAME, false) == true,
             followGimbal = intent?.getBooleanExtra(EXTRA_FOLLOW_GIMBAL, false) == true,
-            hdr = intent?.getBooleanExtra(EXTRA_HDR, false) == true,
             ledBlink = intent?.getBooleanExtra(EXTRA_LED, true) != false,
-            searchWide = intent?.getBooleanExtra(EXTRA_SEARCH_WIDE, true) != false,
             subject = if (intent?.getStringExtra(EXTRA_SUBJECT) == "ME") com.surfcam.app.data.engine.Subject.ME else com.surfcam.app.data.engine.Subject.EVERYONE,
             markerColor = com.surfcam.app.domain.detection.MarkerColor.fromName(intent?.getStringExtra(EXTRA_MARKER)),
         )
@@ -102,18 +96,12 @@ class RecordingService : Service() {
     companion object {
         const val ACTION_STOP = "com.surfcam.app.STOP"
         const val EXTRA_ROTATION_DEGREES = "rotation_degrees"
-        const val EXTRA_TELE = "tele"
         const val EXTRA_FULL_SESSION = "full_session"
-        const val EXTRA_HD = "hd"
         const val EXTRA_STORAGE = "storage"
-        const val EXTRA_FPS60 = "fps60"
         const val EXTRA_DND = "dnd"
         const val EXTRA_LOCK_EXPOSURE = "lock_exposure"
-        const val EXTRA_REFRAME = "reframe"
         const val EXTRA_FOLLOW_GIMBAL = "follow_gimbal"
-        const val EXTRA_HDR = "hdr"
         const val EXTRA_LED = "led"
-        const val EXTRA_SEARCH_WIDE = "search_wide"
         const val EXTRA_SUBJECT = "subject"
         const val EXTRA_MARKER = "marker_color"
         private const val CHANNEL_ID = "session"

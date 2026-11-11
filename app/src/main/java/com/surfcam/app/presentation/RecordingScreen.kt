@@ -133,10 +133,10 @@ fun RecordingScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(state.phase, options.tele, resumed, hasCamera) {
+    LaunchedEffect(state.phase, resumed, hasCamera) {
         val idle = state.phase == Phase.IDLE || state.phase == Phase.PREVIEW
         if (resumed && hasCamera && idle) {
-            engine.startPreview(options.lens)
+            engine.startPreview()
         } else if (!resumed) {
             engine.stopPreview()
         }
@@ -185,7 +185,7 @@ fun RecordingScreen(
                     modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Viewfinder(engine, state, hasCamera, options.fps60, options.reframe, Modifier.weight(1f).fillMaxHeight())
+                    Viewfinder(engine, state, hasCamera, Modifier.weight(1f).fillMaxHeight())
                     SideControls(
                         state, running, options, onOptionsChange, engine,
                         onOpenLibrary, onOpenHome, { showInfo = true }, startGuarded, onStopSession,
@@ -205,7 +205,7 @@ fun RecordingScreen(
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: Boolean, fps60: Boolean, reframe: Boolean, modifier: Modifier) {
+private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: Boolean, modifier: Modifier) {
     Box(
         modifier = modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black),
         contentAlignment = Alignment.Center,
@@ -390,9 +390,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
 
         // Distance estimée du surfeur le plus grand dans l'image, et zoom qui le rendrait bien lisible.
         val target = state.analysis?.boxes?.maxByOrNull { it.bottom - it.top }
-        if (reframe) {
-            // Mode recadrage : on filme large, pas de zoom conseillé.
-        } else if (state.phase == Phase.PREVIEW && target != null && state.focalPx1x > 0f) {
+        if (state.phase == Phase.PREVIEW && target != null && state.focalPx1x > 0f) {
             val heightPx = (target.bottom - target.top) * CaptureConfig.ANALYSIS_HEIGHT
             val distance = DistanceEstimator.distanceMeters(state.focalPx1x * state.zoom, heightPx)
             if (distance != null) {
@@ -482,13 +480,6 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                     .clickable { engine.dismissNotice() }
                     .background(Color(0xE60B1620))
                     .padding(horizontal = 14.dp, vertical = 8.dp),
-            )
-        }
-        if (fps60 && state.phase == Phase.PREVIEW) {
-            InfoChip(
-                "60 i/s : zoom limité à ×2 pendant la session",
-                SurfColors.Warn,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp),
             )
         }
         if (state.phase == Phase.PREVIEW || state.phase == Phase.RUNNING) {
@@ -721,6 +712,17 @@ private fun SideChip(text: String, warn: Boolean, wide: Boolean = false, onClick
  */
 @Composable
 private fun ZoomSelector(state: EngineState, engine: RecordingEngine, modifier: Modifier = Modifier) {
+    if (state.lens == com.surfcam.app.data.camera.Lens.TELE) {
+        // Tournage : téléobjectif fixe, aucun réglage de zoom possible.
+        Text(
+            if (state.opticalZoom) "×5 optique · téléobjectif" else "×5 · téléobjectif non confirmé",
+            color = if (state.opticalZoom) SurfColors.Ok else SurfColors.Alert,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = modifier.clip(RoundedCornerShape(50)).background(Color(0xCC0B1620)).padding(horizontal = 12.dp, vertical = 4.dp),
+        )
+        return
+    }
     val presets = listOf(0.5f, 1f, 2f, 5f, 10f).filter { it >= state.minZoom - 0.01f && it <= state.maxZoom + 0.01f }
     var rulerVisible by remember { mutableStateOf(false) }
     LaunchedEffect(state.zoom) {
@@ -903,39 +905,27 @@ private fun Choice(items: List<String>, selected: Int, enabled: Boolean, onSelec
     }
 }
 
-/** Définition et cadence : le seul vrai choix de qualité. Le HDR reste dans Avancé. */
+/** La prise de vue n'est plus un choix : toujours le téléobjectif optique, en 1080p à 30 images/s. */
 @Composable
 internal fun QualitySection(options: SessionOptions, running: Boolean, onOptionsChange: (SessionOptions) -> Unit) {
     Section("Vidéo") {
-        Text("Résolution", color = SurfColors.Muted, fontSize = 12.sp)
-        Choice(listOf("4K", "1080p"), if (options.hd) 1 else 0, !running) { onOptionsChange(options.copy(hd = it == 1, hdr = if (it == 1) false else options.hdr)) }
-        Text("Images par seconde", color = SurfColors.Muted, fontSize = 12.sp)
-        Choice(listOf("30", "60"), if (options.fps60) 1 else 0, !running) { onOptionsChange(options.copy(fps60 = it == 1)) }
+        Text("1080p · 30 images/s · téléobjectif ×5 optique", color = SurfColors.Foam, fontSize = 13.sp)
         Text(
-            "4K ≈ ${options.copy(hd = false, fps60 = false).gigabytesPerHour()} Go/h · 1080p ≈ ${options.copy(hd = true, fps60 = false).gigabytesPerHour()} Go/h" +
-                if (options.fps60) "\n60 i/s : chauffe plus, zoom limité à ×2 (sans téléobjectif)" else "",
+            "Aucun zoom numérique : tout est filmé au téléobjectif. Session complète ≈ ${options.gigabytesPerHour()} Go/h.",
             color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
         )
-        if (running) Text("Modifiable avant de démarrer.", color = SurfColors.Muted, fontSize = 11.sp)
     }
 }
 
 @Composable
 internal fun WhoSection(options: SessionOptions, running: Boolean, onOptionsChange: (SessionOptions) -> Unit) {
     Section("Qui filmer") {
-        val mode = when {
-            options.subject == com.surfcam.app.data.engine.Subject.ME -> 2
-            options.markerColor != null -> 1
-            else -> 0
-        }
+        val mode = if (options.subject == com.surfcam.app.data.engine.Subject.ME && options.markerColor != null) 1 else 0
         val firstColor = options.markerColor ?: com.surfcam.app.domain.detection.MarkerColor.ORANGE
-        Choice(listOf("Tout", "Moi d'abord", "Que moi"), mode, !running) {
+        Choice(listOf("Tout le monde", "Moi d'abord"), mode, !running) {
             onOptionsChange(
-                when (it) {
-                    0 -> options.copy(subject = com.surfcam.app.data.engine.Subject.EVERYONE, markerColor = null)
-                    1 -> options.copy(subject = com.surfcam.app.data.engine.Subject.EVERYONE, markerColor = firstColor)
-                    else -> options.copy(subject = com.surfcam.app.data.engine.Subject.ME, markerColor = firstColor)
-                },
+                if (it == 0) options.copy(subject = com.surfcam.app.data.engine.Subject.EVERYONE, markerColor = null)
+                else options.copy(subject = com.surfcam.app.data.engine.Subject.ME, markerColor = firstColor),
             )
         }
         if (mode != 0) {
@@ -947,11 +937,8 @@ internal fun WhoSection(options: SessionOptions, running: Boolean, onOptionsChan
             }
         }
         Text(
-            when (mode) {
-                2 -> "Filme et suit uniquement ta silhouette repérée par le manchon, en ×5 optique. Sans manchon visible, rien n'est filmé."
-                1 -> "Filme tout le monde, mais le gimbal te suit toi dès que ton manchon est reconnu."
-                else -> "Filme et suit tous les surfeurs."
-            },
+            if (mode == 1) "Filme tout le monde tant que ton manchon n'est pas reconnu ; dès qu'il l'est, te suit et ne filme que tes vagues. Si elle te perd, elle refilme tout le monde en te cherchant."
+            else "Filme et suit tous les surfeurs.",
             color = SurfColors.Muted, fontSize = 11.sp, lineHeight = 14.sp,
         )
     }
@@ -962,7 +949,6 @@ internal fun SessionSection(options: SessionOptions, running: Boolean, onOptions
     Section("Session") {
         OptionSwitch("Garder toute la session", "", options.fullSession) { if (!running) onOptionsChange(options.copy(fullSession = it)) }
         OptionSwitch("Voyant LED", "", options.ledBlink) { onOptionsChange(options.copy(ledBlink = it)) }
-        OptionSwitch("Me chercher en dézoomant", "Avec un manchon choisi : si je te perds, je dézoome, je repère ton manchon, je zoome pour confirmer, puis je filme en ×5", options.searchWide) { onOptionsChange(options.copy(searchWide = it)) }
         OptionSwitch("Écran noir après 1 min", "", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = it)) }
     }
 }
@@ -988,15 +974,7 @@ internal fun AdvancedSections(
 ) {
     val context = LocalContext.current
     Section("Réglages fins") {
-        OptionSwitch("Mode recadrage", "Filme large (×1), recadre ensuite sur le surfeur", options.reframe) { if (!running) onOptionsChange(options.copy(reframe = it)) }
-        OptionSwitch("Forcer le téléobjectif", "Champ fixe ×5", options.tele) { if (!running) onOptionsChange(options.copy(tele = it)) }
         OptionSwitch("Verrouiller l'exposition", "Si l'image pompe quand un surfeur passe", options.lockExposure) { if (!running) onOptionsChange(options.copy(lockExposure = it)) }
-        OptionSwitch("HDR 10 bits", "Lumières et couleurs plus riches, chauffe un peu plus", options.hdr) {
-            if (!running) {
-                if (it) context.getSharedPreferences("camera", android.content.Context.MODE_PRIVATE).edit().putBoolean("hdr_broken", false).apply()
-                onOptionsChange(options.copy(hdr = it))
-            }
-        }
         if (running) Text("Modifiable avant de démarrer.", color = SurfColors.Muted, fontSize = 11.sp)
     }
     if (!running) {
@@ -1005,7 +983,6 @@ internal fun AdvancedSections(
         }
     }
     GimbalLogSection()
-    LearningSection(engine)
     if (state.phase == Phase.RUNNING) DiagnosticSection(state)
     if (state.phase == Phase.RUNNING) {
         Section("Test manuel") {
@@ -1137,40 +1114,6 @@ private fun DiagnosticSection(state: EngineState) {
     }
 }
 
-/** Ce que l'app a appris de tes retours (boutons « Bonne vague / Fausse alerte » dans Mes vidéos). */
-@Composable
-private fun LearningSection(engine: RecordingEngine) {
-    var records by remember { mutableStateOf(engine.learning.records()) }
-    var report by remember { mutableStateOf(engine.learning.lastReport()) }
-    val good = records.count { it.good == true }
-    val bad = records.count { it.good == false }
-    Section("Apprentissage") {
-        Text(
-            "${records.count { it.source != "rejet" }} clip(s) automatique(s) suivis · $good bonne(s) vague(s) · $bad fausse(s) alerte(s) signalée(s).",
-            color = SurfColors.Foam,
-            fontSize = 12.sp,
-        )
-        Text(
-            report ?: "Dans « Mes vidéos », indique pour chaque clip automatique s'il était bon ou faux : l'app règle ses seuils d'après tes retours.",
-            color = SurfColors.Muted,
-            fontSize = 12.sp,
-            lineHeight = 16.sp,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                engine.learning.recalibrate()
-                report = engine.learning.lastReport()
-                records = engine.learning.records()
-            }) { Text("Adapter", fontSize = 12.sp) }
-            OutlinedButton(onClick = {
-                engine.learning.reset()
-                report = null
-                records = engine.learning.records()
-            }) { Text("Réinitialiser", fontSize = 12.sp, color = SurfColors.Alert) }
-        }
-    }
-}
-
 @Composable
 internal fun Section(title: String, content: @Composable () -> Unit) {
     Column(
@@ -1205,10 +1148,9 @@ private fun details(state: EngineState): String? {
         if (state.maxFpsAtSize in 1 until 59) append(" (max ${state.maxFpsAtSize} avec cet objectif)")
         append("\nTampon : %.1f s · %d Mo".format(state.bufferedSec, state.bufferedMb))
         if (state.keyFrameIntervalSec > 0f) append("\nImage clé toutes les %.1f s".format(state.keyFrameIntervalSec))
-        append("\nZoom ${"%.1f".format(state.zoom)}×")
+        append("\nZoom ${"%.1f".format(if (state.lens == com.surfcam.app.data.camera.Lens.TELE) state.zoom * 5f else state.zoom)}×")
         state.lensInfo?.let { append("\nObjectif : $it") }
         state.captureInfo?.let { append("\nCapture : $it") }
-        state.hdrText?.let { append("\nHDR : $it") }
         append("\nChaleur : ").append(thermalLabel(state.thermalStatus)).append(" · allègement ").append(state.thermalLevel)
         append(" · analyse toutes les ").append(CaptureConfig.ANALYSIS_INTERVAL_MS * when (state.thermalLevel) { 0 -> 1; 1 -> 2; else -> 4 }).append(" ms")
     }

@@ -707,7 +707,9 @@ class Camera2Source(context: Context) {
         } else {
             digitalAtTeleSinceMs = 0L
         }
-        val ok = !(teleActive && active != null && tele != null && active != tele)
+        // Téléobjectif imposé pour toute la session (tournage) : l'objectif réellement actif doit être celui demandé.
+        val forced = if (tele == null) physicalId else null
+        val ok = !(teleActive && active != null && tele != null && active != tele) && !(forced != null && active != null && active != forced)
         if (SEAMLESS_ZOOM && !teleActive) {
             // Zoom continu : optique seulement à ×1 sur le principal ou à ×5 quand le téléphone est réellement sur le télé.
             val nowOptical = zoom <= 1.01f || (tele != null && active == tele && kotlin.math.abs(zoom - TELEPHOTO_SWITCH) < 0.06f)
