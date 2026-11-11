@@ -37,7 +37,7 @@ class Exporter(context: Context) {
     }
 
     /** Un fichier à exporter : sous-dossier de destination, nom, taille, jour auquel il appartient. */
-    class Item(val folder: String, val name: String, val size: Long, val day: java.time.LocalDate, val open: () -> java.io.InputStream?)
+    class Item(val folder: String, val name: String, val size: Long, val day: java.time.LocalDate, val alwaysResend: Boolean = false, val open: () -> java.io.InputStream?)
 
     /** Ce qu'il y a à exporter pour un jour donné, pour la liste des jours. */
     class DaySummary(val day: java.time.LocalDate, val waves: Int, val rejects: Int, val sessions: Int, val reports: Int, val bytes: Long)
@@ -111,6 +111,17 @@ class Exporter(context: Context) {
                 if (day == null || d == day) items += Item(folder, file.name, file.length(), d) { file.inputStream() }
             }
         }
+        // Les vagues que l'utilisateur a désignées comme les siennes (« Trier mes vagues »), un petit fichier par jour : il dit
+        // qui est sur chaque clip, ce qui sert ensuite à mesurer et à entraîner la reconnaissance.
+        val mine = MyWaves(appContext).mine()
+        for ((d, clips) in items.filter { it.folder == "Vagues" && it.name.endsWith(".mp4") }.groupBy { it.day }) {
+            val names = clips.map { it.name.removeSuffix(".mp4") }
+            val text = buildString {
+                append("Vagues du $d désignées par l'utilisateur comme les siennes (${names.count { it in mine }} sur ${names.size})\n")
+                for (n in names.sorted()) append(if (n in mine) "MOI    " else "autre  ").append(n).append('\n')
+            }.toByteArray()
+            items += Item("Rapports", "SurfCam-mes-vagues-$d.txt", text.size.toLong(), d, alwaysResend = true) { java.io.ByteArrayInputStream(text) }
+        }
         // Un jour où un film de session assemblé existe, ses morceaux de 2 minutes ne sont pas renvoyés en double.
         val filmDays = items.filter { it.folder == "Sessions" && VideoNaming.parse(it.name)?.isFilm == true }.map { it.day }.toSet()
         val kept = items.filter { it.folder != "Sessions" || it.day !in filmDays || VideoNaming.parse(it.name)?.isFilm == true }
@@ -135,7 +146,7 @@ class Exporter(context: Context) {
                 val dirId = folderIds.getOrPut(item.folder) { ensureFolder(tree, rootId, item.folder) }
                 val here = existing.getOrPut(item.folder) { children(tree, dirId) }
                 val old = here[item.name]
-                if (old != null && old.second >= item.size && old.second > 0L) { skipped++; continue }
+                if (!item.alwaysResend && old != null && old.second >= item.size && old.second > 0L) { skipped++; continue }
                 val dirUri = DocumentsContract.buildDocumentUriUsingTree(tree, dirId)
                 val mime = if (item.name.endsWith(".mp4")) "video/mp4" else "text/plain"
                 val target = old?.let { DocumentsContract.buildDocumentUriUsingTree(tree, it.first) }

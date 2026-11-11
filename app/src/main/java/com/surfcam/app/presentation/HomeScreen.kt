@@ -86,6 +86,7 @@ fun HomeScreen(
     onOpenLibrary: () -> Unit,
     onOpenGimbal: () -> Unit,
     onOpenRejects: () -> Unit = {},
+    onOpenMine: () -> Unit = {},
 ) {
     val state by engine.state.collectAsStateWithLifecycle()
     val running = state.phase == Phase.RUNNING || state.phase == Phase.STARTING
@@ -395,6 +396,9 @@ fun HomeScreen(
                     Text("›", color = SurfColors.Aqua, fontSize = 26.sp)
                 }
 
+                if (!running) {
+                    OutlinedButton(onClick = onOpenMine, modifier = Modifier.fillMaxWidth()) { Text("Trier mes vagues (désigner les miennes)") }
+                }
                 if (!running && rejectCount > 0) {
                     OutlinedButton(onClick = onOpenRejects, modifier = Modifier.fillMaxWidth()) {
                         Text("Vagues rejetées ($rejectCount) : récupérer les bonnes")

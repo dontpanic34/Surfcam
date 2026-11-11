@@ -122,6 +122,7 @@ class RecordingEngine(private val context: Context) {
     private var clipStartPtsUs = -1L
 
     val learning = LearningRepository(context)
+    private val myWaves = com.surfcam.app.data.library.MyWaves(context)
 
     /** Où les vidéos sont écrites ; l'écran y lit aussi la liste des supports branchés. */
     val storage = StorageTarget(context).also { target ->
@@ -496,7 +497,7 @@ class RecordingEngine(private val context: Context) {
         val buffer = EncodedRingBuffer(config.bufferWindowSec * 1_000_000L)
         // Caméra arrière : le sens du fichier dépend de l'orientation du capteur et de celle de l'écran.
         val hint = (probe.sensorOrientation - rotationDegrees + 360) % 360
-        val clips = ClipRecorder(context, buffer, hint, storage, { saved, error -> onClipResult(saved, error) }, { kept -> pendingRejectStats?.let { learning.recordRejected(kept.name, it) }; pendingRejectStats = null; SessionLog.clipSaved(context, kept.name, kept.durationSec); SessionLog.ev("clip", "rejeté (fausse alerte) mais gardé dans « Vagues rejetées » : ${kept.name} (%.1f s, ${kept.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(kept.durationSec)) })
+        val clips = ClipRecorder(context, buffer, hint, storage, { saved, error -> onClipResult(saved, error) }, { kept -> analysis?.takeRideSilhouette()?.let { myWaves.saveSilhouette(kept.name, it) }; pendingRejectStats?.let { learning.recordRejected(kept.name, it) }; pendingRejectStats = null; SessionLog.clipSaved(context, kept.name, kept.durationSec); SessionLog.ev("clip", "rejeté (fausse alerte) mais gardé dans « Vagues rejetées » : ${kept.name} (%.1f s, ${kept.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(kept.durationSec)) })
         ring = buffer
         recorder = clips
         sampleCount = 0
@@ -756,6 +757,7 @@ class RecordingEngine(private val context: Context) {
         SessionLog.ev("clip", if (saved != null) "enregistré : ${saved.name} (%.1f s, ${saved.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(saved.durationSec) else if (error != null) "échec : $error" else "clip rejeté (fausse alerte)")
         if (saved != null) sessionGravity?.rollDeg?.let { SessionLog.ev("niveau", "horizon à la fin du clip ${saved.name} : %+.1f°".format(it)) }
         if (saved != null) clipsSaved++
+        if (saved != null) analysis?.takeRideSilhouette()?.let { myWaves.saveSilhouette(saved.name, it) }
         // Un clip automatique réussi est mémorisé avec ses caractéristiques : l'utilisateur pourra le juger.
         val stats = synchronized(rideStats) { rideStats.firstOrNull().also { rideStats.clear() } }
         if (saved != null && currentClipAuto && stats != null) learning.record(saved.name, stats)

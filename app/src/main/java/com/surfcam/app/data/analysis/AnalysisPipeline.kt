@@ -395,6 +395,14 @@ class AnalysisPipeline(
             val h = cam.degToPx(p.heightDeg) / 2
             OverlayBox(((cx - w) / WIDTH).toFloat(), ((cy - h) / HEIGHT).toFloat(), ((cx + w) / WIDTH).toFloat(), ((cy + h) / HEIGHT).toFloat(), t.id, t.id == out.ridingTrackId, t.isUser)
         }
+        // Fin de vague : la vignette est mise de côté pour le clip, qui ne sera enregistré que quelques secondes plus tard ;
+        // une vague suivante ne doit pas l'écraser entre-temps.
+        if (out.rideEvent is com.surfcam.core.ride.RideEvent.Ended) synchronized(silhouetteLock) {
+            rideSilhouette?.let { finishedSilhouette = it }
+            rideSilhouette = null
+            rideSilhouetteHeight = 0f
+        }
+        boxes.firstOrNull { it.riding }?.let { keepSilhouette(it) }
         listener.onSnapshot(
             AnalysisSnapshot(
                 boxes = boxes,
@@ -414,6 +422,48 @@ class AnalysisPipeline(
             ),
         )
     }
+
+    private val silhouetteLock = Any()
+    private var rideSilhouette: Bitmap? = null
+    private var rideSilhouetteHeight = 0f
+    private var finishedSilhouette: Bitmap? = null
+
+    /**
+     * Pendant une vague, garde la vignette où le surfeur est le plus grand : un carré centré sur lui, découpé dans l'image
+     * d'analyse (celle que le modèle vient de recevoir). Sert à reconnaître à l'œil qui a pris la vague, après la session.
+     */
+    private fun keepSilhouette(box: OverlayBox) {
+        val h = box.bottom - box.top
+        if (h <= rideSilhouetteHeight) return
+        try {
+            val cx = (box.left + box.right) / 2f * WIDTH
+            val cy = (box.top + box.bottom) / 2f * HEIGHT
+            val side = (maxOf(box.right - box.left, h * HEIGHT / WIDTH) * WIDTH * 2.2f).coerceIn(96f, HEIGHT.toFloat())
+            val x0 = (cx - side / 2f).coerceIn(0f, WIDTH - side)
+            val y0 = (cy - side / 2f).coerceIn(0f, HEIGHT - side)
+            val modelWidth = OnnxPersonDetector.MODEL_WIDTH
+            val area = modelWidth * OnnxPersonDetector.MODEL_HEIGHT
+            val pixels = IntArray(SILHOUETTE_SIZE * SILHOUETTE_SIZE)
+            for (y in 0 until SILHOUETTE_SIZE) {
+                val sy = ((y0 + y * side / SILHOUETTE_SIZE) * letterbox.scale).toInt() + letterbox.offsetY
+                val row = sy.coerceIn(0, OnnxPersonDetector.MODEL_HEIGHT - 1) * modelWidth
+                for (x in 0 until SILHOUETTE_SIZE) {
+                    val sx = (((x0 + x * side / SILHOUETTE_SIZE) * letterbox.scale).toInt() + letterbox.offsetX).coerceIn(0, modelWidth - 1)
+                    val i = row + sx
+                    val r = (input[i] * 255f).toInt().coerceIn(0, 255)
+                    val g = (input[area + i] * 255f).toInt().coerceIn(0, 255)
+                    val b = (input[2 * area + i] * 255f).toInt().coerceIn(0, 255)
+                    pixels[y * SILHOUETTE_SIZE + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                }
+            }
+            val bitmap = Bitmap.createBitmap(pixels, SILHOUETTE_SIZE, SILHOUETTE_SIZE, Bitmap.Config.ARGB_8888)
+            synchronized(silhouetteLock) { rideSilhouette = bitmap; rideSilhouetteHeight = h }
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** Rend la vignette de la dernière vague et l'oublie (appelé quand le clip est enregistré). */
+    fun takeRideSilhouette(): Bitmap? = synchronized(silhouetteLock) { (finishedSilhouette ?: rideSilhouette).also { finishedSilhouette = null } }
 
     private fun fail(stage: String, t: Throwable) {
         released = true
@@ -444,6 +494,7 @@ class AnalysisPipeline(
     private companion object {
         const val THUMB_WIDTH = 320
         const val THUMB_HEIGHT = 180
+        const val SILHOUETTE_SIZE = 240
         const val THUMBNAIL_EVERY = 5
         const val HEARTBEAT_EVERY = 30
         const val WIDTH = CaptureConfig.ANALYSIS_WIDTH

@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
             var showCamera by rememberSaveable { mutableStateOf(engine.state.value.phase == Phase.RUNNING || engine.state.value.phase == Phase.STARTING) }
             var showGimbal by rememberSaveable { mutableStateOf(false) }
             var showRejects by rememberSaveable { mutableStateOf(false) }
+            var showMine by rememberSaveable { mutableStateOf(false) }
             val library = remember { VideoLibrary(applicationContext) }
             BackHandler(enabled = showLibrary) { showLibrary = false }
             val enginePhase by engine.state.collectAsStateWithLifecycle()
@@ -67,11 +68,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
             // La bibliothèque et le lecteur suivent l'orientation du téléphone ; l'écran caméra reste en paysage (trépied).
-            LaunchedEffect(showLibrary, showGimbal, showCamera, showRejects) {
-                requestedOrientation = if (showLibrary || showGimbal || showRejects || !showCamera) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            LaunchedEffect(showLibrary, showGimbal, showCamera, showRejects, showMine) {
+                requestedOrientation = if (showLibrary || showGimbal || showRejects || showMine || !showCamera) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             }
             if (showGimbal) {
                 GimbalScreen(onBack = { showGimbal = false })
+                return@setContent
+            }
+            if (showMine) {
+                MyWavesScreen(library = library, onBack = { showMine = false })
                 return@setContent
             }
             if (showRejects) {
@@ -106,6 +111,7 @@ class MainActivity : ComponentActivity() {
                     onOpenLibrary = { showLibrary = true },
                     onOpenGimbal = { showGimbal = true },
                     onOpenRejects = { showRejects = true },
+                    onOpenMine = { showMine = true },
                 )
                 return@setContent
             }

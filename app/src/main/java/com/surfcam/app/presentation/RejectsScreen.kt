@@ -86,7 +86,7 @@ fun RejectsScreen(library: VideoLibrary, learning: LearningRepository, onBack: (
                 scope.launch {
                     val name = withContext(Dispatchers.IO) {
                         library.promoteRejected(video)?.also {
-                            learning.markRecovered(video.name, it)
+                            learning.markRecovered(video.name, it); com.surfcam.app.data.library.MyWaves(context).rename(video.name, it)
                             com.surfcam.app.data.engine.SessionLog.recoveredReport(context, video.name, it, video.durationMs / 1000f)
                         }
                     }
@@ -155,7 +155,7 @@ fun RejectsScreen(library: VideoLibrary, learning: LearningRepository, onBack: (
                                 scope.launch {
                                     val name = withContext(Dispatchers.IO) { library.promoteRejected(v) }
                                     if (name != null) withContext(Dispatchers.IO) {
-                                        learning.markRecovered(v.name, name)
+                                        learning.markRecovered(v.name, name); com.surfcam.app.data.library.MyWaves(context).rename(v.name, name)
                                         com.surfcam.app.data.engine.SessionLog.recoveredReport(context, v.name, name, v.durationMs / 1000f)
                                     }
                                     message = if (name != null) "Récupérée : $name (dans Mes vidéos). L'appli retient que c'était une vraie vague pour mieux détecter les suivantes." else "Impossible de récupérer ce clip."
