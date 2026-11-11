@@ -286,12 +286,12 @@ class RecordingEngine(private val context: Context) {
         Trail.mark("FIN")
         SessionLog.ev("bilan", summary.replace("\n", " | "))
         SessionLog.end(context)
+        _peakZone.value = null
         _state.update { it.copy(phase = Phase.IDLE, lastSummary = summary, locked = false, clipActive = false, bufferedSec = 0f, bufferedMb = 0, analysis = null, analysisStatus = null, analysisReceived = 0, sessionPart = 0, message = null) }
     }
 
-    /** Ouvre la caméra en aperçu seul, sans rien enregistrer, pour cadrer avant de démarrer la session. */
+    /** Aperçu avant de lancer : objectif principal, de ×1 à ×2, pour viser à l'œil et tracer la zone du pic. Rien n'est enregistré. */
     @Synchronized
-    /** Aperçu avant de lancer : objectif principal, de ×1 à ×2, pour viser à l'œil. Rien n'est enregistré. */
     fun startPreview() {
         val lens = Lens.MAIN
         val current = _state.value
@@ -432,6 +432,37 @@ class RecordingEngine(private val context: Context) {
         } else {
             _state.update { it.copy(message = "Clip impossible pour l'instant") }
         }
+    }
+
+    /**
+     * Zone du pic tracée dans l'aperçu : bords gauche et droit, en degrés par rapport à l'axe de la caméra au moment du tracé
+     * (négatif = à gauche). Elle vaut pour la session lancée ensuite sans bouger le trépied, puis est oubliée.
+     */
+    private val _peakZone = MutableStateFlow<Pair<Double, Double>?>(null)
+    val peakZone: StateFlow<Pair<Double, Double>?> = _peakZone.asStateFlow()
+
+    /** L'utilisateur a tracé le pic sur l'aperçu, de [nxLeft] à [nxRight] (0 = bord gauche de l'image, 1 = bord droit). */
+    fun setPeakZoneFromPreview(nxLeft: Float, nxRight: Float) {
+        val st = _state.value
+        val focal = st.focalPx1x * st.zoom
+        if (st.phase != Phase.PREVIEW || focal <= 0f) return
+        fun deg(nx: Float) = Math.toDegrees(kotlin.math.atan(((nx.coerceIn(0f, 1f) - 0.5f) * CaptureConfig.ANALYSIS_WIDTH / focal).toDouble()))
+        val left = deg(minOf(nxLeft, nxRight))
+        val right = deg(maxOf(nxLeft, nxRight))
+        if (right - left < 1.0) return
+        _peakZone.value = left to right
+    }
+
+    fun clearPeakZone() {
+        _peakZone.value = null
+    }
+
+    /** Position à l'écran (0 à 1) d'une direction de la zone du pic, pour la dessiner sur l'aperçu au zoom courant. */
+    fun previewXOf(deg: Double): Float? {
+        val st = _state.value
+        val focal = st.focalPx1x * st.zoom
+        if (focal <= 0f) return null
+        return (0.5 + kotlin.math.tan(Math.toRadians(deg)) * focal / CaptureConfig.ANALYSIS_WIDTH).toFloat()
     }
 
     /** Le bouton « Ici le pic » : la direction actuelle du gimbal devient le point de retour entre deux vagues. */
@@ -643,6 +674,10 @@ class RecordingEngine(private val context: Context) {
         setupBrain(options)
         context.getSharedPreferences("gimbal", Context.MODE_PRIVATE).getString("lastLeveling", null)?.lines()?.forEach { SessionLog.ev("niveau", it) }
         if (follower != null) autoLevel(displayRotationDegreesForLevel)
+        // Horizon surveillé pendant toute la session : mesuré, écrit dans le rapport, et retouché entre deux clips s'il dérive.
+        sessionGravity?.stop()
+        sessionGravity = com.surfcam.app.data.gimbal.GravityRoll(context, displayRotationDegreesForLevel).also { it.start() }
+        lastRelevelMs = android.os.SystemClock.elapsedRealtime()
         source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
@@ -718,6 +753,7 @@ class RecordingEngine(private val context: Context) {
     private fun onClipResult(saved: SavedClip?, error: String?) {
         saved?.let { SessionLog.clipSaved(context, it.name, it.durationSec) }
         SessionLog.ev("clip", if (saved != null) "enregistré : ${saved.name} (%.1f s, ${saved.sizeBytes / (1024 * 1024)} Mo) sur ${storage.labelOf(storage.volume)}".format(saved.durationSec) else if (error != null) "échec : $error" else "clip rejeté (fausse alerte)")
+        if (saved != null) sessionGravity?.rollDeg?.let { SessionLog.ev("niveau", "horizon à la fin du clip ${saved.name} : %+.1f°".format(it)) }
         if (saved != null) clipsSaved++
         // Un clip automatique réussi est mémorisé avec ses caractéristiques : l'utilisateur pourra le juger.
         val stats = synchronized(rideStats) { rideStats.firstOrNull().also { rideStats.clear() } }
@@ -850,9 +886,34 @@ class RecordingEngine(private val context: Context) {
             val b = batteryPercent()
             SessionLog.ev(
                 "état",
-                "batterie=${b?.first ?: "?"}%${if (b?.second == true) " (charge)" else ""} · courant≈${currentMilliamps()} mA · chaleur niveau ${st.thermalLevel} · ${st.captureInfo ?: "-"} · ${st.gimbalStatus ?: "sans gimbal"} · vagues=${st.waves} · clip actif=${st.clipActive}",
+                "batterie=${b?.first ?: "?"}%${if (b?.second == true) " (charge)" else ""} · courant≈${currentMilliamps()} mA · chaleur niveau ${st.thermalLevel} · ${st.captureInfo ?: "-"} · ${st.gimbalStatus ?: "sans gimbal"} · vagues=${st.waves} · clip actif=${st.clipActive} · horizon ${sessionGravity?.rollDeg?.let { "%+.1f°".format(it) } ?: "?"}",
             )
+            keepHorizonLevel(now, st.clipActive)
         }
+    }
+
+    private var sessionGravity: com.surfcam.app.data.gimbal.GravityRoll? = null
+    private var lastRelevelMs = 0L
+
+    @Volatile
+    private var levelingBusy = false
+
+    /**
+     * Retouche l'horizon s'il a dérivé de plus de [HORIZON_TOLERANCE_DEG], jamais pendant un clip ni pendant la mise à niveau du
+     * démarrage, et au plus une fois toutes les 20 s. Un seul petit ordre de roulis, avec le sens et l'amplitude appris.
+     */
+    private fun keepHorizonLevel(nowMs: Long, clipActive: Boolean) {
+        val roll = sessionGravity?.rollDeg ?: return
+        if (follower == null || levelingBusy || clipActive || kotlin.math.abs(roll) <= HORIZON_TOLERANCE_DEG || nowMs - lastRelevelMs < 20_000) return
+        val link = com.surfcam.app.data.gimbal.GimbalHub.link(context)
+        if (!link.state.value.connected) return
+        lastRelevelMs = nowMs
+        val prefs = context.getSharedPreferences("gimbal", Context.MODE_PRIVATE)
+        val sign = prefs.getInt("rollSign", 1)
+        val gain = prefs.getFloat("rollGain", 1f).coerceIn(0.3f, 2f)
+        val cmd = (-roll / gain).coerceIn(-3f, 3f)
+        link.rollBy(cmd * sign, 0.8f)
+        SessionLog.ev("niveau", "horizon penché de %+.1f° pendant la session : retouche de %+.1f°".format(roll, cmd))
     }
 
     private fun applyThermalLevel(level: Int) {
@@ -986,6 +1047,7 @@ class RecordingEngine(private val context: Context) {
         val prefs = context.getSharedPreferences("gimbal", Context.MODE_PRIVATE)
         val gravity = com.surfcam.app.data.gimbal.GravityRoll(context, rotationDegrees)
         levelScope.launch {
+            levelingBusy = true
             try {
                 gravity.start()
                 // Attendre la liaison (2 s au plus) et une première mesure.
@@ -999,6 +1061,8 @@ class RecordingEngine(private val context: Context) {
                 SessionLog.ev("niveau", "mise à niveau interrompue : ${e.message}")
             } finally {
                 gravity.stop()
+                levelingBusy = false
+                lastRelevelMs = android.os.SystemClock.elapsedRealtime()
             }
         }
     }
@@ -1026,7 +1090,16 @@ class RecordingEngine(private val context: Context) {
     private fun setupBrain(options: SessionOptions) {
         val p = analysis ?: return
         val subject = if (options.subject == Subject.ME && options.markerColor != null) com.surfcam.core.director.Subject.ME else com.surfcam.core.director.Subject.EVERYONE
-        p.brain = com.surfcam.core.SurfBrain(subject, 0.0)
+        val brain = com.surfcam.core.SurfBrain(subject, 0.0)
+        // Zone du pic tracée avant de lancer : le cap 0 du cerveau est l'axe de la caméra au démarrage, le même qu'à l'aperçu.
+        val zone = _peakZone.value
+        if (zone != null) {
+            brain.director.setPeakZone(zone.first, zone.second, android.os.SystemClock.elapsedRealtimeNanos() / 1_000)
+            SessionLog.ev("PIC", "zone du pic tracée : de %+.1f° à %+.1f° (largeur %.1f°) ; la caméra attend au centre et ne cherche que dans cette zone".format(zone.first, zone.second, zone.second - zone.first))
+        } else {
+            SessionLog.ev("PIC", "aucune zone tracée : le pic est la direction visée au lancement")
+        }
+        p.brain = brain
         p.onlyMarked = false
         follower?.externalControl = true
         p.headingAt = { t: Long -> follower?.headingAtUs(t) }
@@ -1052,6 +1125,8 @@ class RecordingEngine(private val context: Context) {
     }
 
     private fun teardownPipeline() {
+        sessionGravity?.stop()
+        sessionGravity = null
         journalWriter?.let { w -> try { synchronized(w) { w.flush(); w.close() } } catch (_: Exception) {} }
         journalWriter = null
         journalFile?.let { exportJournal(it) }
@@ -1077,6 +1152,9 @@ class RecordingEngine(private val context: Context) {
 
         /** Le téléobjectif vaut ×5 par rapport à l'objectif principal : c'est le zoom annoncé au cerveau, il ne change jamais. */
         const val OPTICAL_ZOOM = 5.0
+
+        /** Au-delà de cette inclinaison (degrés), l'horizon est retouché entre deux clips. */
+        const val HORIZON_TOLERANCE_DEG = 0.7f
 
         /** Avant de lancer, l'aperçu sur l'objectif principal va de ×1 à ×2, pour viser à l'œil ; rien de cela n'est enregistré. */
         const val PREVIEW_MAX_ZOOM = 2f

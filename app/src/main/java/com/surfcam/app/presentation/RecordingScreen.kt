@@ -6,6 +6,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
 import com.surfcam.app.service.DoNotDisturb
 import com.surfcam.app.domain.geometry.DistanceEstimator
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
 import androidx.compose.ui.geometry.Rect
@@ -269,6 +270,7 @@ private fun Viewfinder(engine: RecordingEngine, state: EngineState, hasCamera: B
                 drawCircle(SurfColors.Warn, radius = 34.dp.toPx(), center = p, style = Stroke(width = 2.dp.toPx()))
             }
         }
+        if (state.phase == Phase.PREVIEW) PeakZoneTool(engine, state)
         if (state.phase == Phase.RUNNING) {
             // Phase de test : la décision du suivi en clair, et un bouton pour repérer un problème dans le rapport.
             val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -502,6 +504,81 @@ private fun Pill(text: String, color: Color, modifier: Modifier = Modifier) {
         Box(Modifier.size(9.dp).clip(CircleShape).background(color))
         Text(text, color = SurfColors.Foam, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
+}
+
+/**
+ * Avant de lancer : « Définir le pic », puis on trace un rectangle au doigt du début à la fin du pic. Seuls les bords gauche et
+ * droit comptent ; ils sont convertis en directions. La zone reste dessinée sur l'aperçu.
+ */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.PeakZoneTool(engine: RecordingEngine, state: EngineState) {
+    val zone by engine.peakZone.collectAsStateWithLifecycle()
+    var drawing by remember { mutableStateOf(false) }
+    var from by remember { mutableStateOf<Offset?>(null) }
+    var to by remember { mutableStateOf<Offset?>(null) }
+    // Zone déjà tracée : bande dessinée à sa place pour le zoom courant (state.zoom relu à chaque recomposition).
+    val z = zone
+    if (z != null && !drawing && state.zoom > 0f) {
+        val x0 = engine.previewXOf(z.first)
+        val x1 = engine.previewXOf(z.second)
+        if (x0 != null && x1 != null) {
+            Canvas(Modifier.fillMaxSize()) {
+                val areaH = size.width * 9f / 16f
+                val top = (size.height - areaH) / 2f
+                val l = (x0 * size.width).coerceIn(0f, size.width)
+                val r = (x1 * size.width).coerceIn(0f, size.width)
+                drawRect(SurfColors.Aqua.copy(alpha = 0.18f), topLeft = Offset(l, top), size = Size(r - l, areaH))
+                drawRect(SurfColors.Aqua, topLeft = Offset(l, top), size = Size(r - l, areaH), style = Stroke(width = 2.dp.toPx()))
+            }
+        }
+    }
+    if (drawing) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color(0x33000000))
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { p -> from = p; to = p },
+                        onDrag = { change, _ -> to = change.position },
+                        onDragEnd = {
+                            val a = from
+                            val b = to
+                            if (a != null && b != null && size.width > 0) engine.setPeakZoneFromPreview(a.x / size.width, b.x / size.width)
+                            from = null
+                            to = null
+                            drawing = false
+                        },
+                        onDragCancel = { from = null; to = null },
+                    )
+                },
+        )
+        val a = from
+        val b = to
+        if (a != null && b != null) {
+            Canvas(Modifier.fillMaxSize()) {
+                val tl = Offset(minOf(a.x, b.x), minOf(a.y, b.y))
+                val sz = Size(kotlin.math.abs(a.x - b.x), kotlin.math.abs(a.y - b.y))
+                drawRect(SurfColors.Warn.copy(alpha = 0.2f), topLeft = tl, size = sz)
+                drawRect(SurfColors.Warn, topLeft = tl, size = sz, style = Stroke(width = 2.dp.toPx()))
+            }
+        }
+        InfoChip("Trace un rectangle du début à la fin du pic", SurfColors.Warn, modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
+    }
+    InfoChip(
+        when {
+            drawing -> "✕ Annuler"
+            z != null -> "📍 Pic : %.0f° de large · retracer".format(z.second - z.first)
+            else -> "📍 Définir le pic"
+        },
+        if (z != null && !drawing) SurfColors.Ok else Color.White,
+        modifier = Modifier
+            .align(Alignment.CenterStart)
+            .padding(start = 12.dp)
+            .clickable {
+                if (drawing) { drawing = false; from = null; to = null } else { engine.clearPeakZone(); drawing = true }
+            },
+    )
 }
 
 @Composable
