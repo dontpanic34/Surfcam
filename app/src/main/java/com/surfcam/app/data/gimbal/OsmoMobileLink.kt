@@ -264,8 +264,9 @@ class OsmoMobileLink(private val context: Context) {
         const val ROLL_COMMAND_WORKS = false
 
         /** Ce qu'on dit à l'utilisateur quand l'horizon penche. */
-        const val ROLL_ADVICE = "L'Osmo Mobile 4 ne se laisse pas pencher sur le côté depuis l'appli : c'est lui qui tient l'horizon. " +
-            "Mets-le en mode Suivi (pas FPV) ; s'il reste penché, fais une fois « Réglage horizontal » dans l'appli DJI Mimo."
+        const val ROLL_ADVICE = "Le gimbal tient l'horizon tout seul, même si le trépied penche : la pente vient du téléphone posé de travers " +
+            "sur l'aimant. Tourne-le doucement sur l'aimant jusqu'à ce que la pastille Niveau passe au vert."
+
         val SERVICE: UUID = UUID.fromString("0000fff0-0000-1000-8000-00805f9b34fb")
         val NOTIFY: UUID = UUID.fromString("0000fff4-0000-1000-8000-00805f9b34fb")
         val WRITE: UUID = UUID.fromString("0000fff5-0000-1000-8000-00805f9b34fb")
