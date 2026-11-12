@@ -273,7 +273,9 @@ class Camera2Source(context: Context) {
             // En 1080p le téléobjectif (≈ 12 Mpx utiles) permet un recadrage ×10 qui garde le détail natif ; en 4K il serait agrandi.
             maxZoom = minOf(zoomRange?.upper ?: 1f, if (hd) MAX_ZOOM_HD else MAX_ZOOM),
             hdrText = hdrText,
-            focalPx1x = equivFocal(chars) / 36f * CaptureConfig.ANALYSIS_WIDTH,
+            // Focale de l'objectif qui fait réellement l'image (le téléobjectif en session) : avec celle de la caméra logique, le
+            // cerveau croyait voir 70,7° de champ au lieu d'environ 15° et tournait le gimbal 4 à 5 fois trop (session du 12/11).
+            focalPx1x = equivFocal(sizeChars) / 36f * CaptureConfig.ANALYSIS_WIDTH,
         )
     }
 
