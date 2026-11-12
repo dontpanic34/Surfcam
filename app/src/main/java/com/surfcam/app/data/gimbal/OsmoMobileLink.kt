@@ -159,6 +159,48 @@ class OsmoMobileLink(private val context: Context) {
         repeat(2) { send(DjiPackets.rotate(0, 5), force = true) }
     }
 
+    // Android n'accepte qu'une écriture Bluetooth à la fois : une écriture refusée n'est pas perdue, elle attend dans une seule
+    // place. Une commande plus récente remplace celle qui attend (un mouvement périmé ne sert à rien), sauf un arrêt, prioritaire.
+    private var waiting: ByteArray? = null
+    private var waitingIsStop = false
+    private var waitingTries = 0
+
+    private fun retryWaiting() {
+        val p = waiting ?: return
+        val stop = waitingIsStop
+        waiting = null
+        if (!write(p)) {
+            if (++waitingTries <= 20) {
+                waiting = p; waitingIsStop = stop
+                handler.postDelayed({ retryWaiting() }, 15)
+            } else {
+                note("commande abandonnée après 20 essais d'écriture")
+            }
+        }
+    }
+
+    /** Écrit un paquet ; faux si Android a refusé (une autre écriture en cours). */
+    private fun write(packet: ByteArray): Boolean {
+        val g = gatt ?: return true
+        val c = writeChar ?: return true
+        val chunk = maxOf(20, mtu - 3)
+        var offset = 0
+        var ok = true
+        while (offset < packet.size) {
+            val part = packet.copyOfRange(offset, minOf(packet.size, offset + chunk))
+            @Suppress("DEPRECATION")
+            run {
+                c.writeType = if (c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) {
+                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                } else BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                c.value = part
+                ok = g.writeCharacteristic(c) && ok
+            }
+            offset += chunk
+        }
+        return ok
+    }
+
     private fun send(packet: ByteArray, force: Boolean = false) {
         val g = gatt ?: return
         val c = writeChar ?: return
@@ -170,19 +212,13 @@ class OsmoMobileLink(private val context: Context) {
             lastNoteAt = now
             note("→ " + hex(packet))
         }
-        val chunk = maxOf(20, mtu - 3)
-        var offset = 0
-        while (offset < packet.size) {
-            val part = packet.copyOfRange(offset, minOf(packet.size, offset + chunk))
-            @Suppress("DEPRECATION")
-            run {
-                c.writeType = if (c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) {
-                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                } else BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                c.value = part
-                g.writeCharacteristic(c)
-            }
-            offset += chunk
+        if (g !== gatt || c !== writeChar) return
+        val isStop = packet.contentEquals(DjiPackets.rotate(0, 5))
+        if (waiting != null && waitingIsStop && !isStop) return
+        if (waiting != null || !write(packet)) {
+            if (waiting == null || isStop || !waitingIsStop) { waiting = packet; waitingIsStop = isStop; waitingTries = 0 }
+            handler.removeCallbacksAndMessages(RETRY_TOKEN)
+            handler.postAtTime({ retryWaiting() }, RETRY_TOKEN, SystemClock.uptimeMillis() + 15)
         }
     }
 
@@ -275,5 +311,6 @@ class OsmoMobileLink(private val context: Context) {
         private val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         private val BluetoothGattDescriptorEnable = byteArrayOf(0x01, 0x00)
         private const val MIN_INTERVAL_MS = 60L
+        private val RETRY_TOKEN = Any()
     }
 }

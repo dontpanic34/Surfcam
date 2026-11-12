@@ -10,7 +10,7 @@ import kotlin.math.hypot
  * (l'ancien apprentissage en ligne relevait ses seuils en ne voyant que les vagues déjà gardées, et faisait reculer l'appli).
  */
 data class RideConfig(
-    val version: String = "R3",
+    val version: String = "R4",
     /** Fenêtre de mesure de la vitesse au déclenchement. */
     val speedWindowUs: Long = 800_000,
     /** Vitesse (longueurs de corps par seconde, repère fixe) à dépasser pour voter « départ ». */
@@ -30,6 +30,8 @@ data class RideConfig(
     val endGraceUs: Long = 1_500_000,
     /** Disparition tolérée (écume, chute, détection manquée) avant de clore la course. */
     val lostGraceUs: Long = 3_000_000,
+    /** R4 : une course sans vitesse de départ depuis ce délai cède la place à un autre départ qui a réuni ses votes. */
+    val yieldAfterUs: Long = 1_500_000,
     /** Durée minimale de vague toujours nulle : une vague courte ou terminée par une chute reste une vague. */
     val minRideUs: Long = 0,
     /** Garde un critère de déplacement, sans exclure une vague à cause de sa durée. */
@@ -96,6 +98,7 @@ class RideDetector(val config: RideConfig = RideConfig()) {
     private var takeoffUs = 0L
     private var lastMovingUs = 0L
     private var lastSeenUs = 0L
+    private var lastFastUs = 0L
 
     val isRiding: Boolean get() = ridingTrackId != null
 
@@ -113,8 +116,18 @@ class RideDetector(val config: RideConfig = RideConfig()) {
      * À appeler à chaque image analysée avec les pistes candidates (toutes, ou seulement celle de l'utilisateur en mode « moi »).
      */
     fun onFrame(tracks: List<Track>, timeUs: Long): RideEvent? {
-        val riding = ridingTrackId
-        return if (riding == null) lookForStart(tracks, timeUs) else follow(riding, tracks, timeUs)
+        val riding = ridingTrackId ?: return lookForStart(tracks, timeUs)
+        follow(riding, tracks, timeUs)?.let { return it }
+        // Pendant une course, les autres pistes continuent de voter : une fausse course (surfeur qui rame, marche) ne doit pas
+        // masquer un vrai départ à côté. Si une autre piste réunit ses votes alors que la course suivie n'apporte plus de preuve
+        // de surf (plus de vitesse de départ depuis [yieldAfterUs]), la course suivie est close et l'autre départ prend la main
+        // à l'image suivante (ses votes sont gardés).
+        val rival = vote(tracks.filter { it.id != riding }, timeUs)
+        if (rival != null && timeUs - lastFastUs >= config.yieldAfterUs) {
+            val track = tracks.firstOrNull { it.id == riding }
+            return close(riding, track, if (track != null && track.isVisibleAt(timeUs)) lastMovingUs else lastSeenUs, endedByLoss = false)
+        }
+        return null
     }
 
     /** Abandonne la course en cours sans décision (changement de mode, arrêt). */
@@ -123,7 +136,8 @@ class RideDetector(val config: RideConfig = RideConfig()) {
         ridingTrackId = null
     }
 
-    private fun lookForStart(tracks: List<Track>, now: Long): RideEvent? {
+    /** Fait voter les pistes ; rend celle qui a réuni ses votes le plus tôt (et l'heure de son premier vote favorable). */
+    private fun vote(tracks: List<Track>, now: Long): Pair<Track, Long>? {
         // Les votes ne s'effacent qu'avec le temps : une image sans détection (écume, détection ratée) ne fait rien perdre.
         votes.values.removeAll { q -> q.isEmpty() || now - q.last().timeUs > config.voteWindowUs }
         var best: Pair<Track, Long>? = null
@@ -143,7 +157,11 @@ class RideDetector(val config: RideConfig = RideConfig()) {
         }
         candidateTrackId = votes.entries.filter { (id, q) -> q.any { it.ok } && tracks.any { it.id == id } }
             .maxByOrNull { (_, q) -> q.count { it.ok } * 10_000_000L + q.last { it.ok }.timeUs / 1_000_000 }?.key
-        val (track, firstYes) = best ?: return null
+        return best
+    }
+
+    private fun lookForStart(tracks: List<Track>, now: Long): RideEvent? {
+        val (track, firstYes) = vote(tracks, now) ?: return null
         candidateTrackId = null
         val m = measure(windowOf(track, now))!!
         ridingTrackId = track.id
@@ -151,7 +169,8 @@ class RideDetector(val config: RideConfig = RideConfig()) {
         takeoffUs = firstYes - config.speedWindowUs / 2
         lastMovingUs = now
         lastSeenUs = now
-        votes.clear()
+        lastFastUs = now
+        votes.remove(track.id)
         return RideEvent.Started(track.id, takeoffUs, m.speed, m.aspect)
     }
 
@@ -161,15 +180,19 @@ class RideDetector(val config: RideConfig = RideConfig()) {
             lastSeenUs = now
             val speed = measure(windowOf(track, now))?.speed ?: track.speedBodyPerSec
             if (speed >= config.stopSpeed) lastMovingUs = now
+            if (speed >= config.startSpeed) lastFastUs = now
         }
         val stopped = track != null && track.isVisibleAt(now) && now - lastMovingUs >= config.endGraceUs
         // Une image où la piste manque n'est pas une perte : seule une absence plus longue que lostGraceUs clôt la course.
         val lost = now - lastSeenUs >= config.lostGraceUs
         if (!stopped && !lost) return null
+        return close(id, track, if (stopped) lastMovingUs else lastSeenUs, endedByLoss = lost && !stopped)
+    }
+
+    private fun close(id: Int, track: Track?, end: Long, endedByLoss: Boolean): RideEvent.Ended {
         ridingTrackId = null
-        val end = if (stopped) lastMovingUs else lastSeenUs
         val pts = track?.points?.filter { it.timeUs in takeoffUs..end } ?: emptyList()
-        val f = features(pts, takeoffUs, end, endedByLoss = lost && !stopped)
+        val f = features(pts, takeoffUs, end, endedByLoss = endedByLoss)
         val (kept, reason) = decide(f)
         return RideEvent.Ended(id, takeoffUs, end, f, kept, reason)
     }

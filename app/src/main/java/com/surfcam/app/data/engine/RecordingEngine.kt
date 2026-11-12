@@ -663,14 +663,26 @@ class RecordingEngine(private val context: Context) {
         // Témoin large : l'objectif principal filme tout le pic en même temps que le téléobjectif (1080p, débit réduit), pour
         // savoir après coup quelles vagues sont parties et lesquelles ont déclenché.
         var witnessSurface: Surface? = null
-        if (options.wideWitness && probe.widePhysicalId != null) {
+        if (options.wideWitness && probe.widePhysicalId != null && !probe.config.tenBit) {
             val rec = SessionRecorder(context, hint, storage, namer = { ms, part -> com.surfcam.app.domain.naming.VideoNaming.widePartName(ms, part) }) { _, message ->
                 if (message != null) SessionLog.ev("témoin", message)
             }
+            var firstSample = true
             val wenc = HevcEncoder(CaptureConfig(1920, 1080, 30, WITNESS_BITRATE), object : HevcEncoder.Listener {
                 override fun onFormat(format: android.media.MediaFormat) { rec.format = format }
-                override fun onSample(sample: EncodedSample) = rec.onSample(sample)
-                override fun onError(error: Exception) { SessionLog.ev("témoin", "encodeur du témoin large arrêté : ${error.message}") }
+                override fun onSample(sample: EncodedSample) {
+                    // Le témoin n'est déclaré actif qu'à l'arrivée de ses premières images, pas à la seule configuration.
+                    if (firstSample) {
+                        firstSample = false
+                        SessionLog.ev("témoin", "premières images du témoin large reçues (horodatage ${sample.ptsUs} µs)")
+                        _state.update { it.copy(witnessActive = true) }
+                    }
+                    rec.onSample(sample)
+                }
+                override fun onError(error: Exception) {
+                    SessionLog.ev("témoin", "ARRÊT du témoin large : encodeur en erreur (${error.message})")
+                    _state.update { it.copy(witnessActive = false, message = "Témoin large arrêté : ${error.message}") }
+                }
             })
             witnessSurface = try {
                 wenc.start().also { witnessEncoder = wenc; witnessRecorder = rec }
@@ -769,8 +781,7 @@ class RecordingEngine(private val context: Context) {
             }
 
             override fun onWitnessActive() {
-                SessionLog.ev("témoin", "témoin large actif : objectif ${probe.widePhysicalId} filmé en même temps que le téléobjectif ${probe.physicalId}")
-                _state.update { it.copy(witnessActive = true) }
+                SessionLog.ev("témoin", "session configurée avec le témoin large : objectif ${probe.widePhysicalId} en même temps que le téléobjectif ${probe.physicalId}")
             }
 
             override fun onWitnessUnavailable(why: String) {

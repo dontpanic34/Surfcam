@@ -69,6 +69,8 @@ class SessionRecorder(
                 currentPartName = partName
                 currentFinalVolume = target.volume
                 SessionLog.noteFile(context, partName)
+                // Horodatage caméra de la première image : base commune pour caler le film principal et le témoin large.
+                SessionLog.ev("segment", "$partName commence à l'horodatage ${sample.ptsUs} µs")
                 segmentStartUs = sample.ptsUs
                 retries = 0
                 onEvent(parts, null)

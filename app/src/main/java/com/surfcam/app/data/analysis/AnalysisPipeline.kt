@@ -362,8 +362,9 @@ class AnalysisPipeline(
             blobs = blob?.let { listOf(com.surfcam.core.model.MarkerBlob(it.first * WIDTH.toDouble(), it.second * HEIGHT.toDouble(), it.third)) } ?: emptyList(),
         )
         journal?.let { w -> synchronized(w) { com.surfcam.core.journal.FrameJournal.writeFrame(w, frame) } }
-        val nowHeading = headingAt?.invoke(SystemClock.elapsedRealtimeNanos() / 1_000) ?: heading
-        val out = b.onFrame(frame, nowHeading)
+        val decisionUs = SystemClock.elapsedRealtimeNanos() / 1_000
+        val nowHeading = headingAt?.invoke(decisionUs) ?: heading
+        val out = b.onFrame(frame, nowHeading, decisionUs)
         out.rideEvent?.let { e ->
             val text = when (e) {
                 is com.surfcam.core.ride.RideEvent.Started -> "départ piste #${e.trackId} : vitesse %.1f corps/s, rapport h/l %.2f".format(e.triggerSpeed, e.triggerAspect)

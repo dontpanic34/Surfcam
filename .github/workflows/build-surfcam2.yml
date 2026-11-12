@@ -24,10 +24,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Compiler SurfCam V2
+      - name: Tester puis compiler SurfCam V2 (un test qui échoue bloque l'APK)
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon :app:assembleDebug
+          ./gradlew --no-daemon :core:test :app:testDebugUnitTest :app:assembleDebug
 
       - name: Conserver l'APK
         uses: actions/upload-artifact@v4

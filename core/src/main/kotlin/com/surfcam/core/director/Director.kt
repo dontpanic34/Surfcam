@@ -139,8 +139,15 @@ class Director(
     /** Piste candidate à un départ (votes en cours), fournie par le détecteur de vagues. */
     var candidateTrackId: Int? = null
 
-    fun onFrame(frame: Frame, tracks: List<Track>, currentHeadingDeg: Double, ridingTrackId: Int?, clipActive: Boolean): Command {
+    /**
+     * Heure de la décision (l'image a été prise plus tôt : l'analyse prend 300 à 400 ms). La cible est projetée jusqu'à cette heure,
+     * et les ordres au gimbal sont datés de cette heure.
+     */
+    private var decisionUs = 0L
+
+    fun onFrame(frame: Frame, tracks: List<Track>, currentHeadingDeg: Double, ridingTrackId: Int?, clipActive: Boolean, decisionTimeUs: Long = frame.timeUs): Command {
         val now = frame.timeUs
+        decisionUs = maxOf(decisionTimeUs, now)
         if (startUs == Long.MIN_VALUE) {
             startUs = now
             stateSinceUs = now
@@ -367,14 +374,15 @@ class Director(
     // ---------------------------------------------------------------------------------------------------------------------
 
     private fun aimAtTrack(frame: Frame, t: Track, heading: Double, style: GimbalStyle, note: String): Command {
-        val now = frame.timeUs
-        val dt = (now - t.filterTimeUs) / 1e6
-        val predicted = t.azimuthDeg + t.velocityAzDegPerSec * dt.coerceAtLeast(0.0)
-        return aimAt(now, heading, predicted, t.velocityAzDegPerSec, frame.camera.hfovDeg, style, t.id, note)
+        // Projection jusqu'à l'heure de la décision, et pas seulement jusqu'à l'heure de l'image ; limitée à 0,6 s, au-delà la
+        // vitesse estimée devient trop incertaine.
+        val dt = ((decisionUs - t.filterTimeUs) / 1e6).coerceIn(0.0, 0.6)
+        val predicted = t.azimuthDeg + t.velocityAzDegPerSec * dt
+        return aimAt(frame.timeUs, heading, predicted, t.velocityAzDegPerSec, frame.camera.hfovDeg, style, t.id, note)
     }
 
     private fun aimAt(now: Long, heading: Double, deg: Double, rate: Double, hfov: Double, style: GimbalStyle, trackId: Int?, note: String): Command {
-        val order = gimbal.plan(now, heading, deg, rate, hfov, style)
+        val order = gimbal.plan(maxOf(now, decisionUs), heading, deg, rate, hfov, style)
         return Command(state, order, zoom, trackId, deg, note)
     }
 

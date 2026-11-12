@@ -57,7 +57,7 @@ class SurfBrain(
      * @param frame image analysée, avec le cap à l'heure de sa prise de vue
      * @param currentHeadingDeg cap réel au moment de la décision (pour calculer l'ordre de gimbal)
      */
-    fun onFrame(frame: Frame, currentHeadingDeg: Double = frame.headingDeg): BrainOutput {
+    fun onFrame(frame: Frame, currentHeadingDeg: Double = frame.headingDeg, decisionTimeUs: Long = frame.timeUs): BrainOutput {
         val now = frame.timeUs
         val observations = WorldProjection.observeAll(frame)
         val tracks = tracker.update(observations, now)
@@ -79,7 +79,7 @@ class SurfBrain(
         }
         actions += clips.onTick(now)
         director.candidateTrackId = rides.candidateTrackId
-        val command = director.onFrame(frame, tracks, currentHeadingDeg, rides.ridingTrackId, clips.isRecording)
+        val command = director.onFrame(frame, tracks, currentHeadingDeg, rides.ridingTrackId, clips.isRecording, decisionTimeUs)
         return BrainOutput(tracks, event, actions, command, rides.ridingTrackId)
     }
 

@@ -533,6 +533,12 @@ class Camera2Source(context: Context) {
             }
             camera.createCaptureSession(config)
         } catch (e: Exception) {
+            // Refus immédiat de la configuration : si le témoin large en fait partie, on le retire et on recommence sans lui.
+            if (witnessSurface != null) {
+                dropWitness("configuration à deux objectifs refusée (${e.javaClass.simpleName})")
+                createSession()
+                return
+            }
             listener?.onError("Session caméra impossible : ${e.message}")
         }
     }
