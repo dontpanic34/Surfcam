@@ -37,6 +37,12 @@ object VideoNaming {
     fun sessionPartName(startedAtMs: Long, part: Int, zone: ZoneId = ZoneId.systemDefault()): String =
         "${stamp(startedAtMs, zone)} - Session - partie ${"%02d".format(part)}"
 
+    /** Nom d'un morceau du témoin large (objectif principal, filmé en même temps que le téléobjectif). */
+    fun widePartName(startedAtMs: Long, part: Int, zone: ZoneId = ZoneId.systemDefault()): String =
+        "${stamp(startedAtMs, zone)} - Large - partie ${"%02d".format(part)}"
+
+    fun isWidePart(fileName: String): Boolean = fileName.contains(" - Large - partie ")
+
     /** Nom d'un clip que l'appli a rejeté (fausse alerte) mais gardé à part pour que l'utilisateur puisse le récupérer. */
     fun rejectName(startedAtMs: Long, number: Int, zone: ZoneId = ZoneId.systemDefault()): String =
         "${stamp(startedAtMs, zone)} - Rejet $number"

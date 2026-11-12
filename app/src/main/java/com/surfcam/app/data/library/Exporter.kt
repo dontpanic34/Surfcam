@@ -84,6 +84,7 @@ class Exporter(context: Context) {
             val base = v.name.removeSuffix(".mp4")
             val folder = when {
                 VideoNaming.isReject(v.name) -> "Rejets"
+                VideoNaming.isWidePart(v.name) -> "Témoin large"
                 v.isSession || VideoNaming.parse(v.name)?.isFilm == true -> "Sessions"
                 isWave(v.name) -> "Vagues"
                 else -> "Autres"
@@ -135,7 +136,7 @@ class Exporter(context: Context) {
         // Un jour où un film de session assemblé existe, ses morceaux de 2 minutes ne sont pas renvoyés en double.
         val filmDays = items.filter { it.folder == "Sessions" && VideoNaming.parse(it.name)?.isFilm == true }.map { it.day }.toSet()
         val kept = if (!dedupe) items else items.filter { it.folder != "Sessions" || it.day !in filmDays || VideoNaming.parse(it.name)?.isFilm == true }
-        val order = listOf("Rapports", "Journaux", "Notes vocales", "Silhouettes", "Vagues", "Rejets", "Sessions", "Autres")
+        val order = listOf("Rapports", "Journaux", "Notes vocales", "Silhouettes", "Vagues", "Rejets", "Sessions", "Témoin large", "Autres")
         return kept.sortedBy { order.indexOf(it.folder) }
     }
 
@@ -148,7 +149,7 @@ class Exporter(context: Context) {
     fun groupOf(folder: String): String = when (folder) {
         "Vagues" -> GROUP_WAVES
         "Rejets" -> GROUP_REJECTS
-        "Sessions" -> GROUP_SESSIONS
+        "Sessions", "Témoin large" -> GROUP_SESSIONS
         else -> GROUP_REPORTS
     }
 

@@ -19,6 +19,8 @@ class SessionRecorder(
     private val orientationHint: Int,
     private val target: StorageTarget,
     private val segmentSec: Int = 120,
+    /** Nom de chaque morceau : session principale, ou témoin large. */
+    private val namer: (Long, Int) -> String = { ms, part -> VideoNaming.sessionPartName(ms, part) },
     private val onEvent: (parts: Int, message: String?) -> Unit,
 ) {
     private val executor = Executors.newSingleThreadExecutor { Thread(it, "session-writer") }
@@ -62,7 +64,7 @@ class SessionRecorder(
                     return
                 }
                 parts++
-                val partName = VideoNaming.sessionPartName(System.currentTimeMillis(), parts)
+                val partName = namer(System.currentTimeMillis(), parts)
                 writer = ClipWriter(context, fmt, orientationHint, partName, StorageTarget.PHONE)
                 currentPartName = partName
                 currentFinalVolume = target.volume

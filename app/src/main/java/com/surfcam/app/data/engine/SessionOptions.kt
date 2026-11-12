@@ -22,6 +22,12 @@ data class SessionOptions(
      * applique en général un meilleur traitement du bruit. À l'essai : si la caméra la refuse, la session repart sans.
      */
     val hdr: Boolean = false,
+    /**
+     * Témoin large : l'objectif principal filme tout le pic en même temps que le téléobjectif, en 1080p à débit réduit, pour
+     * savoir après coup quelles vagues sont parties. À l'essai : si le téléphone refuse deux objectifs à la fois, la session
+     * continue sans lui et le dit.
+     */
+    val wideWitness: Boolean = true,
     /** La LED du flash clignote brièvement toutes les 15 s pendant la session, pour voir de loin que ça filme. */
     val ledBlink: Boolean = true,
     /** Qui filmer : tout le monde, ou seulement moi (repéré par la couleur de mon manchon, en ×5 optique). */

@@ -46,6 +46,8 @@ data class CameraProbe(
     val maxZoom: Float,
     /** Focale de l'objectif exprimée en pixels de l'image d'analyse, à zoom ×1 (sert à estimer la distance des surfeurs). */
     val focalPx1x: Float = 0f,
+    /** Objectif principal (grand angle) de la même caméra logique, pour filmer le témoin large en même temps que le téléobjectif. */
+    val widePhysicalId: String? = null,
     /** État du HDR 10 bits en clair, pour l'écran d'infos. */
     val hdrText: String = "",
 )
@@ -64,6 +66,12 @@ class Camera2Source(context: Context) {
 
         /** Le flux d'analyse a été refusé par la caméra : la session continue sans lui. */
         fun onAnalysisUnavailable() = Unit
+
+        /** Le téléphone refuse de filmer le témoin large en même temps : la session continue sans lui. [why] dit pourquoi. */
+        fun onWitnessUnavailable(why: String) = Unit
+
+        /** Le témoin large est bien filmé en même temps que le téléobjectif. */
+        fun onWitnessActive() = Unit
 
         /** Vrai tant que l'image vient entièrement d'un objectif (aucun recadrage numérique) ; sert à avertir à l'écran. */
         fun onZoomKind(optical: Boolean) = Unit
@@ -90,6 +98,9 @@ class Camera2Source(context: Context) {
     private var encoderSurface: Surface? = null
     private var previewSurface: Surface? = null
     private var analysisSurface: Surface? = null
+    private var witnessSurface: Surface? = null
+    private var widePhysicalId: String? = null
+    private var witnessConfirmed = false
     private var analysisDropped = false
     private var fpsRange: Range<Int>? = null
     private var listener: Listener? = null
@@ -273,6 +284,10 @@ class Camera2Source(context: Context) {
             // En 1080p le téléobjectif (≈ 12 Mpx utiles) permet un recadrage ×10 qui garde le détail natif ; en 4K il serait agrandi.
             maxZoom = minOf(zoomRange?.upper ?: 1f, if (hd) MAX_ZOOM_HD else MAX_ZOOM),
             hdrText = hdrText,
+            widePhysicalId = if (lens == Lens.TELE && physical != null) logical.physicalCameraIds
+                .mapNotNull { pid -> runCatching { pid to manager.getCameraCharacteristics(pid) }.getOrNull() }
+                .filter { it.first != physical }
+                .minByOrNull { kotlin.math.abs(equivFocal(it.second) - mainEquiv) }?.first else null,
             // Focale de l'objectif qui fait réellement l'image (le téléobjectif en session) : avec celle de la caméra logique, le
             // cerveau croyait voir 70,7° de champ au lieu d'environ 15° et tournait le gimbal 4 à 5 fois trop (session du 12/11).
             focalPx1x = equivFocal(sizeChars) / 36f * CaptureConfig.ANALYSIS_WIDTH,
@@ -287,7 +302,11 @@ class Camera2Source(context: Context) {
         analysisSurface: Surface?,
         zoom: Float,
         listener: Listener,
+        witnessSurface: Surface? = null,
     ) {
+        this.witnessSurface = if (tenBit) null else witnessSurface
+        this.widePhysicalId = probe.widePhysicalId
+        this.witnessConfirmed = false
         this.encoderSurface = encoderSurface
         this.previewSurface = previewSurface
         this.analysisSurface = analysisSurface
@@ -448,10 +467,14 @@ class Camera2Source(context: Context) {
         encoderSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD) }
         previewSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW) }
         analysisSurface?.let { outputs += output(it, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW) }
+        // Témoin large : un second film, pris par l'objectif principal de la même caméra pendant que le téléobjectif filme.
+        val witness = witnessSurface
+        val wide = widePhysicalId
+        if (witness != null && wide != null) outputs += output(witness, CameraMetadata.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD, wide)
+        else if (witness != null) dropWitness("pas d'objectif principal séparé dans cette caméra")
         if (outputs.isEmpty()) return
         try {
-            camera.createCaptureSession(
-                SessionConfiguration(
+            val config = SessionConfiguration(
                     SessionConfiguration.SESSION_REGULAR,
                     outputs,
                     executor,
@@ -463,6 +486,10 @@ class Camera2Source(context: Context) {
                             }
                             session = configured
                             Trail.mark("session configurée")
+                            if (witnessSurface != null && !witnessConfirmed) {
+                                witnessConfirmed = true
+                                listener?.onWitnessActive()
+                            }
                             unlock()
                             applyRequest()
                         }
@@ -470,7 +497,10 @@ class Camera2Source(context: Context) {
                         override fun onConfigureFailed(failed: CameraCaptureSession) {
                             if (closed) return
                             Trail.mark("configuration refusée (HDR=$tenBit)")
-                            if (tenBit) {
+                            if (witnessSurface != null) {
+                                dropWitness("configuration à deux objectifs refusée par la caméra")
+                                createSession()
+                            } else if (tenBit) {
                                 // Le téléphone refuse le HDR avec ces flux : on le coupe pour les prochaines sessions.
                                 hdrPrefs.edit().putBoolean(HDR_BROKEN_KEY, true).apply()
                                 listener?.onHdrRefused()
@@ -490,8 +520,18 @@ class Camera2Source(context: Context) {
                             }
                         }
                     },
-                ),
-            )
+                )
+            // Le témoin large est le premier sacrifié : si le téléphone n'accepte pas deux objectifs à la fois, on le retire
+            // avant de toucher à l'analyse ou au film principal.
+            if (witnessSurface != null && widePhysicalId != null) {
+                val supported = try { camera.isSessionConfigurationSupported(config) } catch (_: Exception) { true }
+                if (!supported) {
+                    dropWitness("le téléphone n'accepte pas l'objectif principal et le téléobjectif en même temps")
+                    createSession()
+                    return
+                }
+            }
+            camera.createCaptureSession(config)
         } catch (e: Exception) {
             listener?.onError("Session caméra impossible : ${e.message}")
         }
@@ -509,6 +549,7 @@ class Camera2Source(context: Context) {
             encoder?.let { builder.addTarget(it) }
             previewSurface?.let { builder.addTarget(it) }
             analysisSurface?.let { builder.addTarget(it) }
+            witnessSurface?.let { builder.addTarget(it) }
             fpsRange?.let { builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
 
             val afModes = chars.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
@@ -630,9 +671,15 @@ class Camera2Source(context: Context) {
         }
     }
 
-    private fun output(surface: Surface, streamUseCase: Int): OutputConfiguration =
+    private fun dropWitness(why: String) {
+        if (witnessSurface == null) return
+        witnessSurface = null
+        listener?.onWitnessUnavailable(why)
+    }
+
+    private fun output(surface: Surface, streamUseCase: Int, physicalOverride: String? = null): OutputConfiguration =
         OutputConfiguration(surface).also {
-            physicalId?.let { id -> it.setPhysicalCameraId(id) }
+            (physicalOverride ?: physicalId)?.let { id -> it.setPhysicalCameraId(id) }
             if (useStreamUseCases) it.setStreamUseCase(streamUseCase.toLong())
             // Le téléphone ne mélange pas HDR et SDR dans une même session : tous les flux passent en HLG10.
             if (tenBit) it.setDynamicRangeProfile(DynamicRangeProfiles.HLG10)

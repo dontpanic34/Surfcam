@@ -49,13 +49,15 @@ class ReplayJournalTest {
             return "%02d:%02d:%04.1f".format((s / 3600).toInt(), (s / 60 % 60).toInt(), s % 60)
         }
         val brain = SurfBrain(Subject.EVERYONE, 0.0)
+        val hfovFix = System.getenv("SURFCAM_HFOV")?.toDouble()
+        fun fix(f: com.surfcam.core.model.Frame) = if (hfovFix == null) f else f.copy(camera = com.surfcam.core.geometry.CameraModel(f.camera.widthPx, f.camera.heightPx, hfovFix))
         val stats = HashMap<Int, Stat>()
         val measure = Regex("v ([0-9.,]+) h ([0-9]+)% a ([0-9.,]+) votes (\\d+)/(\\d+)")
         var frames = 0
         File(path!!).bufferedReader().use { r ->
             for (e in FrameJournal.read(r)) {
                 if (e !is FrameJournal.Entry.FrameEntry) continue
-                val f = e.frame
+                val f = fix(e.frame)
                 frames++
                 val out = brain.onFrame(f)
                 val ev = out.rideEvent
@@ -109,7 +111,7 @@ class ReplayJournalTest {
             File(path).bufferedReader().use { r ->
                 for (e in FrameJournal.read(r)) {
                     if (e !is FrameJournal.Entry.FrameEntry) continue
-                    when (val ev = b.onFrame(e.frame).rideEvent) {
+                    when (val ev = b.onFrame(fix(e.frame)).rideEvent) {
                         is RideEvent.Started -> lines += "${clock(ev.takeoffUs)} départ #${ev.trackId}"
                         is RideEvent.Ended -> lines += "   fin #${ev.trackId} : ${if (ev.kept) "gardée" else "rejetée"} (${ev.reason})"
                         null -> Unit

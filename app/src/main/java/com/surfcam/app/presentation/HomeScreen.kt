@@ -362,6 +362,9 @@ fun HomeScreen(
                     SwitchRow("Garder toute la session", "≈ ${options.gigabytesPerHour()} Go par heure", options.fullSession, enabled = !running) { onOptionsChange(options.copy(fullSession = it)) }
                     SwitchRow("Écran noir après 1 min", "Économise la batterie", options.sleepScreen) { onOptionsChange(options.copy(sleepScreen = it)) }
                     SwitchRow("Flash clignotant", "Pour voir de l'eau que ça filme", options.ledBlink) { onOptionsChange(options.copy(ledBlink = it)) }
+                    SwitchRow("Témoin large (à l'essai)", "Filme tout le pic en même temps, pour compter les vagues · ≈ 3,6 Go/h", options.wideWitness, enabled = !running) {
+                        onOptionsChange(options.copy(wideWitness = it))
+                    }
                     SwitchRow("Image HDR 10 bits (à l'essai)", "Comme l'appli Google : moins de bruit, plus de nuances", options.hdr, enabled = !running) {
                         // Un refus passé de la caméra est oublié : on lui redonne sa chance à chaque fois qu'on rallume l'option.
                         if (it) context.getSharedPreferences("camera", android.content.Context.MODE_PRIVATE).edit().putBoolean("hdr_broken", false).apply()

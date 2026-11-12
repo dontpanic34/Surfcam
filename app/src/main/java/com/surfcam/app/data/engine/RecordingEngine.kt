@@ -61,6 +61,8 @@ data class EngineState(
     val captureInfo: String? = null,
     /** État du HDR 10 bits, en clair. */
     val hdrText: String? = null,
+    /** Le témoin large (objectif principal) est filmé en même temps que le téléobjectif. */
+    val witnessActive: Boolean = false,
     /** Focale en pixels de l'image d'analyse à zoom ×1 : permet d'estimer la distance d'un surfeur. */
     val focalPx1x: Float = 0f,
     val focusMode: Camera2Source.FocusMode = Camera2Source.FocusMode.AUTO,
@@ -137,6 +139,8 @@ class RecordingEngine(private val context: Context) {
 
     private var camera: Camera2Source? = null
     private var encoder: HevcEncoder? = null
+    private var witnessEncoder: HevcEncoder? = null
+    private var witnessRecorder: SessionRecorder? = null
     private var ring: EncodedRingBuffer? = null
     private var recorder: ClipRecorder? = null
     private var analysis: AnalysisPipeline? = null
@@ -656,6 +660,30 @@ class RecordingEngine(private val context: Context) {
         encoder = enc
         Trail.mark("encodeur démarré")
 
+        // Témoin large : l'objectif principal filme tout le pic en même temps que le téléobjectif (1080p, débit réduit), pour
+        // savoir après coup quelles vagues sont parties et lesquelles ont déclenché.
+        var witnessSurface: Surface? = null
+        if (options.wideWitness && probe.widePhysicalId != null) {
+            val rec = SessionRecorder(context, hint, storage, namer = { ms, part -> com.surfcam.app.domain.naming.VideoNaming.widePartName(ms, part) }) { _, message ->
+                if (message != null) SessionLog.ev("témoin", message)
+            }
+            val wenc = HevcEncoder(CaptureConfig(1920, 1080, 30, WITNESS_BITRATE), object : HevcEncoder.Listener {
+                override fun onFormat(format: android.media.MediaFormat) { rec.format = format }
+                override fun onSample(sample: EncodedSample) = rec.onSample(sample)
+                override fun onError(error: Exception) { SessionLog.ev("témoin", "encodeur du témoin large arrêté : ${error.message}") }
+            })
+            witnessSurface = try {
+                wenc.start().also { witnessEncoder = wenc; witnessRecorder = rec }
+            } catch (e: Exception) {
+                SessionLog.ev("témoin", "second encodeur refusé par le téléphone (${e.javaClass.simpleName}) : pas de témoin large")
+                try { wenc.stop() } catch (_: Exception) {}
+                rec.release()
+                null
+            }
+        } else if (options.wideWitness) {
+            SessionLog.ev("témoin", "pas d'objectif principal séparé trouvé : pas de témoin large")
+        }
+
         val startZoom = probe.minZoom
         _state.update {
             it.copy(
@@ -701,7 +729,7 @@ class RecordingEngine(private val context: Context) {
         horizonGivenUp = false
         sessionGravity = com.surfcam.app.data.gimbal.GravityRoll(context, displayRotationDegreesForLevel).also { it.start() }
         lastRelevelMs = android.os.SystemClock.elapsedRealtime()
-        source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, object : Camera2Source.Listener {
+        source.open(probe, encoderSurface, previewSurface, pipeline?.surface, startZoom, witnessSurface = witnessSurface, listener = object : Camera2Source.Listener {
             override fun onLockChanged(locked: Boolean) {
                 _state.update { it.copy(locked = locked) }
             }
@@ -738,6 +766,20 @@ class RecordingEngine(private val context: Context) {
             override fun onZoomKind(optical: Boolean) {
                 _state.update { it.copy(opticalZoom = optical) }
                 if (!optical) SessionLog.ev("objectif", "ATTENTION : l'image ne vient pas du téléobjectif optique")
+            }
+
+            override fun onWitnessActive() {
+                SessionLog.ev("témoin", "témoin large actif : objectif ${probe.widePhysicalId} filmé en même temps que le téléobjectif ${probe.physicalId}")
+                _state.update { it.copy(witnessActive = true) }
+            }
+
+            override fun onWitnessUnavailable(why: String) {
+                SessionLog.ev("témoin", "pas de témoin large : $why")
+                witnessEncoder?.stop()
+                witnessEncoder = null
+                witnessRecorder?.release()
+                witnessRecorder = null
+                _state.update { it.copy(witnessActive = false, message = "Témoin large impossible sur ce téléphone : $why") }
             }
 
             override fun onAnalysisUnavailable() {
@@ -1187,6 +1229,10 @@ class RecordingEngine(private val context: Context) {
         journalFile = null
         encoder?.stop()
         encoder = null
+        witnessEncoder?.stop()
+        witnessEncoder = null
+        witnessRecorder?.release()
+        witnessRecorder = null
         analysis?.release()
         analysis = null
         session?.release()
@@ -1206,6 +1252,9 @@ class RecordingEngine(private val context: Context) {
 
         /** Le téléobjectif vaut ×5 par rapport à l'objectif principal : c'est le zoom annoncé au cerveau, il ne change jamais. */
         const val OPTICAL_ZOOM = 5.0
+
+        /** Débit du témoin large : il sert à compter les vagues, pas à être beau (≈ 3,6 Go par heure). */
+        const val WITNESS_BITRATE = 8_000_000
 
         /** Au-delà de cette inclinaison (degrés), l'horizon est retouché entre deux clips. */
         const val HORIZON_TOLERANCE_DEG = 0.7f
