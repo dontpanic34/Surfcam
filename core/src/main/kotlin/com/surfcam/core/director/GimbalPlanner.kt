@@ -29,11 +29,11 @@ data class GimbalStyle(
         /** Suivi au téléobjectif : on laisse le surfeur vivre dans le cadre, on recadre par pas doux. */
         val FOLLOW = GimbalStyle(deadZoneFraction = 0.30, leadSec = 0.8, maxRateDegPerSec = 8.0, maxStepDeg = 12.0)
         /** Pendant une vague : anticipation plus forte, rotation plus franche. */
-        // 8°/s au plus : un surfeur à 100-150 m se déplace de 2 à 4°/s ; au téléobjectif (≈ 15° de champ), 14°/s faisait
-        // traverser presque tout le cadre en une seconde.
-        val RIDE = GimbalStyle(deadZoneFraction = 0.10, leadSec = 0.0, maxRateDegPerSec = 8.0, maxStepDeg = 15.0, continuous = true, catchUpGainPerSec = 0.9)
+        // Calé sur la V1, dont le suivi était jugé bon par l'utilisateur (session du 06/11 : vitesse médiane 3°/s, 90 % des
+        // ordres sous 7,4°/s). Un surfeur à 100-150 m se déplace de 2 à 4°/s ; la V2 du 12/11 tournait à 14°/s.
+        val RIDE = GimbalStyle(deadZoneFraction = 0.10, leadSec = 0.0, maxRateDegPerSec = 6.0, maxStepDeg = 15.0, continuous = true, catchUpGainPerSec = 0.8)
         /** Déplacements sans enjeu d'image (recherche, retour au pic). */
-        val REPOSITION = GimbalStyle(deadZoneFraction = 0.10, leadSec = 0.0, maxRateDegPerSec = 25.0, maxStepDeg = 45.0)
+        val REPOSITION = GimbalStyle(deadZoneFraction = 0.10, leadSec = 0.0, maxRateDegPerSec = 15.0, maxStepDeg = 45.0)
     }
 }
 
