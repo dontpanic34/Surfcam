@@ -10,7 +10,7 @@ import kotlin.math.hypot
  * (l'ancien apprentissage en ligne relevait ses seuils en ne voyant que les vagues déjà gardées, et faisait reculer l'appli).
  */
 data class RideConfig(
-    val version: String = "R1",
+    val version: String = "R2",
     /** Fenêtre de mesure de la vitesse au déclenchement. */
     val speedWindowUs: Long = 800_000,
     /** Vitesse (longueurs de corps par seconde, repère fixe) à dépasser pour voter « départ ». */
@@ -31,10 +31,10 @@ data class RideConfig(
     /** Durée minimale de vague toujours nulle : une vague courte ou terminée par une chute reste une vague. */
     val minRideUs: Long = 0,
     /** Garde un critère de déplacement, sans exclure une vague à cause de sa durée. */
-    val minPathBodies: Double = 4.0,
+    val minPathBodies: Double = 2.0,
     /** Une piste perdue près du bord peut être gardée après un trajet plus court. */
     val minRideLeavingUs: Long = 0,
-    val minPathBodiesLeaving: Double = 2.5,
+    val minPathBodiesLeaving: Double = 1.5,
     val leavingEdgeMargin: Double = 0.25,
 )
 

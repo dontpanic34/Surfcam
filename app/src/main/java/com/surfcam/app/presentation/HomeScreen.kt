@@ -495,6 +495,7 @@ private fun Segmented(items: List<Triple<String, String, String>>, selected: Str
  */
 @Composable
 private fun ExportDayDialog(exporter: com.surfcam.app.data.library.Exporter, onClose: () -> Unit) {
+    val appContext = LocalContext.current
     val scope = rememberCoroutineScope()
     var folder by remember { mutableStateOf(exporter.folderLabel()) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -507,6 +508,47 @@ private fun ExportDayDialog(exporter: com.surfcam.app.data.library.Exporter, onC
     }
     val dayFormat = remember { java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", java.util.Locale.FRENCH) }
     fun gigabytes(bytes: Long) = if (bytes >= 1_000_000_000L) "%.1f Go".format(bytes / 1e9).replace('.', ',') else "${bytes / 1_000_000L} Mo"
+    // Suppression d'un jour : jour choisi, contenu par groupe, groupes cochés, et deuxième appui pour confirmer.
+    var deleteDay by remember { mutableStateOf<java.time.LocalDate?>(null) }
+    var deleteContent by remember { mutableStateOf<Map<String, Pair<Int, Long>>>(emptyMap()) }
+    var deleteGroups by remember { mutableStateOf(setOf<String>()) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val consent = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        message = if (r.resultCode == android.app.Activity.RESULT_OK) "Suppression confirmée." else "Suppression des vidéos restantes annulée."
+        scope.launch { days = withContext(Dispatchers.IO) { try { exporter.days() } catch (_: Exception) { emptyList() } } }
+    }
+    fun openDelete(day: java.time.LocalDate) {
+        deleteDay = day
+        confirmDelete = false
+        message = null
+        scope.launch {
+            deleteContent = withContext(Dispatchers.IO) { exporter.dayContent(day) }
+            deleteGroups = emptySet()
+        }
+    }
+    fun runDelete() {
+        val day = deleteDay ?: return
+        if (working || deleteGroups.isEmpty()) return
+        working = true
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { exporter.deleteDay(day, deleteGroups) }
+            message = "${day.format(dayFormat)} : ${r.deleted} fichier(s) supprimé(s) du téléphone, ${gigabytes(r.freedBytes)} libérés" +
+                (if (r.failed > 0) ", ${r.failed} échec(s)" else "") + ". Le Drive n'a pas été touché."
+            if (r.needConsent.isNotEmpty()) {
+                // Vidéos créées par une installation précédente de l'appli : Android demande l'accord une fois pour toutes.
+                try {
+                    val sender = android.provider.MediaStore.createDeleteRequest(appContext.contentResolver, r.needConsent).intentSender
+                    consent.launch(androidx.activity.result.IntentSenderRequest.Builder(sender).build())
+                } catch (_: Exception) {
+                    message += " ${r.needConsent.size} vidéo(s) n'ont pas pu être supprimées."
+                }
+            }
+            days = withContext(Dispatchers.IO) { try { exporter.days() } catch (_: Exception) { emptyList() } }
+            deleteDay = null
+            confirmDelete = false
+            working = false
+        }
+    }
     fun run(day: java.time.LocalDate) {
         if (working) return
         working = true
@@ -542,19 +584,52 @@ private fun ExportDayDialog(exporter: com.surfcam.app.data.library.Exporter, onC
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Dossier d'export : ${folder ?: "pas encore choisi"}", fontSize = 13.sp)
                 OutlinedButton(onClick = { pick.launch(null) }, enabled = !working) { Text(if (folder == null) "Choisir le dossier" else "Changer de dossier") }
-                Text("Touche un jour : rapports, journaux, vagues, rejets et sessions de ce jour sont copiés. Rien n'est supprimé du téléphone.", fontSize = 12.sp, color = SurfColors.Muted)
+                Text("Touche un jour pour le copier en entier dans le dossier. « Supprimer » efface des fichiers de ce jour du téléphone, jamais du Drive.", fontSize = 12.sp, color = SurfColors.Muted)
                 val list = days
                 when {
                     list == null -> Text("Recherche des journées…", fontSize = 12.sp, color = SurfColors.Muted)
                     list.isEmpty() -> Text("Rien n'a encore été enregistré.", fontSize = 12.sp, color = SurfColors.Muted)
+                    deleteDay != null -> {
+                        val day = deleteDay!!
+                        Text("Supprimer du téléphone : ${day.format(dayFormat)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = SurfColors.Foam)
+                        Text("Coche ce que tu veux effacer. Le Drive et le dossier d'export ne sont pas touchés : vérifie d'abord que ce jour est bien exporté.", fontSize = 12.sp, color = SurfColors.Muted)
+                        val groups = listOf(com.surfcam.app.data.library.Exporter.GROUP_SESSIONS, com.surfcam.app.data.library.Exporter.GROUP_REJECTS,
+                            com.surfcam.app.data.library.Exporter.GROUP_WAVES, com.surfcam.app.data.library.Exporter.GROUP_REPORTS)
+                        for (g in groups) {
+                            val (n, bytes) = deleteContent[g] ?: (0 to 0L)
+                            Row(
+                                Modifier.fillMaxWidth().clickable(enabled = n > 0 && !working) {
+                                    deleteGroups = if (g in deleteGroups) deleteGroups - g else deleteGroups + g
+                                    confirmDelete = false
+                                },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                androidx.compose.material3.Checkbox(checked = g in deleteGroups, onCheckedChange = null, enabled = n > 0 && !working)
+                                Text("$g · $n fichier(s) · ${gigabytes(bytes)}", fontSize = 13.sp, color = if (n > 0) SurfColors.Foam else SurfColors.Muted)
+                            }
+                        }
+                        val total = deleteGroups.sumOf { deleteContent[it]?.second ?: 0L }
+                        Button(
+                            onClick = { if (confirmDelete) runDelete() else confirmDelete = true },
+                            enabled = !working && deleteGroups.isNotEmpty(),
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = SurfColors.Alert, contentColor = Color.White),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (confirmDelete) "Confirmer : effacer ${gigabytes(total)}" else "Supprimer la sélection", fontSize = 13.sp) }
+                        OutlinedButton(onClick = { deleteDay = null; confirmDelete = false }, enabled = !working, modifier = Modifier.fillMaxWidth()) { Text("Annuler") }
+                    }
                     else -> for (d in list) {
-                        OutlinedButton(onClick = { run(d.day) }, enabled = !working && folder != null, modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.fillMaxWidth()) {
-                                Text(d.day.format(dayFormat).replaceFirstChar { it.uppercase() }, fontSize = 14.sp)
-                                Text(
-                                    "${d.waves} vague(s) · ${d.rejects} rejet(s) · ${d.sessions} fichier(s) de session · ${d.reports} rapport(s) · ${gigabytes(d.bytes)}",
-                                    fontSize = 11.sp, color = SurfColors.Muted,
-                                )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(onClick = { run(d.day) }, enabled = !working && folder != null, modifier = Modifier.weight(1f)) {
+                                Column(Modifier.fillMaxWidth()) {
+                                    Text(d.day.format(dayFormat).replaceFirstChar { it.uppercase() }, fontSize = 14.sp)
+                                    Text(
+                                        "${d.waves} vague(s) · ${d.rejects} rejet(s) · ${d.sessions} fichier(s) de session · ${d.reports} rapport(s) · ${gigabytes(d.bytes)}",
+                                        fontSize = 11.sp, color = SurfColors.Muted,
+                                    )
+                                }
+                            }
+                            androidx.compose.material3.TextButton(onClick = { openDelete(d.day) }, enabled = !working) {
+                                Text("Supprimer", color = SurfColors.Alert, fontSize = 12.sp)
                             }
                         }
                     }

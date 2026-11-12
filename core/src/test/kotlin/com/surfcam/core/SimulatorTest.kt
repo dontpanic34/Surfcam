@@ -60,7 +60,9 @@ class SimulatorTest {
         val r = Simulator(Simulator.Scenario(seed = 3, subject = Subject.ME, userWearsMarker = false, durationSec = 15 * 60.0)).run()
         report("moi sans manchon", r, false)
         val (hit, total) = r.capturedRides { true }
-        assertTrue("sans manchon reconnu, les vagues sont filmées quand même ($hit/$total)", hit >= 0.4 * total)
+        // Mode « moi » abandonné dans l'appli le 11/11/2026 (manchon illisible) : ce test ne garde qu'une porte large contre une
+        // régression grossière du repli. Seuil abaissé de 40 % à 33 % quand le trajet minimal d'une vague est passé de 4 à 2 corps.
+        assertTrue("sans manchon reconnu, les vagues sont filmées quand même ($hit/$total)", hit >= 0.33 * total)
         assertEquals("le pilote ne change jamais de zoom", 0, r.zoomChanges)
         assertTrue((r.stateSeconds[DirectorState.SEARCH] ?: 0.0) > 0)
     }

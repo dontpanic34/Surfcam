@@ -37,7 +37,12 @@ class Exporter(context: Context) {
     }
 
     /** Un fichier à exporter : sous-dossier de destination, nom, taille, jour auquel il appartient. */
-    class Item(val folder: String, val name: String, val size: Long, val day: java.time.LocalDate, val alwaysResend: Boolean = false, val open: () -> java.io.InputStream?)
+    class Item(
+        val folder: String, val name: String, val size: Long, val day: java.time.LocalDate, val alwaysResend: Boolean = false,
+        /** Où se trouve le fichier sur le téléphone, pour pouvoir le supprimer (l'un ou l'autre, ou aucun pour un fichier calculé). */
+        val uri: Uri? = null, val file: java.io.File? = null,
+        val open: () -> java.io.InputStream?,
+    )
 
     /** Ce qu'il y a à exporter pour un jour donné, pour la liste des jours. */
     class DaySummary(val day: java.time.LocalDate, val waves: Int, val rejects: Int, val sessions: Int, val reports: Int, val bytes: Long)
@@ -70,10 +75,10 @@ class Exporter(context: Context) {
         )
     }.sortedByDescending { it.day }
 
-    fun everything(day: java.time.LocalDate?): List<Item> {
+    fun everything(day: java.time.LocalDate?, dedupe: Boolean = true): List<Item> {
         val library = VideoLibrary(appContext)
         val videos = (library.list() + library.listRejected()).filter { !it.pending && (day == null || dayOf(it.name, it.modifiedMs) == day) }
-            .groupBy { it.name }.values.map { copies -> copies.maxBy { it.sizeBytes } }.sortedBy { it.modifiedMs }
+            .let { all -> if (dedupe) all.groupBy { it.name }.values.map { copies -> copies.maxBy { it.sizeBytes } } else all }.sortedBy { it.modifiedMs }
         val items = ArrayList<Item>()
         for (v in videos) {
             val base = v.name.removeSuffix(".mp4")
@@ -84,9 +89,9 @@ class Exporter(context: Context) {
                 else -> "Autres"
             }
             val d = dayOf(v.name, v.modifiedMs)
-            items += Item(folder, "$base.mp4", v.sizeBytes, d) { resolver.openInputStream(v.uri) }
+            items += Item(folder, "$base.mp4", v.sizeBytes, d, uri = v.uri) { resolver.openInputStream(v.uri) }
             if (folder == "Vagues" || folder == "Rejets") {
-                findDownload("$base - rapport.txt")?.let { report -> items += Item(folder, "$base - rapport.txt", sizeOf(report), d) { resolver.openInputStream(report) } }
+                findDownload("$base - rapport.txt")?.let { report -> items += Item(folder, "$base - rapport.txt", sizeOf(report), d, uri = report) { resolver.openInputStream(report) } }
             }
         }
         // Rapports de session et journaux de capteurs (ceux qui permettent de rejouer la session) : dans Téléchargements et
@@ -102,19 +107,19 @@ class Exporter(context: Context) {
                         val d = dayOf(name, cursor.getLong(3) * 1000L)
                         if (day != null && d != day) continue
                         val uri = android.content.ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0))
-                        if (names.add(name)) items += Item(folder, name, cursor.getLong(2), d) { resolver.openInputStream(uri) }
+                        if (names.add(name)) items += Item(folder, name, cursor.getLong(2), d, uri = uri) { resolver.openInputStream(uri) }
                     }
                 }
             } catch (_: Exception) { }
             java.io.File(appContext.filesDir, privateDir).listFiles()?.filter { it.isFile && it.name !in names }?.forEach { file ->
                 val d = dayOf(file.name, file.lastModified())
-                if (day == null || d == day) items += Item(folder, file.name, file.length(), d) { file.inputStream() }
+                if (day == null || d == day) items += Item(folder, file.name, file.length(), d, file = file) { file.inputStream() }
             }
         }
         // Les vignettes des silhouettes (une par vague, gardée ou rejetée) : elles servent à juger et à améliorer le tri.
         java.io.File(appContext.filesDir, "silhouettes").listFiles()?.filter { it.isFile && it.name.endsWith(".jpg") }?.forEach { file ->
             val d = dayOf(file.name, file.lastModified())
-            if (day == null || d == day) items += Item("Silhouettes", file.name, file.length(), d) { file.inputStream() }
+            if (day == null || d == day) items += Item("Silhouettes", file.name, file.length(), d, file = file) { file.inputStream() }
         }
         // Les vagues que l'utilisateur a désignées comme les siennes (« Trier mes vagues »), un petit fichier par jour : il dit
         // qui est sur chaque clip, ce qui sert ensuite à mesurer et à entraîner la reconnaissance.
@@ -129,9 +134,59 @@ class Exporter(context: Context) {
         }
         // Un jour où un film de session assemblé existe, ses morceaux de 2 minutes ne sont pas renvoyés en double.
         val filmDays = items.filter { it.folder == "Sessions" && VideoNaming.parse(it.name)?.isFilm == true }.map { it.day }.toSet()
-        val kept = items.filter { it.folder != "Sessions" || it.day !in filmDays || VideoNaming.parse(it.name)?.isFilm == true }
+        val kept = if (!dedupe) items else items.filter { it.folder != "Sessions" || it.day !in filmDays || VideoNaming.parse(it.name)?.isFilm == true }
         val order = listOf("Rapports", "Journaux", "Notes vocales", "Silhouettes", "Vagues", "Rejets", "Sessions", "Autres")
         return kept.sortedBy { order.indexOf(it.folder) }
+    }
+
+    /** Ce que contient un jour, par groupe, pour proposer la suppression : nombre de fichiers et place occupée. */
+    fun dayContent(day: java.time.LocalDate): Map<String, Pair<Int, Long>> =
+        everything(day, dedupe = false).filter { it.uri != null || it.file != null }.distinctBy { it.uri ?: it.file }.groupBy { groupOf(it.folder) }
+            .mapValues { (_, l) -> l.size to l.sumOf { it.size.coerceAtLeast(0L) } }
+
+    /** Groupes proposés à la suppression. */
+    fun groupOf(folder: String): String = when (folder) {
+        "Vagues" -> GROUP_WAVES
+        "Rejets" -> GROUP_REJECTS
+        "Sessions" -> GROUP_SESSIONS
+        else -> GROUP_REPORTS
+    }
+
+    class DeleteResult(val deleted: Int, val freedBytes: Long, val needConsent: List<Uri>, val failed: Int)
+
+    /**
+     * Supprime du téléphone (et de la carte SD) les fichiers du jour [day] appartenant aux groupes [groups]. Ne touche jamais au
+     * dossier d'export ni au Drive. Une vidéo créée par une installation précédente de l'appli demande l'accord d'Android : elle
+     * est rendue dans [DeleteResult.needConsent] pour que l'écran le demande.
+     */
+    fun deleteDay(day: java.time.LocalDate, groups: Set<String>): DeleteResult {
+        var deleted = 0
+        var freed = 0L
+        var failed = 0
+        val consent = ArrayList<Uri>()
+        for (item in everything(day, dedupe = false).filter { groupOf(it.folder) in groups && (it.uri != null || it.file != null) }.distinctBy { it.uri ?: it.file }) {
+            try {
+                val ok = when {
+                    item.file != null -> item.file.delete()
+                    item.uri != null -> resolver.delete(item.uri, null, null) > 0
+                    else -> continue
+                }
+                if (ok) { deleted++; freed += item.size.coerceAtLeast(0L) } else failed++
+            } catch (e: SecurityException) {
+                item.uri?.let { consent += it } ?: failed++
+            } catch (_: Exception) {
+                failed++
+            }
+        }
+        SessionLog.ev("suppression", "jour $day, groupes ${groups.joinToString()} : $deleted fichier(s) supprimé(s), ${freed / 1_000_000} Mo libérés, ${consent.size} à confirmer, $failed échec(s)")
+        return DeleteResult(deleted, freed, consent, failed)
+    }
+
+    companion object {
+        const val GROUP_WAVES = "Vagues"
+        const val GROUP_REJECTS = "Rejets"
+        const val GROUP_SESSIONS = "Films de session"
+        const val GROUP_REPORTS = "Rapports, journaux, vignettes, notes"
     }
 
     class AllResult(val sent: Int, val skipped: Int, val failed: List<String>, val bytes: Long)
