@@ -31,17 +31,44 @@ class MyWaves(context: Context) {
         null
     }
 
-    /** Une vague rejetée puis récupérée change de nom : sa vignette et son étiquette suivent. */
+    /** Une vague rejetée puis récupérée change de nom : sa vignette et le nom du surfeur suivent. */
     fun rename(oldName: String, newName: String) {
         try {
             File(dir, key(oldName) + ".jpg").takeIf { it.exists() }?.renameTo(File(dir, key(newName) + ".jpg"))
         } catch (_: Exception) {
         }
-        if (isMine(oldName)) {
-            setMine(oldName, false)
-            setMine(newName, true)
+        surferOf(oldName)?.let { who ->
+            setSurfer(oldName, null)
+            setSurfer(newName, who)
         }
     }
+
+    // ------------------------------------------------------------------------------------------
+    // Surfeurs : une liste de prénoms que l'utilisateur complète à la volée, et pour chaque vague le prénom de celui qui
+    // la surfe. Une vague a au plus un surfeur.
+    // ------------------------------------------------------------------------------------------
+
+    /** Les prénoms, dans l'ordre où ils ont été ajoutés. */
+    fun names(): List<String> = (prefs.getString("noms", null) ?: "").split('\n').filter { it.isNotBlank() }
+
+    fun addName(name: String): Boolean {
+        val n = name.trim()
+        if (n.isEmpty() || names().any { it.equals(n, ignoreCase = true) }) return false
+        prefs.edit().putString("noms", (names() + n).joinToString("\n")).apply()
+        return true
+    }
+
+    fun surferOf(clipName: String): String? = prefs.getString("qui_" + key(clipName), null)
+
+    fun setSurfer(clipName: String, name: String?) {
+        val e = prefs.edit()
+        if (name == null) e.remove("qui_" + key(clipName)) else e.putString("qui_" + key(clipName), name)
+        e.apply()
+    }
+
+    /** Toutes les vagues qui ont un surfeur : nom du clip (sans .mp4) → prénom. */
+    fun allSurfers(): Map<String, String> =
+        prefs.all.filterKeys { it.startsWith("qui_") }.mapNotNull { (k, v) -> (v as? String)?.let { k.removePrefix("qui_") to it } }.toMap()
 
     /**
      * Signature de couleur d'une silhouette : répartition des couleurs de ce qui n'est ni l'eau (bleu), ni l'écume (blanc), ni
@@ -76,10 +103,6 @@ class MyWaves(context: Context) {
         return hist
     }
 
-    fun mine(): Set<String> = prefs.getStringSet("moi", emptySet()) ?: emptySet()
-
-    fun isMine(clipName: String): Boolean = key(clipName) in mine()
-
     companion object {
         private const val BINS = 5
 
@@ -91,9 +114,4 @@ class MyWaves(context: Context) {
         }
     }
 
-    fun setMine(clipName: String, mine: Boolean) {
-        val set = HashSet(mine())
-        if (mine) set += key(clipName) else set -= key(clipName)
-        prefs.edit().putStringSet("moi", set).apply()
-    }
 }

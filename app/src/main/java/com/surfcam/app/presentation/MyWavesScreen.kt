@@ -53,8 +53,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * « Trier mes vagues » : l'appli filme tout le monde ; ici, après la session, chaque vague est montrée par la vignette de la
- * silhouette du surfeur. On touche celles qui sont les siennes. Aucune vidéo n'est modifiée, déplacée ni supprimée.
+ * « Trier les vagues » : l'appli filme tout le monde ; ici, après la session, chaque vague est montrée par la vignette de la
+ * silhouette du surfeur. On choisit un prénom en haut (on en ajoute à la volée), puis on touche les vagues de ce surfeur. Les
+ * autres vagues se classent par ressemblance avec les siennes. Aucune vidéo n'est modifiée, déplacée ni supprimée.
  */
 @Composable
 fun MyWavesScreen(library: VideoLibrary, onBack: () -> Unit) {
@@ -69,7 +70,9 @@ fun MyWavesScreen(library: VideoLibrary, onBack: () -> Unit) {
             }.groupBy { it.name }.values.map { copies -> copies.maxBy { it.sizeBytes } }.sortedBy { it.name }
         }
     }
-    var mine by remember { mutableStateOf(store.mine()) }
+    var names by remember { mutableStateOf(store.names()) }
+    var who by remember { mutableStateOf(store.allSurfers()) }
+    var current by remember { mutableStateOf(names.firstOrNull()) }
     var onlyMine by remember { mutableStateOf(false) }
     val days = remember(waves) { waves.orEmpty().map { it.name.take(10) }.distinct().sortedDescending() }
     var day by remember(days) { mutableStateOf(days.firstOrNull()) }
@@ -77,7 +80,7 @@ fun MyWavesScreen(library: VideoLibrary, onBack: () -> Unit) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Trier mes vagues", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("Trier les vagues", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     TextButton(onClick = onBack) { Text("Retour") }
                 }
                 val list = waves
@@ -90,35 +93,42 @@ fun MyWavesScreen(library: VideoLibrary, onBack: () -> Unit) {
                 }
                 // Dès qu'une vague est désignée, les autres sont classées par ressemblance avec les siennes : les plus
                 // probables remontent en tête, il n'y a plus qu'à descendre la liste jusqu'à ce que ce ne soit plus soi.
-                val mineSigs = dayAll.mapNotNull { signatures[it.name.removeSuffix(".mp4")]?.takeIf { _ -> it.name.removeSuffix(".mp4") in mine } }
+                fun isCurrent(v: LibraryVideo) = current != null && who[v.name.removeSuffix(".mp4")] == current
+                val mineSigs = dayAll.filter { isCurrent(it) }.mapNotNull { signatures[it.name.removeSuffix(".mp4")] }
                 val score: Map<String, Float> = if (mineSigs.isEmpty()) emptyMap() else dayAll.mapNotNull { v ->
                     val base = v.name.removeSuffix(".mp4")
                     val sig = signatures[base] ?: return@mapNotNull null
-                    if (base in mine) null else base to mineSigs.maxOf { MyWaves.resemblance(sig, it) }
+                    if (who[base] != null) null else base to mineSigs.maxOf { MyWaves.resemblance(sig, it) }
                 }.toMap()
-                val shown = dayAll.filter { !onlyMine || it.name.removeSuffix(".mp4") in mine }.let { l ->
-                    if (score.isEmpty()) l else l.sortedWith(compareByDescending<LibraryVideo> { it.name.removeSuffix(".mp4") in mine }.thenByDescending { score[it.name.removeSuffix(".mp4")] ?: -1f }.thenBy { it.name })
+                val shown = dayAll.filter { !onlyMine || isCurrent(it) }.let { l ->
+                    if (score.isEmpty()) l else l.sortedWith(compareByDescending<LibraryVideo> { isCurrent(it) }.thenBy { who[it.name.removeSuffix(".mp4")] != null }.thenByDescending { score[it.name.removeSuffix(".mp4")] ?: -1f }.thenBy { it.name })
                 }
                 when {
                     list == null -> Text("Recherche des vagues…", color = SurfColors.Muted)
                     list.isEmpty() -> Text("Aucune vague enregistrée pour l'instant.", color = SurfColors.Muted)
                     else -> {
+                        SurferPicker(names, current, onSelect = { current = it; onlyMine = false }, onAdd = { n ->
+                            if (store.addName(n)) { names = store.names(); current = n }
+                        })
                         Text(
-                            "Touche deux ou trois vagues qui sont les tiennes : les autres se classent par ressemblance, les plus probables en premier. " +
-                                "${dayAll.count { it.name.removeSuffix(".mp4") in mine }} sur ${dayAll.size} ce jour-là.",
+                            if (current == null) "Ajoute ou choisis un surfeur, puis touche ses vagues."
+                            else "Touche les vagues de $current : les autres se classent par ressemblance avec les siennes. " +
+                                "${dayAll.count { isCurrent(it) }} vague(s) de $current, ${dayAll.count { who[it.name.removeSuffix(".mp4")] == null }} sans nom ce jour-là.",
                             color = SurfColors.Muted, fontSize = 13.sp,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                             for (d in days.take(4)) FilterChip(selected = d == day, onClick = { day = d }, label = { Text(d.substring(8, 10) + "/" + d.substring(5, 7)) })
-                            FilterChip(selected = onlyMine, onClick = { onlyMine = !onlyMine }, label = { Text("Les miennes") })
+                            if (current != null) FilterChip(selected = onlyMine, onClick = { onlyMine = !onlyMine }, label = { Text("Seulement $current") })
                         }
                         LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
                             items(shown, key = { it.name }) { v ->
                                 val base = v.name.removeSuffix(".mp4")
-                                val isMine = base in mine
-                                WaveCell(v, store, isMine, score[base]) {
-                                    store.setMine(v.name, !isMine)
-                                    mine = store.mine()
+                                WaveCell(v, store, who[base], score[base]) {
+                                    val sel = current
+                                    if (sel != null) {
+                                        store.setSurfer(v.name, if (who[base] == sel) null else sel)
+                                        who = store.allSurfers()
+                                    }
                                 }
                             }
                             if (shown.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Text("Aucune vague à montrer.", color = SurfColors.Muted) }
@@ -131,7 +141,7 @@ fun MyWavesScreen(library: VideoLibrary, onBack: () -> Unit) {
 }
 
 @Composable
-private fun WaveCell(video: LibraryVideo, store: MyWaves, mine: Boolean, resemblance: Float?, onToggle: () -> Unit) {
+private fun WaveCell(video: LibraryVideo, store: MyWaves, surfer: String?, resemblance: Float?, onToggle: () -> Unit) {
     val context = LocalContext.current
     // La vignette de la silhouette si elle existe (vagues filmées depuis cette version), sinon une image tirée de la vidéo.
     val image by produceState<android.graphics.Bitmap?>(null, video.name) {
@@ -148,14 +158,14 @@ private fun WaveCell(video: LibraryVideo, store: MyWaves, mine: Boolean, resembl
         Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(3.dp, if (mine) SurfColors.Ok else Color.Transparent, RoundedCornerShape(12.dp))
+            .border(3.dp, surfer?.let { surferColor(it) } ?: Color.Transparent, RoundedCornerShape(12.dp))
             .clickable(onClick = onToggle),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Color.Black), contentAlignment = Alignment.Center) {
             val bmp = image
             if (bmp != null) Image(bmp.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Text("pas d'image", color = SurfColors.Muted, fontSize = 11.sp)
-            if (mine) Text("MOI", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart).padding(6.dp).clip(RoundedCornerShape(50)).background(SurfColors.Ok).padding(horizontal = 8.dp, vertical = 2.dp))
+            if (surfer != null) Text(surfer, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart).padding(6.dp).clip(RoundedCornerShape(50)).background(surferColor(surfer)).padding(horizontal = 8.dp, vertical = 2.dp))
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Column {

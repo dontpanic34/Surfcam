@@ -562,19 +562,28 @@ fun PlayerScreen(
     }
 
     val isReject = VideoNaming.isReject(video.name) && onKeepReject != null
+    // Qui surfe cette vague : un prénom choisi dans la liste (ou ajouté à la volée), gardé avec le clip.
+    val surfers = remember { com.surfcam.app.data.library.MyWaves(context) }
+    var surferNames by remember { mutableStateOf(surfers.names()) }
+    var surferHere by remember(video.name) { mutableStateOf(surfers.surferOf(video.name)) }
+    val isWaveClip = VideoNaming.isReject(video.name) || VideoNaming.parse(video.name)?.let { !it.isSession && !it.isFilm && !it.isMontage } == true
     val judgement: @Composable (Boolean) -> Unit = { horizontal ->
-        val record = feedback
+        if (isWaveClip) {
+            SurferPicker(surferNames, surferHere, onSelect = { n ->
+                surfers.setSurfer(video.name, n)
+                surferHere = n
+                touched()
+            }, onAdd = { n ->
+                if (surfers.addName(n)) surferNames = surfers.names()
+                surfers.setSurfer(video.name, n)
+                surferHere = n
+                touched()
+            })
+        }
         if (isReject) {
             val buttons: @Composable () -> Unit = {
                 JudgeButton("Garder : c'est une vague", false, SurfColors.Ok) { onKeepReject?.invoke(video) }
                 JudgeButton("Rejeter : fausse alerte", false, SurfColors.Alert) { onDelete(video) }
-            }
-            if (horizontal) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { buttons() }
-            else Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { buttons() }
-        } else if (record != null) {
-            val buttons: @Composable () -> Unit = {
-                JudgeButton("Bonne vague", record.good == true, SurfColors.Ok) { judge(true) }
-                JudgeButton("Fausse alerte", record.good == false, SurfColors.Alert) { judge(false) }
             }
             if (horizontal) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { buttons() }
             else Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { buttons() }
@@ -660,9 +669,9 @@ fun PlayerScreen(
                         Text(timeText, color = Color.White, fontSize = 12.sp, modifier = Modifier.align(Alignment.End))
                     }
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { transport() }
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { judgement(true) }
-                    if (feedback == null && !isReject) {
-                        Text("Clip manuel ou session : pas de jugement à donner.", color = SurfColors.Muted, fontSize = 12.sp)
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) { judgement(true) }
+                    if (isWaveClip && surferNames.isEmpty()) {
+                        Text("Qui surfe cette vague ? « + Ajouter » pour créer un prénom.", color = SurfColors.Muted, fontSize = 12.sp)
                     }
                     report?.let { Text(it, color = SurfColors.Warn, fontSize = 12.sp) }
                     Text("Glisse la vidéo pour changer de clip · reste appuyé dessus pour lire en ×2 · pince pour zoomer.", color = SurfColors.Muted, fontSize = 11.sp)

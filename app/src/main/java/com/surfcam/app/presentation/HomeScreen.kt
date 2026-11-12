@@ -350,7 +350,7 @@ fun HomeScreen(
 
                 Heading("Après la session")
                 ListCard {
-                    if (!running) ListRow("Trier mes vagues", "Désigner les miennes", "›", onClick = onOpenMine)
+                    if (!running) ListRow("Trier les vagues", "Dire qui surfe chaque vague", "›", onClick = onOpenMine)
                     ListRow("Mes vidéos", if (videoCount == 0) "Rien d'enregistré pour l'instant" else "Vagues, sessions", if (videoCount > 0) "$videoCount ›" else "›", onClick = onOpenLibrary)
                     if (!running && rejectCount > 0) ListRow("Vagues rejetées", "Récupérer les bonnes", "$rejectCount ›", onClick = onOpenRejects)
                     if (!running) ListRow("Exporter une journée", "Vers le dossier choisi (Drive)", "›", onClick = { showExportAll = true })

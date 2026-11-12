@@ -122,16 +122,16 @@ class Exporter(context: Context) {
             val d = dayOf(file.name, file.lastModified())
             if (day == null || d == day) items += Item("Silhouettes", file.name, file.length(), d, file = file) { file.inputStream() }
         }
-        // Les vagues que l'utilisateur a désignées comme les siennes (« Trier mes vagues »), un petit fichier par jour : il dit
-        // qui est sur chaque clip, ce qui sert ensuite à mesurer et à entraîner la reconnaissance.
-        val mine = MyWaves(appContext).mine()
-        for ((d, clips) in items.filter { it.folder == "Vagues" && it.name.endsWith(".mp4") }.groupBy { it.day }) {
-            val names = clips.map { it.name.removeSuffix(".mp4") }
+        // Qui surfe chaque vague (« Trier mes vagues » et le lecteur), un petit fichier par jour : il dit qui est sur chaque clip,
+        // ce qui sert ensuite à mesurer et à entraîner la reconnaissance.
+        val who = MyWaves(appContext).allSurfers()
+        for ((d, clips) in items.filter { (it.folder == "Vagues" || it.folder == "Rejets") && it.name.endsWith(".mp4") }.groupBy { it.day }) {
+            val names = clips.map { it.name.removeSuffix(".mp4") }.distinct().sorted()
             val text = buildString {
-                append("Vagues du $d désignées par l'utilisateur comme les siennes (${names.count { it in mine }} sur ${names.size})\n")
-                for (n in names.sorted()) append(if (n in mine) "MOI    " else "autre  ").append(n).append('\n')
+                append("Surfeurs des vagues du $d (${names.count { it in who }} sur ${names.size} renseignées)\n")
+                for (n in names) append((who[n] ?: "?").padEnd(16)).append(n).append('\n')
             }.toByteArray()
-            items += Item("Rapports", "SurfCam-mes-vagues-$d.txt", text.size.toLong(), d, alwaysResend = true) { java.io.ByteArrayInputStream(text) }
+            items += Item("Rapports", "SurfCam-surfeurs-$d.txt", text.size.toLong(), d, alwaysResend = true) { java.io.ByteArrayInputStream(text) }
         }
         // Un jour où un film de session assemblé existe, ses morceaux de 2 minutes ne sont pas renvoyés en double.
         val filmDays = items.filter { it.folder == "Sessions" && VideoNaming.parse(it.name)?.isFilm == true }.map { it.day }.toSet()
