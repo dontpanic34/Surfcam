@@ -10,7 +10,7 @@ import kotlin.math.hypot
  * (l'ancien apprentissage en ligne relevait ses seuils en ne voyant que les vagues déjà gardées, et faisait reculer l'appli).
  */
 data class RideConfig(
-    val version: String = "R2",
+    val version: String = "R3",
     /** Fenêtre de mesure de la vitesse au déclenchement. */
     val speedWindowUs: Long = 800_000,
     /** Vitesse (longueurs de corps par seconde, repère fixe) à dépasser pour voter « départ ». */
@@ -20,9 +20,11 @@ data class RideConfig(
     /** Rapport hauteur/largeur minimal pour voter « départ » (un surfeur allongé qui rame est plus large que haut). */
     val minStandingAspect: Double = 0.9,
     /** Vote : il faut [votesNeeded] images favorables parmi celles des [voteWindowUs] dernières, étalées sur au moins [voteSpanUs]. */
-    val votesNeeded: Int = 3,
+    // R3 (12/11) : 2 votes au lieu de 3, étalés sur 0,3 s au lieu de 0,5. Rejeu de la session du 12/11 : 11 vraies vagues
+    // déclenchées au lieu de 4, pour environ 5 fausses alertes gardées (surfeurs qui rament ou marchent près du bord).
+    val votesNeeded: Int = 2,
     val voteWindowUs: Long = 2_000_000,
-    val voteSpanUs: Long = 500_000,
+    val voteSpanUs: Long = 300_000,
     /** Vitesse sous laquelle le surfeur est considéré arrêté, et durée pendant laquelle il doit le rester. */
     val stopSpeed: Double = 0.7,
     val endGraceUs: Long = 1_500_000,
